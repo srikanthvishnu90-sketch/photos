@@ -2,6 +2,17 @@ import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { profileActions } from "./profile-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
 import { shareTasteProfile } from "./gems-share.js";
+import {
+  getConsents,
+  setConsent,
+  exportMyData,
+  deleteMyAccount,
+} from "./gems-privacy.js";
+
+// The training-consent row + sheet share these labels so the two toggles never
+// drift. Copy is deliberately plain and opt-in-forward.
+const TRAINING_ON_SUBLABEL = "On — thank you; turn it off anytime";
+const TRAINING_OFF_SUBLABEL = "Off — opt-in only, always your call";
 
 const TASTE = Object.freeze([
   { name: "Euro Summer", percent: 46, key: "euro" },
@@ -28,14 +39,32 @@ const STATS = Object.freeze([
 ]);
 
 const SETTINGS = Object.freeze([
-  { label: "Camera roll access", sublabel: "Full library · analyzed on your device" },
-  { label: "Privacy & data", sublabel: "What Gems keeps, and what it never sees" },
+  {
+    label: "Camera roll access",
+    sublabel: "Full library · analyzed on your device",
+    action: "camera",
+  },
+  {
+    label: "Privacy & data",
+    sublabel: "What Gems keeps, and what it never sees",
+    action: "privacy",
+  },
   {
     label: "Improve Gems with my photos",
-    sublabel: "Off — opt-in only, always your call",
+    sublabel: TRAINING_OFF_SUBLABEL,
+    action: "training",
   },
-  { label: "Help & feedback", sublabel: "" },
+  { label: "Help & feedback", sublabel: "", action: "help" },
 ]);
+
+// The pill switch used by the training-consent row and the privacy sheet.
+function toggleMarkup() {
+  return `
+    <span class="profile-toggle" aria-hidden="true">
+      <span class="profile-toggle-thumb"></span>
+    </span>
+  `;
+}
 
 const PLUS_FEATURES = Object.freeze([
   "Unlimited photo dumps and carousels",
@@ -109,24 +138,30 @@ function profileMarkup() {
       <section class="profile-section profile-settings-section">
         <h2 class="profile-entrance" style="--profile-delay: 600ms">Settings</h2>
         <div class="profile-settings">
-          ${SETTINGS.map(
-            (setting, index) => `
+          ${SETTINGS.map((setting, index) => {
+            const isToggle = setting.action === "training";
+            return `
               <button
-                class="profile-setting profile-entrance"
+                class="profile-setting${isToggle ? " profile-setting-toggle" : ""} profile-entrance"
                 style="--profile-delay: ${640 + index * 50}ms"
                 type="button"
-                data-profile-setting="${setting.label}"
+                data-profile-action="${escapeHtml(setting.action)}"
+                ${isToggle ? 'role="switch" aria-checked="false"' : ""}
               >
                 <span class="profile-setting-copy">
-                  <strong>${setting.label}</strong>
-                  ${setting.sublabel ? `<small>${setting.sublabel}</small>` : ""}
+                  <strong>${escapeHtml(setting.label)}</strong>
+                  ${setting.sublabel ? `<small data-setting-sublabel>${escapeHtml(setting.sublabel)}</small>` : ""}
                 </span>
-                <svg viewBox="0 0 8 14" aria-hidden="true">
+                ${
+                  isToggle
+                    ? toggleMarkup()
+                    : `<svg viewBox="0 0 8 14" aria-hidden="true">
                   <path d="m1.5 1.5 5 5.5-5 5.5"></path>
-                </svg>
+                </svg>`
+                }
               </button>
-            `,
-          ).join("")}
+            `;
+          }).join("")}
         </div>
         <button
           id="profileSignOut"
@@ -187,6 +222,96 @@ function paywallMarkup() {
   `;
 }
 
+function privacyMarkup() {
+  return `
+    <button class="profile-sheet-scrim" type="button" aria-label="Close privacy and data"></button>
+    <section
+      class="profile-sheet profile-sheet--privacy"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="privacyTitle"
+      aria-describedby="privacyIntro"
+    >
+      <span class="profile-sheet-handle" aria-hidden="true"></span>
+      <button class="profile-sheet-close" type="button" aria-label="Close privacy and data">
+        <svg viewBox="0 0 14 14" aria-hidden="true">
+          <path d="M2 2l10 10M12 2 2 12"></path>
+        </svg>
+      </button>
+
+      <div class="profile-privacy-main" data-privacy-main>
+        <h2 id="privacyTitle">Privacy &amp; data</h2>
+        <p id="privacyIntro">Plain and honest — exactly what stays on your phone, and what Gems keeps.</p>
+
+        <div class="profile-privacy-block">
+          <h3>What Gems keeps</h3>
+          <ul>
+            <li>Your profile and the aesthetics you picked</li>
+            <li>Your taste events — the choices that sharpen your ranking</li>
+            <li>The edited images you generate (the outputs, so you can get them back)</li>
+          </ul>
+        </div>
+
+        <div class="profile-privacy-block profile-privacy-block--never">
+          <h3>What Gems never does</h3>
+          <ul>
+            <li>Upload your original photos — they stay on your device, always</li>
+            <li>Only 512px thumbnails and images you explicitly edit ever leave the phone</li>
+            <li>No face prints, no biometrics, server-side, ever</li>
+          </ul>
+        </div>
+
+        <button
+          class="profile-privacy-consent"
+          type="button"
+          data-training-toggle
+          role="switch"
+          aria-checked="false"
+        >
+          <span class="profile-setting-copy">
+            <strong>Improve Gems with my photos</strong>
+            <small data-training-sublabel>${escapeHtml(TRAINING_OFF_SUBLABEL)}</small>
+          </span>
+          ${toggleMarkup()}
+        </button>
+
+        <div class="profile-privacy-actions">
+          <button class="profile-privacy-btn" type="button" data-privacy-download>
+            Download my data
+          </button>
+          <button
+            class="profile-privacy-btn profile-privacy-btn--danger"
+            type="button"
+            data-privacy-delete
+          >
+            Delete my account and data
+          </button>
+        </div>
+      </div>
+
+      <div class="profile-privacy-confirm" data-privacy-confirm hidden>
+        <h3>Delete everything?</h3>
+        <p>
+          This permanently deletes your account, profile, projects, and edited
+          photos. This cannot be undone.
+        </p>
+        <div class="profile-privacy-confirm-actions">
+          <button class="profile-privacy-btn" type="button" data-privacy-cancel>
+            Keep my account
+          </button>
+          <button
+            class="profile-privacy-btn profile-privacy-btn--danger"
+            type="button"
+            data-privacy-confirm-delete
+          >
+            Delete forever
+          </button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 /**
  * @param {{screen: HTMLElement, mount: HTMLElement, onNavigate?: (tab: string) => void}} options
  */
@@ -203,7 +328,66 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
   let profileState = {};
   let activated = false;
   let paywallOpen = false;
+  let privacyOpen = false;
+  let privacySettingButton = null;
   let tasteData = TASTE.map(({ name: label, percent }) => ({ name: label, percent }));
+
+  // Training-consent state, mirrored across the settings row and the privacy
+  // sheet. signedIn tracks whether there is a session to persist against.
+  let trainingOptIn = false;
+  let trainingSignedIn = false;
+  let trainingBusy = false;
+
+  // Push the current training state onto whichever toggles are in the DOM (the
+  // settings row is always present; the sheet's toggle exists only while open).
+  function syncTrainingToggles() {
+    const sublabel = trainingOptIn ? TRAINING_ON_SUBLABEL : TRAINING_OFF_SUBLABEL;
+    const rowButton = mount.querySelector('[data-profile-action="training"]');
+    if (rowButton) {
+      rowButton.setAttribute("aria-checked", String(trainingOptIn));
+      rowButton.classList.toggle("is-on", trainingOptIn);
+      const rowSub = rowButton.querySelector("[data-setting-sublabel]");
+      if (rowSub) rowSub.textContent = sublabel;
+    }
+    const sheetToggle = sheetRoot.querySelector("[data-training-toggle]");
+    if (sheetToggle) {
+      sheetToggle.setAttribute("aria-checked", String(trainingOptIn));
+      sheetToggle.classList.toggle("is-on", trainingOptIn);
+      const sheetSub = sheetToggle.querySelector("[data-training-sublabel]");
+      if (sheetSub) sheetSub.textContent = sublabel;
+    }
+  }
+
+  // Read the live consent state (defaults false/false; null when signed out).
+  async function refreshConsents() {
+    const result = await getConsents();
+    trainingSignedIn = result !== null;
+    trainingOptIn = Boolean(result?.training_opt_in);
+    syncTrainingToggles();
+  }
+
+  // Flip the training opt-in: optimistic UI, persist, revert on failure.
+  async function toggleTraining() {
+    if (trainingBusy) return;
+    if (!trainingSignedIn) {
+      status.textContent = "Sign in to choose how Gems learns from your photos.";
+      return;
+    }
+    trainingBusy = true;
+    const next = !trainingOptIn;
+    trainingOptIn = next;
+    syncTrainingToggles();
+    status.textContent = next
+      ? "Thank you — Gems can learn from your photos now."
+      : "Off. Gems won't learn from your photos.";
+    const ok = await setConsent("training_opt_in", next);
+    if (!ok) {
+      trainingOptIn = !next;
+      syncTrainingToggles();
+      status.textContent = "Couldn't save that just now — please try again.";
+    }
+    trainingBusy = false;
+  }
 
   function renderTaste(taste, choiceCount) {
     const card = mount.querySelector(".profile-taste-card");
@@ -345,6 +529,130 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
     window.requestAnimationFrame(() => closeButton.focus({ preventScroll: true }));
   }
 
+  function closePrivacy({ restoreFocus = true } = {}) {
+    if (!privacyOpen) return;
+    privacyOpen = false;
+    sheetRoot.replaceChildren();
+    content.inert = false;
+    bottomChrome.inert = false;
+    content.removeAttribute("aria-hidden");
+    bottomChrome.removeAttribute("aria-hidden");
+    if (restoreFocus && privacySettingButton) {
+      privacySettingButton.focus({ preventScroll: true });
+    }
+  }
+
+  async function downloadMyData() {
+    status.textContent = "Preparing your data…";
+    const blob = await exportMyData();
+    if (!blob) {
+      status.textContent = trainingSignedIn
+        ? "Couldn't prepare your data right now."
+        : "Sign in to download your data.";
+      return;
+    }
+    try {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "gems-data.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      status.textContent = "Your Gems data is downloading.";
+    } catch (error) {
+      console.info("Data download stayed local", error);
+      status.textContent = "Couldn't start the download.";
+    }
+  }
+
+  function openPrivacy() {
+    if (privacyOpen) return;
+    // The paywall shares sheetRoot; only one sheet lives there at a time.
+    closePaywall({ restoreFocus: false });
+    privacyOpen = true;
+    profileActions.openSetting("Privacy & data");
+    content.inert = true;
+    bottomChrome.inert = true;
+    content.setAttribute("aria-hidden", "true");
+    bottomChrome.setAttribute("aria-hidden", "true");
+    sheetRoot.innerHTML = privacyMarkup();
+    syncTrainingToggles();
+
+    const scrim = sheetRoot.querySelector(".profile-sheet-scrim");
+    const dialog = sheetRoot.querySelector(".profile-sheet");
+    const closeButton = sheetRoot.querySelector(".profile-sheet-close");
+    const mainPane = sheetRoot.querySelector("[data-privacy-main]");
+    const confirmPane = sheetRoot.querySelector("[data-privacy-confirm]");
+    const trainingToggle = sheetRoot.querySelector("[data-training-toggle]");
+    const downloadButton = sheetRoot.querySelector("[data-privacy-download]");
+    const deleteButton = sheetRoot.querySelector("[data-privacy-delete]");
+    const cancelButton = sheetRoot.querySelector("[data-privacy-cancel]");
+    const confirmDelete = sheetRoot.querySelector("[data-privacy-confirm-delete]");
+
+    scrim.addEventListener("click", () => closePrivacy());
+    closeButton.addEventListener("click", () => closePrivacy());
+    trainingToggle.addEventListener("click", () => void toggleTraining());
+    downloadButton.addEventListener("click", () => void downloadMyData());
+
+    // Step into the destructive confirm.
+    deleteButton.addEventListener("click", () => {
+      mainPane.hidden = true;
+      confirmPane.hidden = false;
+      status.textContent = "Confirm to permanently delete your account.";
+      window.requestAnimationFrame(() => cancelButton.focus({ preventScroll: true }));
+    });
+    cancelButton.addEventListener("click", () => {
+      confirmPane.hidden = true;
+      mainPane.hidden = false;
+      status.textContent = "";
+      window.requestAnimationFrame(() => deleteButton.focus({ preventScroll: true }));
+    });
+    confirmDelete.addEventListener("click", async () => {
+      if (confirmDelete.disabled) return;
+      confirmDelete.disabled = true;
+      cancelButton.disabled = true;
+      status.textContent = "Deleting your account and data…";
+      const result = await deleteMyAccount();
+      if (result?.deleted) {
+        // Everything is gone — restart at the splash, like sign-out does.
+        status.textContent = "Your account and data have been deleted.";
+        window.location.reload();
+        return;
+      }
+      confirmDelete.disabled = false;
+      cancelButton.disabled = false;
+      status.textContent = "Couldn't delete your account right now — please try again.";
+    });
+
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePrivacy();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      // Only trap across the buttons that are actually visible (the confirm
+      // pane and main pane swap via [hidden], so offsetParent filters them).
+      const focusable = [...dialog.querySelectorAll("button")].filter(
+        (element) => !element.disabled && element.offsetParent !== null,
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+
+    window.requestAnimationFrame(() => closeButton.focus({ preventScroll: true }));
+  }
+
   plusButton.addEventListener("click", openPaywall);
   mount.querySelector("#profileShare").addEventListener("click", () => {
     // Keep the engagement signal, then render + present the live taste card.
@@ -366,9 +674,22 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
     })();
   });
 
-  mount.querySelectorAll("[data-profile-setting]").forEach((button) => {
+  mount.querySelectorAll("[data-profile-action]").forEach((button) => {
+    if (button.dataset.profileAction === "privacy") {
+      privacySettingButton = button;
+    }
     button.addEventListener("click", () => {
-      profileActions.openSetting(button.dataset.profileSetting);
+      const action = button.dataset.profileAction;
+      if (action === "training") {
+        void toggleTraining();
+        return;
+      }
+      if (action === "privacy") {
+        openPrivacy();
+        return;
+      }
+      // camera / help keep the existing engagement-signal behavior.
+      profileActions.openSetting(button.dataset.profileAction);
     });
   });
 
@@ -382,6 +703,7 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
       const tab = button.dataset.appTab;
       if (tab === "Home" || tab === "Discover" || tab === "Photos" || tab === "Studio") {
         closePaywall({ restoreFocus: false });
+        closePrivacy({ restoreFocus: false });
         onNavigate(tab);
         return;
       }
@@ -401,6 +723,7 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
       avatar.textContent = firstName.charAt(0).toLocaleUpperCase();
       syncActiveTab(mount, "Profile");
       void refreshTasteProfile();
+      void refreshConsents();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });
@@ -416,8 +739,11 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
 
     closePaywall,
 
+    closePrivacy,
+
     deactivate() {
       closePaywall({ restoreFocus: false });
+      closePrivacy({ restoreFocus: false });
     },
   });
 }

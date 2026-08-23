@@ -469,10 +469,401 @@
   text-align: center;
 }
 
+/* -----------------------------------------------------------------------
+   Manual tools — the live client-side editing panel (real-photo mode).
+   ----------------------------------------------------------------------- */
+
+.editor-tool-panel {
+  margin-top: 12px;
+}
+
+.editor-manual-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.editor-manual-apply,
+.editor-manual-reset {
+  min-height: 44px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.editor-manual-apply {
+  flex: 1;
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-manual-apply:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.editor-manual-reset {
+  flex: 0 0 auto;
+  padding: 0 18px;
+  border: 1.5px solid var(--color-border);
+  color: var(--color-ink);
+  background: var(--color-white);
+}
+
+/* ---- Adjust sliders ---- */
+
+.editor-adjust {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.editor-slider {
+  display: grid;
+  grid-template-columns: 78px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+}
+
+.editor-slider-label {
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.editor-slider output {
+  color: var(--color-mauve);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.editor-slider input[type="range"] {
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.editor-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.editor-slider input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.editor-slider input[type="range"]::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-ink);
+  box-shadow: 0 2px 6px var(--color-home-shadow);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.editor-slider input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-ink);
+  box-shadow: 0 2px 6px var(--color-home-shadow);
+}
+
+/* ---- Filter grade rail ---- */
+
+.editor-filter-rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.editor-filter-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-filter-chip {
+  min-height: 42px;
+  flex: 0 0 auto;
+  padding: 0 15px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.editor-filter-chip.is-active {
+  border-color: var(--color-ink);
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+/* ---- "Make it look like…" reference picker ---- */
+
+.editor-style-hint {
+  margin: 12px 0 0;
+  color: var(--color-mauve);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.editor-style-link {
+  padding: 0;
+  color: var(--color-deep-petal);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.editor-style-picker {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-top: 10px;
+  scrollbar-width: none;
+}
+
+.editor-style-picker::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-style-loading {
+  margin: 10px 0 0;
+  color: var(--color-mauve);
+  font-size: 12px;
+}
+
+.editor-style-ref {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-photo-black);
+  cursor: pointer;
+}
+
+.editor-style-ref img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---- Erase / Add (AI tools) ---- */
+
+.editor-ai-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 6px 6px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.editor-ai-form:focus-within {
+  border-color: var(--color-deep-petal);
+}
+
+.editor-ai-badge {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--color-white);
+  background: var(--color-deep-petal);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.editor-ai-form input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--color-ink);
+  background: transparent;
+  font-size: 16px;
+}
+
+.editor-ai-form input::placeholder {
+  color: var(--color-mauve);
+  opacity: 1;
+}
+
+.editor-ai-form .editor-manual-apply {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.editor-ai-note {
+  margin: 10px 4px 0;
+  color: var(--color-mauve);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* ---- Crop: aspect presets + on-canvas overlay ---- */
+
+.editor-crop-presets {
+  display: flex;
+  gap: 8px;
+}
+
+.editor-crop-preset {
+  min-height: 42px;
+  flex: 1;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.editor-crop-preset.is-active {
+  border-color: var(--color-ink);
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-crop-overlay {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.editor-crop-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--color-white);
+  box-shadow: 0 0 0 9999px var(--color-editor-processing);
+  cursor: move;
+  touch-action: none;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(33.333% - 1px),
+      var(--color-white-65) calc(33.333% - 1px),
+      var(--color-white-65) 33.333%
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(33.333% - 1px),
+      var(--color-white-65) calc(33.333% - 1px),
+      var(--color-white-65) 33.333%
+    );
+}
+
+.editor-crop-handle {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  touch-action: none;
+}
+
+.editor-crop-handle::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2.5px solid var(--color-white);
+}
+
+.editor-crop-handle--nw {
+  top: -13px;
+  left: -13px;
+  cursor: nwse-resize;
+}
+.editor-crop-handle--nw::after {
+  top: 11px;
+  left: 11px;
+  border-width: 2.5px 0 0 2.5px;
+}
+
+.editor-crop-handle--ne {
+  top: -13px;
+  right: -13px;
+  cursor: nesw-resize;
+}
+.editor-crop-handle--ne::after {
+  top: 11px;
+  right: 11px;
+  border-width: 2.5px 2.5px 0 0;
+}
+
+.editor-crop-handle--sw {
+  bottom: -13px;
+  left: -13px;
+  cursor: nesw-resize;
+}
+.editor-crop-handle--sw::after {
+  bottom: 11px;
+  left: 11px;
+  border-width: 0 0 2.5px 2.5px;
+}
+
+.editor-crop-handle--se {
+  bottom: -13px;
+  right: -13px;
+  cursor: nwse-resize;
+}
+.editor-crop-handle--se::after {
+  bottom: 11px;
+  right: 11px;
+  border-width: 0 2.5px 2.5px 0;
+}
+
 .editor-icon-button:hover,
 .editor-suggestion:hover,
 .editor-version:not(.is-active):hover,
-.editor-tool:not(.is-active):hover {
+.editor-tool:not(.is-active):hover,
+.editor-filter-chip:not(.is-active):hover,
+.editor-crop-preset:not(.is-active):hover,
+.editor-manual-reset:hover {
   background: var(--color-surface);
 }
 
@@ -484,7 +875,15 @@
 .editor-suggestion:focus-visible,
 .editor-tool:focus-visible,
 .editor-apply:focus-visible,
-.editor-prompt-form input:focus-visible {
+.editor-prompt-form input:focus-visible,
+.editor-manual-apply:focus-visible,
+.editor-manual-reset:focus-visible,
+.editor-filter-chip:focus-visible,
+.editor-crop-preset:focus-visible,
+.editor-style-link:focus-visible,
+.editor-style-ref:focus-visible,
+.editor-ai-form input:focus-visible,
+.editor-slider input[type="range"]:focus-visible {
   outline: 3px solid var(--color-deep-petal);
   outline-offset: 2px;
 }
@@ -588,7 +987,11 @@
   .editor-mode,
   .editor-tool,
   .editor-prompt-form,
-  .editor-apply {
+  .editor-apply,
+  .editor-manual-apply,
+  .editor-manual-reset,
+  .editor-filter-chip,
+  .editor-crop-preset {
     transition: none;
   }
 }

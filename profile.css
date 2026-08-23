@@ -593,3 +593,207 @@
 .profile-signout .profile-setting-copy strong {
   color: var(--color-deep-petal);
 }
+
+/* ---------- Training-consent toggle (settings row + privacy sheet) ---------- */
+.profile-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 26px;
+  flex: 0 0 44px;
+  padding: 3px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  transition:
+    background 200ms var(--ease-gems),
+    border-color 200ms var(--ease-gems);
+}
+
+.profile-toggle-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-white);
+  box-shadow: 0 1px 3px var(--color-home-shadow);
+  transition: transform 220ms var(--ease-gems);
+}
+
+.profile-setting-toggle.is-on .profile-toggle,
+.profile-privacy-consent.is-on .profile-toggle {
+  border-color: var(--color-deep-petal);
+  background: var(--color-deep-petal);
+}
+
+.profile-setting-toggle.is-on .profile-toggle-thumb,
+.profile-privacy-consent.is-on .profile-toggle-thumb {
+  transform: translateX(18px);
+}
+
+/* ---------- Privacy & data sheet ---------- */
+.profile-privacy-main[hidden],
+.profile-privacy-confirm[hidden] {
+  display: none;
+}
+
+.profile-privacy-block {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.profile-privacy-block--never {
+  border: 1.5px solid var(--color-border);
+  background: var(--color-white);
+}
+
+.profile-privacy-block h3 {
+  margin: 0 0 8px;
+  color: var(--color-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-privacy-block ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 17px;
+}
+
+.profile-privacy-block li {
+  color: var(--color-ink-68);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.profile-privacy-block li::marker {
+  color: var(--color-mauve);
+}
+
+.profile-privacy-block--never li::marker {
+  color: var(--color-deep-petal);
+}
+
+.profile-privacy-consent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 16px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-privacy-consent .profile-setting-copy strong,
+.profile-privacy-consent .profile-setting-copy small {
+  display: block;
+}
+
+.profile-privacy-consent .profile-setting-copy strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.profile-privacy-consent .profile-setting-copy small {
+  margin-top: 3px;
+  color: var(--color-mauve);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.profile-privacy-actions,
+.profile-privacy-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.profile-privacy-btn {
+  width: 100%;
+  min-height: 50px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 160ms var(--ease-gems),
+    filter 160ms var(--ease-gems);
+}
+
+.profile-privacy-btn:hover {
+  background: var(--color-surface);
+}
+
+/* Destructive, but composed — the deep-petal brand accent, never a raw alarm
+   red, so the choice reads as deliberate rather than panicked. */
+.profile-privacy-btn--danger {
+  border-color: transparent;
+  color: var(--color-white);
+  background: var(--color-deep-petal);
+}
+
+.profile-privacy-btn--danger:hover {
+  background: var(--color-deep-petal);
+  filter: brightness(0.95);
+}
+
+.profile-privacy-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.profile-privacy-confirm {
+  padding-top: 4px;
+}
+
+.profile-privacy-confirm h3 {
+  margin: 8px 0 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-style: italic;
+  font-weight: 470;
+  line-height: 1.15;
+}
+
+.profile-privacy-confirm > p {
+  margin: 10px 0 0;
+  color: var(--color-mauve);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.profile-setting-toggle:focus-visible,
+.profile-privacy-consent:focus-visible,
+.profile-privacy-btn:focus-visible {
+  outline: 3px solid var(--color-deep-petal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-toggle,
+  .profile-toggle-thumb,
+  .profile-privacy-btn {
+    transition: none;
+  }
+}

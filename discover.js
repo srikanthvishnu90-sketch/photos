@@ -1,6 +1,9 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { discoverActions } from "./discover-actions.js";
 import { saveCardToMoodboard } from "./gems-moodboards.js";
+import { listPhotos } from "./gems-photolib.js";
+import { getSession } from "./gems-supabase.js";
+import { applyAestheticGrade } from "./gems-style.js";
 
 const CATEGORIES = Object.freeze([
   "For you",
@@ -71,6 +74,30 @@ const CARD_ACTIONS = Object.freeze([
   "Apply this aesthetic",
   "Save to moodboard",
 ]);
+
+// Categories that read as a distinct visual GRADE (a "look"), as opposed to
+// content/use tags like "Poses" or "Dating". When a card carries one of these
+// it becomes the aesthetic we transfer; otherwise the card's own title is a
+// perfectly good look descriptor ("Golden silhouette", "Café candid").
+const AESTHETIC_LOOKS = Object.freeze([
+  "Dark Gym",
+  "Euro Summer",
+  "Nightlife",
+  "Golden Hour",
+  "Travel",
+]);
+
+// The dominant aesthetic to apply for a card — the first look-category it
+// carries, else its human title. Always a non-empty string for a valid card.
+function dominantAesthetic(card) {
+  try {
+    const categories = Array.isArray(card?.categories) ? card.categories : [];
+    const look = AESTHETIC_LOOKS.find((label) => categories.includes(label));
+    return look || (typeof card?.title === "string" && card.title.trim()) || "this";
+  } catch {
+    return "this";
+  }
+}
 
 function sceneMarkup(scene) {
   if (scene === "steps") {
@@ -300,6 +327,9 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
         );
         if (!card) return;
         discoverActions.runCardAction(button.dataset.discoverAction, card);
+        if (button.dataset.discoverAction === "Apply this aesthetic") {
+          applyAestheticToBestPhoto(card);
+        }
         if (button.dataset.discoverAction === "Save to moodboard") {
           saveCardToMoodboard(card).then((result) => {
             if (result?.saved) {
@@ -320,6 +350,54 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
           .querySelector(`[data-discover-card="${focusCard}"]`)
           ?.focus({ preventScroll: true });
       });
+    }
+  }
+
+  // "Apply this aesthetic" = take THIS card's look and regrade one of MY
+  // photos with it. Real flow: require a signed-in session and a library, pick
+  // the user's top-quality photo as the target, and run the style edit. Status
+  // is narrated in the #discoverStatus aria-live region (textContent, so any
+  // interpolated label is inherently escaped).
+  let applyingAesthetic = false;
+  async function applyAestheticToBestPhoto(card) {
+    if (applyingAesthetic) return;
+    applyingAesthetic = true;
+    const aesthetic = dominantAesthetic(card);
+    try {
+      const [session, library] = await Promise.all([getSession(), listPhotos()]);
+      const photos = Array.isArray(library) ? library : [];
+      if (!session || photos.length === 0) {
+        status.textContent = "Sign in and import photos to apply aesthetics.";
+        return;
+      }
+      const best = [...photos].sort(
+        (a, b) => (b.metrics?.quality ?? 0) - (a.metrics?.quality ?? 0),
+      )[0];
+      if (!best?.id) {
+        status.textContent = "Sign in and import photos to apply aesthetics.";
+        return;
+      }
+
+      status.textContent = `Applying ${aesthetic} to your best photo…`;
+      const result = await applyAestheticGrade({
+        targetPhotoId: best.id,
+        aesthetic,
+      });
+
+      if (result?.url) {
+        status.textContent = "Your styled photo is ready.";
+      } else if (result?.paywall || result?.error === "cap") {
+        status.textContent = "You've hit your free edit limit — Gems Plus unlocks more.";
+      } else if (result?.quota || result?.error === "quota") {
+        status.textContent = "The styling model is warming up — try again soon.";
+      } else {
+        status.textContent = "That styling didn't go through — try again.";
+      }
+    } catch (error) {
+      console.info("Apply aesthetic failed", error);
+      status.textContent = "That styling didn't go through — try again.";
+    } finally {
+      applyingAesthetic = false;
     }
   }
 

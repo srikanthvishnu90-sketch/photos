@@ -17,6 +17,12 @@ export const editorActions = Object.freeze({
     recordTasteEvent("manual_tool_selected", { tool });
   },
 
+  manualEditApplied(tool) {
+    // A client-side manual edit (crop / adjust / filter grade) was committed to
+    // a new version — the strongest hands-on taste signal.
+    recordTasteEvent("manual_edit_applied", { tool });
+  },
+
   editResultShown(kind, model) {
     // A real edited result reached the canvas — records which model served it.
     recordTasteEvent("edit_result_shown", { kind, model });
