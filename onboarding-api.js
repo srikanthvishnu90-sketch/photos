@@ -34,10 +34,12 @@ export async function submitOnboarding(state) {
     }
     const profileId = session.user.id;
 
+    // Minors policy: under-18 profiles never store gender server-side.
+    const isMinor = state.ageRange === "Under 18";
     await supabase.from("profiles").upsert({
       id: profileId,
       display_name: state.name.trim() || "New user",
-      gender: state.gender ?? null,
+      gender: isMinor ? null : (state.gender ?? null),
       age_range: AGE_RANGE_DB[state.ageRange] ?? null,
     });
 
@@ -73,6 +75,9 @@ export async function submitOnboarding(state) {
  * @param {string[]} currentSelections
  */
 export function logCustomAesthetic(rawText, gender, ageRange, currentSelections) {
+  // Minors policy: never ship free-text + demographics to analytics for
+  // under-18 accounts.
+  if (ageRange === "Under 18") return;
   void (async () => {
     try {
       const supabase = await getSupabase();

@@ -122,6 +122,7 @@ export function createOnboardingFlow(options) {
     name: "",
     gender: null,
     ageRange: null,
+    minorConfirmed: false,
     aesthetics: [],
   };
 
@@ -135,6 +136,7 @@ export function createOnboardingFlow(options) {
       name: state.name.trim(),
       gender: state.gender,
       ageRange: state.ageRange,
+      minorConfirmed: state.minorConfirmed,
       aesthetics: [...state.aesthetics],
     };
   }
@@ -292,23 +294,51 @@ export function createOnboardingFlow(options) {
             selectionRow(range, state.ageRange === range, 300 + index * 70),
           ).join("")}
         </div>
+        <div id="minorGate" class="minor-gate" ${state.ageRange === "Under 18" ? "" : "hidden"}>
+          <button
+            id="minorConfirm"
+            class="select-row minor-confirm${state.minorConfirmed ? " is-selected" : ""}"
+            type="button"
+            aria-pressed="${state.minorConfirmed}"
+          >
+            <span>I confirm I'm 13 or older</span>
+            <span class="select-radio" aria-hidden="true">${state.minorConfirmed ? checkmark() : ""}</span>
+          </button>
+          <p class="minor-note">
+            Gems is for ages 13 and up. On under-18 accounts we keep extra
+            personal details — like your gender pick — off our servers.
+          </p>
+        </div>
         <div class="step-spacer" aria-hidden="true"></div>
-        ${primaryButton("ageContinue", Boolean(state.ageRange), "Continue")}
+        ${primaryButton("ageContinue", canLeaveAgeStep(), "Continue")}
       </div>
     `;
+
+    // Minors policy: "Under 18" requires an explicit 13+ confirmation, and
+    // onboarding-api strips gender (and skips aesthetic analytics) for
+    // under-18 accounts (COPPA / app-store rating).
+    function canLeaveAgeStep() {
+      if (!state.ageRange) return false;
+      return state.ageRange !== "Under 18" || state.minorConfirmed;
+    }
 
     stepRoot.querySelectorAll("[data-selection]").forEach((button) => {
       button.addEventListener("click", () => {
         const selectedRange = button.dataset.selection;
-
-        // DECISION NEEDED: Before launch, "Under 18" must either gate to an
-        // 18+ screen or trigger the approved minors policy (COPPA/app-store rating).
+        if (state.ageRange !== selectedRange) state.minorConfirmed = false;
         state.ageRange = selectedRange;
         syncAgeSelection();
       });
     });
 
-    stepRoot.querySelector("#ageContinue").addEventListener("click", () => goToStep(3));
+    stepRoot.querySelector("#minorConfirm").addEventListener("click", () => {
+      state.minorConfirmed = !state.minorConfirmed;
+      syncAgeSelection();
+    });
+
+    stepRoot.querySelector("#ageContinue").addEventListener("click", () => {
+      if (canLeaveAgeStep()) goToStep(3);
+    });
 
     function syncAgeSelection() {
       stepRoot.querySelectorAll("[data-selection]").forEach((button) => {
@@ -317,7 +347,15 @@ export function createOnboardingFlow(options) {
         button.setAttribute("aria-pressed", String(selected));
         button.querySelector(".select-radio").innerHTML = selected ? checkmark() : "";
       });
-      stepRoot.querySelector("#ageContinue").disabled = !state.ageRange;
+      const gate = stepRoot.querySelector("#minorGate");
+      const confirm = stepRoot.querySelector("#minorConfirm");
+      gate.hidden = state.ageRange !== "Under 18";
+      confirm.classList.toggle("is-selected", state.minorConfirmed);
+      confirm.setAttribute("aria-pressed", String(state.minorConfirmed));
+      confirm.querySelector(".select-radio").innerHTML = state.minorConfirmed
+        ? checkmark()
+        : "";
+      stepRoot.querySelector("#ageContinue").disabled = !canLeaveAgeStep();
     }
   }
 
