@@ -23,7 +23,7 @@ import { join, basename } from "node:path";
 import { PASS_A_PROMPT, buildPassBPrompt } from "../supabase/functions/rank-photos/prompts.js";
 
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const args = process.argv.slice(2);
 const argValue = (flag, fallback) => {
   const index = args.indexOf(flag);
