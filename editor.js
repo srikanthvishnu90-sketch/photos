@@ -896,8 +896,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // demo flow untouched.
   async function loadRealPhoto(photoId, token) {
     try {
-      const [record, session] = await Promise.all([getPhoto(photoId), getSession()]);
-      if (token !== activationToken || !record || !session) return;
+      // Load the real photo whenever it exists — crop/adjust/filters are pure
+      // on-device work and need no session. The AI tools (describe/erase/add/
+      // style) check for a session themselves at request time and fail gracefully.
+      const record = await getPhoto(photoId);
+      if (token !== activationToken || !record) return;
       // A simulated edit already started in the gap — don't clobber it.
       if (processing || versions.length > 1) return;
       photo = record;
