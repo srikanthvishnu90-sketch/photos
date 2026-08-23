@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Gems" />
+    <meta
+      name="description"
+      content="Gems finds the best photos already on your phone and turns them into finished posts."
+    />
+    <title>Gems</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,560;1,9..144,470&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="home.css" />
+    <link rel="stylesheet" href="discover.css" />
+    <link rel="stylesheet" href="photos.css" />
+  </head>
+
+  <body>
+    <main id="gemsApp" class="gems-app">
+      <section
+        id="splashScreen"
+        class="screen splash-screen is-active"
+        role="button"
+        tabindex="0"
+        aria-label="Gems. Tap to continue to sign in."
+        aria-hidden="false"
+      >
+        <div class="splash-content" aria-hidden="true">
+          <div class="photo-stage">
+            <span class="photo-card photo-card-left"></span>
+            <span class="photo-card photo-card-right"></span>
+            <span class="photo-card photo-card-center"></span>
+          </div>
+
+          <div class="splash-wordmark">Gems</div>
+          <p class="splash-tagline">Your camera roll, directed.</p>
+        </div>
+      </section>
+
+      <section
+        id="loginScreen"
+        class="screen login-screen"
+        aria-hidden="true"
+        aria-labelledby="loginHeadline"
+      >
+        <div id="loginScroll" class="login-scroll">
+          <div class="login-layout">
+            <div class="login-wordmark login-entrance entrance-fade entrance-brand">
+              Gems
+            </div>
+
+            <header class="login-copy">
+              <h1
+                id="loginHeadline"
+                class="login-headline login-entrance entrance-headline"
+                tabindex="-1"
+              >
+                Your best photos are already on your phone.
+              </h1>
+              <p class="login-subhead login-entrance entrance-subhead">
+                Gems finds them, edits them, and turns them into something worth posting.
+              </p>
+            </header>
+
+            <div class="login-spacer" aria-hidden="true"></div>
+
+            <div class="auth-region">
+              <div id="authOptions" class="auth-options">
+                <div class="login-entrance entrance-apple">
+                  <button id="appleButton" class="auth-button auth-button-apple" type="button">
+                    <svg class="auth-mark apple-mark" viewBox="0 0 17 20" aria-hidden="true">
+                      <path d="M14.13 10.62c.02 2.9 2.55 3.87 2.58 3.88-.02.07-.4 1.38-1.33 2.73-.8 1.17-1.63 2.33-2.94 2.35-1.29.02-1.7-.76-3.17-.76-1.47 0-1.93.74-3.14.79-1.27.05-2.23-1.26-3.04-2.42C1.44 14.8.17 10.5 1.86 7.6c.84-1.44 2.34-2.35 3.97-2.37 1.24-.02 2.41.83 3.17.83.76 0 2.18-1.03 3.68-.88.63.03 2.39.25 3.52 1.91-.09.06-2.1 1.23-2.07 3.53zM11.7 3.6c.67-.81 1.12-1.94.99-3.06-.96.04-2.13.64-2.82 1.45-.62.72-1.16 1.87-1.02 2.97 1.08.08 2.18-.55 2.85-1.36z" />
+                    </svg>
+                    <span>Continue with Apple</span>
+                  </button>
+                </div>
+
+                <div class="login-entrance entrance-google">
+                  <button id="googleButton" class="auth-button auth-button-google" type="button">
+                    <svg class="auth-mark google-mark" viewBox="0 0 19 19" aria-hidden="true">
+                      <path class="google-blue" d="M18.64 9.7c0-.66-.06-1.29-.17-1.9H9.5v3.6h5.12a4.38 4.38 0 0 1-1.9 2.87v2.39h3.07c1.8-1.66 2.85-4.1 2.85-6.96z" />
+                      <path class="google-green" d="M9.5 19c2.57 0 4.72-.85 6.29-2.3l-3.07-2.4c-.85.57-1.94.91-3.22.91-2.47 0-4.57-1.67-5.32-3.92H.99v2.46A9.5 9.5 0 0 0 9.5 19z" />
+                      <path class="google-yellow" d="M4.18 11.29a5.7 5.7 0 0 1 0-3.62V5.21H.99a9.5 9.5 0 0 0 0 8.54l3.19-2.46z" />
+                      <path class="google-red" d="M9.5 3.75c1.4 0 2.65.48 3.63 1.42l2.72-2.72A9.5 9.5 0 0 0 .99 5.21l3.19 2.46c.75-2.25 2.85-3.92 5.32-3.92z" />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                </div>
+
+                <div class="login-entrance entrance-email">
+                  <button id="emailOptionButton" class="auth-button auth-button-email" type="button">
+                    Continue with email
+                  </button>
+                </div>
+              </div>
+
+              <form id="emailForm" class="email-form" novalidate hidden aria-hidden="true">
+                <label class="email-label" for="emailInput">Email address</label>
+                <input
+                  id="emailInput"
+                  class="email-input"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  placeholder="you@school.edu"
+                  aria-describedby="emailHint"
+                />
+                <span id="emailHint" class="sr-only">Enter a valid email address to continue.</span>
+                <button id="emailContinueButton" class="auth-button email-continue" type="submit" disabled>
+                  Continue
+                </button>
+                <button id="backToOptionsButton" class="back-button" type="button">
+                  Back to sign-in options
+                </button>
+              </form>
+            </div>
+
+            <p class="legal-copy login-entrance entrance-fade entrance-legal">
+              By continuing, you agree to our
+              <button class="legal-link" type="button" data-legal="terms">Terms</button>
+              and
+              <button class="legal-link" type="button" data-legal="privacy">Privacy Policy</button>.
+              Your photos are analyzed on your device.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="onboardingScreen"
+        class="screen onboarding-screen"
+        aria-hidden="true"
+        aria-label="Create your Gems account"
+      >
+        <div id="onboardingScroll" class="onboarding-scroll">
+          <div class="onboarding-layout">
+            <header class="onboarding-chrome">
+              <div class="back-slot">
+                <button id="onboardingBack" class="onboarding-back" type="button" aria-label="Back">
+                  <svg viewBox="0 0 22 22" aria-hidden="true">
+                    <path d="M13.5 4.5 7 11l6.5 6.5" />
+                  </svg>
+                </button>
+              </div>
+
+              <div
+                id="onboardingProgress"
+                class="onboarding-progress"
+                role="progressbar"
+                aria-valuemin="1"
+                aria-valuemax="4"
+                aria-valuenow="1"
+                aria-label="Onboarding step 1 of 4"
+              >
+                <span class="progress-segment is-filled" aria-hidden="true"></span>
+                <span class="progress-segment" aria-hidden="true"></span>
+                <span class="progress-segment" aria-hidden="true"></span>
+                <span class="progress-segment" aria-hidden="true"></span>
+              </div>
+
+              <span class="chrome-spacer" aria-hidden="true"></span>
+            </header>
+
+            <div id="onboardingStep" class="onboarding-step"></div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="doneScreen"
+        class="screen done-screen"
+        aria-hidden="true"
+        aria-labelledby="doneHeadline"
+      >
+        <div class="done-content">
+          <div class="done-card" aria-hidden="true"></div>
+          <h1 id="doneHeadline" class="done-headline" tabindex="-1">
+            You're in, <span id="doneName">friend</span>.
+          </h1>
+          <p class="done-copy">
+            Next: let's find the gems hiding in your camera roll.
+          </p>
+        </div>
+      </section>
+
+      <section
+        id="homeScreen"
+        class="screen home-screen"
+        aria-hidden="true"
+        aria-labelledby="homeGreetingName"
+      >
+        <div id="homeMount" class="home-shell"></div>
+      </section>
+
+      <section
+        id="discoverScreen"
+        class="screen discover-screen"
+        aria-hidden="true"
+        aria-labelledby="discoverTitle"
+      >
+        <div id="discoverMount" class="discover-shell"></div>
+      </section>
+
+      <section
+        id="photosScreen"
+        class="screen photos-screen"
+        aria-hidden="true"
+        aria-labelledby="photosTitle"
+      >
+        <div id="photosMount" class="photos-shell"></div>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
