@@ -9,3 +9,6 @@
 *.pem
 credentials*.json
 secrets/
+eval/photos/
+eval/.pass-a-cache.json
+eval/expected.json

@@ -1,0 +1,19 @@
+{
+  "aesthetics": ["Dark Gym", "Streetwear"],
+  "taste_summary": "kept 5 dark-moody, swapped out 3 clean-bright last session",
+  "purposes": {
+    "general": {
+      "request": "my best photos",
+      "expected_top5": ["dark-gym-1.jpg", "streetwear-night.jpg", "golden-candid.jpg", "editorial-close.jpg", "flash-social.jpg"]
+    },
+    "cover": {
+      "request": "cover for a gym dump",
+      "expected_top5": ["dark-gym-1.jpg", "gym-wide.jpg", "gym-close.jpg", "streetwear-night.jpg", "editorial-close.jpg"]
+    },
+    "dating": {
+      "request": "dating profile picks",
+      "expected_top5": ["editorial-close.jpg", "golden-candid.jpg", "flash-social.jpg", "cafe-candid.jpg", "beach-mid.jpg"]
+    }
+  },
+  "expected_last": ["blurry-accident-1.jpg", "blurry-accident-2.jpg"]
+}

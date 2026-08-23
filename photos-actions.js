@@ -9,6 +9,10 @@ export const photosActions = Object.freeze({
     recordTasteEvent("photo_import_tapped", {});
   },
 
+  importCompleted(count, gemCount) {
+    recordTasteEvent("photo_import_completed", { count, gemCount });
+  },
+
   search(query) {
     // TODO: send natural-language photo searches to the media index.
     recordTasteEvent("search_query", { surface: "photos", query });

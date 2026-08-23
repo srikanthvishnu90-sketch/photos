@@ -1,5 +1,6 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { photosActions } from "./photos-actions.js";
+import { describePhoto, importPhotoFiles, listPhotos } from "./gems-photolib.js";
 
 const SEARCH_HINTS = Object.freeze([
   "best of me last summer",
@@ -99,6 +100,25 @@ const WHY =
 
 const STOP_WORDS = new Set(["a", "and", "for", "i", "in", "last", "my", "of", "the"]);
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function gemBadgeMarkup() {
+  return `
+    <span class="photos-gem-badge" aria-label="Ranked gem">
+      <svg viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M5 .8c.6 1.6 1.8 2.8 3.4 3.4C6.8 4.8 5.6 6 5 7.6 4.4 6 3.2 4.8 1.6 4.2 3.2 3.6 4.4 2.4 5 .8Z"></path>
+      </svg>
+    </span>
+  `;
+}
+
 function sceneMarkup(scene, large = false) {
   return `
     <span class="photos-scene photos-scene-${scene}${large ? " is-large" : ""}" aria-hidden="true">
@@ -141,17 +161,7 @@ function photoMarkup(photo, index) {
       style="--photos-delay: ${380 + index * 25}ms"
     >
       ${sceneMarkup(photo.scene)}
-      ${
-        photo.gem
-          ? `
-            <span class="photos-gem-badge" aria-label="Ranked gem">
-              <svg viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M5 .8c.6 1.6 1.8 2.8 3.4 3.4C6.8 4.8 5.6 6 5 7.6 4.4 6 3.2 4.8 1.6 4.2 3.2 3.6 4.4 2.4 5 .8Z"></path>
-              </svg>
-            </span>
-          `
-          : ""
-      }
+      ${photo.gem ? gemBadgeMarkup() : ""}
     </button>
   `;
 }
@@ -238,6 +248,8 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   const title = mount.querySelector("#photosTitle");
   const search = mount.querySelector("#photosSearch");
   const searchShell = mount.querySelector(".photos-search");
+  const hintsRow = mount.querySelector(".photos-hints");
+  const collectionsSection = mount.querySelector(".photos-collections-section");
   const collectionsRoot = mount.querySelector("#photosCollections");
   const libraryTitle = mount.querySelector("#photosLibraryTitle");
   const grid = mount.querySelector("#photosGrid");
@@ -249,8 +261,37 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   let activeCollection = null;
   let selectedPhotoId = null;
   let activated = false;
+  let libraryPhotos = [];
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*";
+  fileInput.multiple = true;
+  fileInput.hidden = true;
+  fileInput.tabIndex = -1;
+  fileInput.setAttribute("aria-hidden", "true");
+  mount.append(fileInput);
+
+  function isRealMode() {
+    return libraryPhotos.length > 0;
+  }
+
+  function syncMode() {
+    const real = isRealMode();
+    if (real) activeCollection = null;
+    hintsRow.hidden = real;
+    collectionsSection.hidden = real;
+  }
 
   function visiblePhotos() {
+    if (isRealMode()) {
+      const normalized = query.trim().toLocaleLowerCase();
+      if (!normalized) return libraryPhotos;
+      return libraryPhotos.filter((photo) =>
+        String(photo.name ?? "").toLocaleLowerCase().includes(normalized),
+      );
+    }
+
     if (activeCollection) {
       const collection = COLLECTIONS.find((item) => item.name === activeCollection);
       return collection
@@ -267,21 +308,51 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     return PHOTOS.filter((photo) => terms.some((term) => photo.keywords.includes(term)));
   }
 
+  function realPhotoTile(photo, index) {
+    const button = document.createElement("button");
+    button.className = "photos-grid-item photos-entrance";
+    button.type = "button";
+    button.dataset.photoId = String(photo.id);
+    button.setAttribute("aria-label", `Open ${photo.name}`);
+    button.style.setProperty("--photos-delay", `${380 + index * 25}ms`);
+
+    const img = document.createElement("img");
+    img.src = photo.url;
+    img.alt = photo.name;
+    img.loading = "lazy";
+    img.decoding = "async";
+    button.append(img);
+
+    if (photo.gem) button.insertAdjacentHTML("beforeend", gemBadgeMarkup());
+    button.addEventListener("click", () => openSheet(photo.id));
+    return button;
+  }
+
   function renderGrid() {
     const photos = visiblePhotos();
-    grid.innerHTML = photos.map(photoMarkup).join("");
+    if (isRealMode()) {
+      grid.replaceChildren(...photos.map(realPhotoTile));
+    } else {
+      grid.innerHTML = photos.map(photoMarkup).join("");
+      grid.querySelectorAll("[data-photo-id]").forEach((button) => {
+        button.addEventListener("click", () => openSheet(Number(button.dataset.photoId)));
+      });
+    }
     grid.hidden = photos.length === 0;
     empty.hidden = photos.length !== 0;
-    libraryTitle.textContent = activeCollection
-      ? activeCollection
-      : query.trim()
-        ? "Search results"
-        : "August";
-    status.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} shown`;
-
-    grid.querySelectorAll("[data-photo-id]").forEach((button) => {
-      button.addEventListener("click", () => openSheet(Number(button.dataset.photoId)));
-    });
+    if (isRealMode()) {
+      libraryTitle.textContent = query.trim() ? "Search results" : "Your library";
+      status.textContent = query.trim()
+        ? `${photos.length} of ${libraryPhotos.length} photos match`
+        : `${photos.length} photo${photos.length === 1 ? "" : "s"} in your library`;
+    } else {
+      libraryTitle.textContent = activeCollection
+        ? activeCollection
+        : query.trim()
+          ? "Search results"
+          : "August";
+      status.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} shown`;
+    }
   }
 
   function syncCollections() {
@@ -302,13 +373,27 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     content.removeAttribute("aria-hidden");
     bottomChrome.removeAttribute("aria-hidden");
     grid
-      .querySelector(`[data-photo-id="${returnToPhoto}"]`)
+      .querySelector(`[data-photo-id="${CSS.escape(String(returnToPhoto))}"]`)
       ?.focus({ preventScroll: true });
   }
 
   function openSheet(photoId) {
-    const photo = PHOTOS.find((item) => item.id === photoId);
+    const real = isRealMode();
+    const photo = real
+      ? libraryPhotos.find((item) => item.id === photoId)
+      : PHOTOS.find((item) => item.id === photoId);
     if (!photo) return;
+    const previewMarkup = real
+      ? `
+          <img
+            class="photos-sheet-photo"
+            src="${escapeHtml(photo.url)}"
+            alt="${escapeHtml(photo.name)}"
+            decoding="async"
+          />
+        `
+      : `<div class="photos-sheet-preview">${sceneMarkup(photo.scene, true)}</div>`;
+    const why = real ? describePhoto(photo.metrics) : WHY;
     selectedPhotoId = photoId;
     content.inert = true;
     bottomChrome.inert = true;
@@ -324,11 +409,11 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
         aria-describedby="photoSheetWhy"
       >
         <span class="photos-sheet-handle" aria-hidden="true"></span>
-        <div class="photos-sheet-summary">
-          <div class="photos-sheet-preview">${sceneMarkup(photo.scene, true)}</div>
+        <div class="photos-sheet-summary${real ? " is-real" : ""}">
+          ${previewMarkup}
           <div class="photos-sheet-copy">
             <h2 id="photoSheetTitle">Why this works</h2>
-            <p id="photoSheetWhy">${WHY}</p>
+            <p id="photoSheetWhy">${escapeHtml(why)}</p>
           </div>
         </div>
         <div class="photos-sheet-actions">
@@ -388,7 +473,36 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     });
   }
 
-  mount.querySelector("#photosImport").addEventListener("click", photosActions.importPhotos);
+  async function refreshLibrary() {
+    const records = await listPhotos();
+    const changed = records.length !== libraryPhotos.length;
+    libraryPhotos = records;
+    if (changed) {
+      syncMode();
+      renderGrid();
+    }
+  }
+
+  mount.querySelector("#photosImport").addEventListener("click", () => {
+    photosActions.importPhotos();
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async () => {
+    if (!fileInput.files || fileInput.files.length === 0) return;
+    const added = await importPhotoFiles(fileInput.files);
+    fileInput.value = "";
+    libraryPhotos = await listPhotos();
+    syncMode();
+    renderGrid();
+    if (added.length === 0) return;
+    const addedIds = new Set(added.map((record) => record.id));
+    const gemCount = libraryPhotos.filter(
+      (photo) => addedIds.has(photo.id) && photo.gem,
+    ).length;
+    status.textContent = `Added ${added.length} photos. ${gemCount} ranked as gems.`;
+    photosActions.importCompleted(added.length, gemCount);
+  });
 
   search.addEventListener("input", () => {
     query = search.value;
@@ -447,6 +561,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   return Object.freeze({
     activate() {
       syncActiveTab(mount, "Photos");
+      void refreshLibrary();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });
