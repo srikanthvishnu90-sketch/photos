@@ -285,7 +285,16 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
         }),
       );
     }
-    results.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    // Deterministic order: the model is noisy within a few points at temp 0.2,
+    // so near-tied photos would otherwise swap the #1 crown between identical
+    // re-ranks. Break ties by on-device quality, then id, so a given library +
+    // request always yields the same order.
+    results.sort(
+      (a, b) =>
+        (b.score ?? -1) - (a.score ?? -1) ||
+        (b.record.metrics?.quality ?? 0) - (a.record.metrics?.quality ?? 0) ||
+        (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0),
+    );
     for (const record of records) {
       if (!rankedIds.has(record.id)) {
         results.push(Object.freeze({ record, score: null, because: null }));

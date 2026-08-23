@@ -49,7 +49,7 @@ Scoring order of importance:
 3. vibe_tags match to USER TASTE and RECENT BEHAVIOR
 4. subject_clarity and expression
 
-"because" is ONE short user-facing line explaining what the photo is good for (e.g. "strong side light, clean silhouette — cover material"), never a number, never negative about the person in the photo.
+"because" is ONE short user-facing line explaining what the photo is good for (e.g. "strong side light, clean silhouette — cover material"), never a number, never negative about the person in the photo. Be honest: never rebrand a real flaw as a feature — do NOT call motion-blur "soft motion", closed-eyes "candid", or an unreadable frame "atmospheric". For a low-scoring photo, plain neutral photo-level language is fine ("a little soft — better as a filler than a cover"); praise only what is genuinely there.
 
 PHOTO DESCRIPTIONS:
 ${JSON.stringify(descriptions, null, 2)}`;
