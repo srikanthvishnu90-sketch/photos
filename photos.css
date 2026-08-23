@@ -887,3 +887,86 @@
     transition: none;
   }
 }
+
+/* First-run "import your camera roll" invite (shown until a real library exists). */
+.photos-firstrun {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 4px 0 16px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.photos-firstrun-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.photos-firstrun-copy strong {
+  font-family: var(--font-display);
+  font-size: 19px;
+  color: var(--color-ink);
+}
+
+.photos-firstrun-copy span {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-mauve);
+}
+
+.photos-firstrun-btn {
+  align-self: flex-start;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--color-white);
+  background: var(--color-deep-petal);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.photos-firstrun-btn:focus-visible {
+  outline: 2px solid var(--color-deep-petal);
+  outline-offset: 2px;
+}
+
+/* Live analysis progress during import. */
+.photos-progress {
+  margin: 4px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.photos-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-surface-strong);
+}
+
+.photos-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--color-deep-petal);
+  transition: width 200ms ease;
+}
+
+.photos-progress-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-mauve);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photos-progress-fill {
+    transition: none;
+  }
+}

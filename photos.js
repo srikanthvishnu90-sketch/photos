@@ -189,6 +189,21 @@ function photosMarkup() {
         </button>
       </header>
 
+      <div id="photosFirstRun" class="photos-firstrun" hidden>
+        <div class="photos-firstrun-copy">
+          <strong>Bring in your camera roll</strong>
+          <span>Tap Import, choose <b>Select All</b> — Gems finds your best photos in seconds, right on your device.</span>
+        </div>
+        <button id="photosFirstRunImport" class="photos-firstrun-btn" type="button">Import your photos</button>
+      </div>
+
+      <div id="photosProgress" class="photos-progress" hidden>
+        <div class="photos-progress-track">
+          <span id="photosProgressFill" class="photos-progress-fill"></span>
+        </div>
+        <p id="photosProgressText" class="photos-progress-text" aria-live="polite"></p>
+      </div>
+
       <section class="photos-search-section" aria-label="Search your photos">
         <label class="photos-search photos-entrance" for="photosSearch">
           <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -265,6 +280,12 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   const grid = mount.querySelector("#photosGrid");
   const empty = mount.querySelector("#photosEmpty");
   const status = mount.querySelector("#photosStatus");
+  const firstRun = mount.querySelector("#photosFirstRun");
+  const progress = mount.querySelector("#photosProgress");
+  const progressFill = mount.querySelector("#photosProgressFill");
+  const progressText = mount.querySelector("#photosProgressText");
+  const importBtn = mount.querySelector("#photosImport");
+  const exportBtn = mount.querySelector("#photosExport");
   const bottomChrome = mount.querySelector("#photosBottomChrome");
   const sheetRoot = mount.querySelector("#photoSheetRoot");
   let query = "";
@@ -342,6 +363,9 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
       activeRealCollection = null;
     }
     hintsRow.hidden = real;
+    // The first-run "import your camera roll" invite shows until a real
+    // library exists.
+    if (firstRun) firstRun.hidden = real;
     if (real) {
       // The real rail's visibility is owned by renderRealCollections (hidden
       // until there are collections to show).
@@ -707,6 +731,11 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     fileInput.click();
   });
 
+  mount.querySelector("#photosFirstRunImport").addEventListener("click", () => {
+    photosActions.importPhotos();
+    fileInput.click();
+  });
+
   mount.querySelector("#photosExport").addEventListener("click", async () => {
     try {
       photosActions.exportTapped(libraryPhotos.length);
@@ -725,15 +754,56 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     }
   });
 
+  function setImportBusy(busy) {
+    if (importBtn) importBtn.disabled = busy;
+    if (exportBtn) exportBtn.disabled = busy;
+  }
+
+  function showProgress(done, total, gems) {
+    if (!progress) return;
+    progress.hidden = false;
+    if (firstRun) firstRun.hidden = true;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    if (progressFill) progressFill.style.width = `${pct}%`;
+    if (progressText) {
+      progressText.textContent =
+        done < total
+          ? `Analyzing your camera roll… ${done} of ${total} · ${gems} gem${gems === 1 ? "" : "s"} so far`
+          : `Analyzed ${total} photo${total === 1 ? "" : "s"} · ${gems} gem${gems === 1 ? "" : "s"}`;
+    }
+  }
+
+  function hideProgress() {
+    if (progress) progress.hidden = true;
+    if (progressFill) progressFill.style.width = "0%";
+  }
+
   fileInput.addEventListener("change", async () => {
     if (!fileInput.files || fileInput.files.length === 0) return;
-    const added = await importPhotoFiles(fileInput.files);
+    const total = fileInput.files.length;
+    setImportBusy(true);
+    showProgress(0, total, 0);
+    let added = [];
+    try {
+      // Analyze the whole selection on-device with live progress — this is the
+      // "import everything, watch it pick the best, fast" moment.
+      added = await importPhotoFiles(fileInput.files, {
+        onProgress: ({ done, total: t, gems }) => showProgress(done, t, gems),
+      });
+    } catch (error) {
+      console.info("Import failed", error);
+    }
     fileInput.value = "";
     libraryPhotos = await listPhotos();
     clearRanked();
     syncMode();
     renderGrid();
-    if (added.length === 0) return;
+    hideProgress();
+    setImportBusy(false);
+    if (!added || added.length === 0) {
+      status.textContent = "Those didn't import — try photos from your library.";
+      return;
+    }
     const addedIds = new Set(added.map((record) => record.id));
     const gemCount = libraryPhotos.filter(
       (photo) => addedIds.has(photo.id) && photo.gem,

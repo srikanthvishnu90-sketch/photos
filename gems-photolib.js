@@ -13,6 +13,16 @@ const DB_VERSION = 1;
 const STORE_NAME = "photos";
 const THUMB_MAX = 320; // long-side cap for the analysis downscale
 
+// Import performance tuning. The import path is the product's fundamental
+// ability: pull in a whole camera roll (hundreds to a few thousand photos),
+// analyze fast, and never freeze the tab. We analyze with a small async pool
+// (overlapping createImageBitmap/decode), yield to the event loop so the UI
+// paints live, and batch the IndexedDB writes into few transactions.
+const CONCURRENCY = 4; // in-flight analyses; caps peak decode memory on mobile
+const WRITE_CHUNK = 25; // records buffered per IndexedDB transaction
+const YIELD_EVERY = 8; // yield to the event loop every N processed files
+const PROGRESS_EVERY = 4; // fire onProgress at most every N processed files
+
 // Quality blend weights — sharpness dominates, then contrast, then exposure.
 const WEIGHTS = Object.freeze({ sharpness: 0.55, contrast: 0.25, exposure: 0.2 });
 
@@ -127,15 +137,33 @@ function makeCanvas(width, height) {
 }
 
 // Downscale a bitmap onto a canvas (max THUMB_MAX on the long side) and return
-// its ImageData, or null when canvas support is missing.
-function bitmapToImageData(bitmap) {
+// its ImageData, or null when canvas support is missing. When a `holder`
+// object is passed, a single canvas/context is reused across calls (resized in
+// place) instead of allocating one per photo — the metric math is identical
+// because the same downscaled pixels are produced either way; this only avoids
+// per-photo canvas/context churn during a large import.
+function drawBitmapToImageData(bitmap, holder = null) {
   try {
     const scale = Math.min(1, THUMB_MAX / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = makeCanvas(width, height);
-    if (!canvas) return null;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    let canvas;
+    let ctx;
+    if (holder && holder.canvas) {
+      canvas = holder.canvas;
+      // Setting width/height also clears the surface — no manual clear needed.
+      canvas.width = width;
+      canvas.height = height;
+      ctx = holder.ctx;
+    } else {
+      canvas = makeCanvas(width, height);
+      if (!canvas) return null;
+      ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (holder) {
+        holder.canvas = canvas;
+        holder.ctx = ctx;
+      }
+    }
     if (!ctx) return null;
     ctx.drawImage(bitmap, 0, 0, width, height);
     return ctx.getImageData(0, 0, width, height);
@@ -143,6 +171,11 @@ function bitmapToImageData(bitmap) {
     console.info("Photo downscale failed", error);
     return null;
   }
+}
+
+// Backward-compatible single-shot downscale (allocates its own canvas).
+function bitmapToImageData(bitmap) {
+  return drawBitmapToImageData(bitmap, null);
 }
 
 // Classic signal-processing metrics from grayscale pixel data:
@@ -292,55 +325,225 @@ async function getAllRecords() {
 // Public API
 // ---------------------------------------------------------------------------
 
+// Yield control to the event loop so the UI paints and onProgress renders live
+// during a long import. Prefers requestIdleCallback (bounded by a timeout so we
+// never stall throughput), falls back to a macrotask, and never throws.
+function yieldToEventLoop() {
+  return new Promise((resolve) => {
+    try {
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(() => resolve(), { timeout: 32 });
+      } else if (typeof setTimeout === "function") {
+        setTimeout(resolve, 0);
+      } else {
+        resolve();
+      }
+    } catch {
+      resolve();
+    }
+  });
+}
+
+// Persist a batch of analyzed records in a single readwrite transaction. All
+// put()s are issued synchronously (so the transaction stays active), and a bad
+// record is neutralized (preventDefault) so it can't abort its siblings. A
+// failing chunk resolves to [] and the import continues — one chunk never
+// breaks the whole import. Returns the records that were committed.
+async function persistChunk(chunk) {
+  if (!chunk.length) return [];
+  const ok = await withStore(
+    "readwrite",
+    (store) =>
+      new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (!settled) {
+            settled = true;
+            resolve(value);
+          }
+        };
+        try {
+          const tx = store.transaction;
+          tx.oncomplete = () => finish(true);
+          tx.onerror = () => {
+            console.info("Photo import chunk failed", tx.error);
+            finish(false);
+          };
+          tx.onabort = () => {
+            console.info("Photo import chunk aborted", tx.error);
+            finish(false);
+          };
+          for (const record of chunk) {
+            try {
+              const req = store.put(record);
+              req.onerror = (event) => {
+                // Swallow a single bad record so it doesn't abort the chunk.
+                try {
+                  event.preventDefault();
+                } catch {
+                  // ignore
+                }
+                console.info("Photo put skipped for one record", req.error);
+              };
+            } catch (error) {
+              console.info("Photo put skipped for one record", error);
+            }
+          }
+        } catch (error) {
+          console.info("Photo import chunk failed", error);
+          finish(false);
+        }
+      }),
+    false,
+  );
+  return ok ? chunk : [];
+}
+
 // Import image Files: analyze on-device, persist originals in IndexedDB, and
-// return the stored records (without blobs, with object URLs). Non-image files
-// are skipped silently; a failing file never breaks the batch.
-export async function importPhotoFiles(fileList) {
+// return the stored records (without blobs, with object URLs). Built to scale
+// to a real camera roll (hundreds to a few thousand photos):
+//   - a small async pool (CONCURRENCY) overlaps createImageBitmap/decode
+//     without decoding everything at once (bounds peak memory on mobile);
+//   - each ImageBitmap is closed immediately after getImageData;
+//   - one reusable canvas is resized in place instead of allocated per photo;
+//   - analyzed records are buffered and written WRITE_CHUNK at a time (far
+//     fewer IndexedDB transactions at scale);
+//   - the loop yields to the event loop periodically so the tab never freezes
+//     and options.onProgress renders live.
+// The metric math is byte-identical to before. Non-image files are skipped
+// silently; a failing file or chunk never breaks the batch.
+//
+// options.onProgress?: ({ done, total, gems }) => void — called periodically,
+//   where `done` = image files processed so far, `total` = image files in the
+//   batch, and `gems` = running count of likely gems (reconciled to the
+//   authoritative gem count in a final call).
+export async function importPhotoFiles(fileList, options = {}) {
   const imported = [];
+  const onProgress =
+    options && typeof options.onProgress === "function" ? options.onProgress : null;
   try {
     const files = Array.from(fileList ?? []);
-    for (const file of files) {
-      try {
-        if (!file || typeof file.type !== "string" || !file.type.startsWith("image/")) {
-          continue;
-        }
-        const bitmap = await createImageBitmap(file);
-        const width = bitmap.width;
-        const height = bitmap.height;
-        const imageData = bitmapToImageData(bitmap);
-        try {
-          bitmap.close?.();
-        } catch {
-          // ignore
-        }
-        if (!imageData) continue;
+    const imageFiles = files.filter(
+      (file) =>
+        file && typeof file.type === "string" && file.type.startsWith("image/"),
+    );
+    const total = imageFiles.length;
 
-        const base = computeMetrics(imageData);
-        const metrics = {
-          ...base,
-          quality: computeQuality(base),
-        };
-        const record = {
-          id: crypto.randomUUID(),
-          name: file.name,
-          type: file.type,
-          blob: file,
-          width,
-          height,
-          addedAt: Date.now(),
-          metrics,
-        };
-        const stored = await withStore(
-          "readwrite",
-          (store) => requestToPromise(store.put(record), null).then(() => true),
-          false,
-        );
-        if (stored) imported.push(toPublicRecord(record));
+    let done = 0;
+    let runningGems = 0;
+    let lastEmitted = -1;
+    const storedRecords = [];
+    let writeBuffer = [];
+    // One canvas/context reused across the whole import.
+    const canvasHolder = {};
+
+    const emit = (gemsValue) => {
+      if (!onProgress) return;
+      try {
+        onProgress({ done, total, gems: gemsValue ?? runningGems });
       } catch (error) {
-        console.info("Photo import skipped for one file", error);
+        console.info("Photo import progress callback failed", error);
       }
+    };
+
+    // Show the total up front so the UI can render its scale immediately.
+    emit();
+
+    const flush = async () => {
+      if (!writeBuffer.length) return;
+      const chunk = writeBuffer;
+      writeBuffer = [];
+      const committed = await persistChunk(chunk);
+      for (const record of committed) storedRecords.push(record);
+    };
+
+    let cursor = 0;
+    const analyzeNext = async () => {
+      while (cursor < imageFiles.length) {
+        const file = imageFiles[cursor];
+        cursor += 1;
+        try {
+          const bitmap = await createImageBitmap(file);
+          const width = bitmap.width;
+          const height = bitmap.height;
+          const imageData = drawBitmapToImageData(bitmap, canvasHolder);
+          // Free the decoded bitmap the instant its pixels are captured.
+          try {
+            bitmap.close?.();
+          } catch {
+            // ignore
+          }
+          if (imageData) {
+            const base = computeMetrics(imageData);
+            const metrics = { ...base, quality: computeQuality(base) };
+            const record = {
+              id: crypto.randomUUID(),
+              name: file.name,
+              type: file.type,
+              blob: file,
+              width,
+              height,
+              addedAt: Date.now(),
+              metrics,
+            };
+            // Provisional running signal (absolute-threshold rule); the
+            // authoritative gem set is computed once the batch is complete.
+            if (metrics.quality >= 70) runningGems += 1;
+            writeBuffer.push(record);
+            if (writeBuffer.length >= WRITE_CHUNK) await flush();
+          }
+        } catch (error) {
+          console.info("Photo import skipped for one file", error);
+        }
+
+        done += 1;
+        if (done - lastEmitted >= PROGRESS_EVERY || done === total) {
+          lastEmitted = done;
+          emit();
+        }
+        if (done % YIELD_EVERY === 0) await yieldToEventLoop();
+      }
+    };
+
+    // Cap in-flight work at the pool size; workers share the file cursor.
+    const workerCount = Math.max(1, Math.min(CONCURRENCY, total || 1));
+    const workers = [];
+    for (let i = 0; i < workerCount; i += 1) workers.push(analyzeNext());
+    await Promise.all(workers);
+
+    // Write whatever is left in the buffer.
+    await flush();
+
+    // Authoritative, honest gem set over the just-imported batch (quality >= 70
+    // OR top 25%, whichever marks more; quality < 40 is never a gem).
+    const gemIds = computeGemIds(storedRecords);
+
+    for (const record of storedRecords) {
+      imported.push(toPublicRecord(record, gemIds.has(record.id)));
     }
+
+    // Reconcile the live progress number to the authoritative gem count.
+    emit(gemIds.size);
+
     recordTasteEvent("photos_imported", { count: imported.length });
+
+    // Explicit "which were picked and why (quality)" breadcrumb — the future
+    // taste model trains on this. We only capture the signal here; no training.
+    try {
+      const topQuality = [...storedRecords]
+        .sort((a, b) => (b.metrics?.quality ?? 0) - (a.metrics?.quality ?? 0))
+        .slice(0, 5)
+        .map((record) => ({ id: record.id, quality: record.metrics?.quality ?? 0 }));
+      recordTasteEvent("gems_selected", {
+        total,
+        gems: gemIds.size,
+        gemIds: Array.from(gemIds).slice(0, 50),
+        topQuality,
+      });
+    } catch (error) {
+      console.info("Gem selection signal skipped", error);
+    }
+
     // Additive, decoupled hook: let the first-run Hidden-Gems reveal trigger
     // off a successful import without this module knowing anything about it.
     if (typeof window !== "undefined") {
