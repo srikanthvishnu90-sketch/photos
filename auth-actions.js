@@ -28,17 +28,45 @@ export const authActions = Object.freeze({
     await signInWithOAuth("google");
   },
 
+  // Resolves { sent } so the login flow knows whether to show the
+  // code-entry step or continue in demo mode.
   async requestEmailOtp(email) {
     try {
       const supabase = await getSupabase();
-      if (!supabase) return;
+      if (!supabase) return { sent: false };
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { shouldCreateUser: true },
       });
-      if (error) console.info("Email OTP request failed", error);
+      if (error) {
+        console.info("Email OTP request failed", error);
+        return { sent: false };
+      }
+      return { sent: true };
     } catch (error) {
       console.info("Email OTP unavailable", error);
+      return { sent: false };
+    }
+  },
+
+  // Resolves { session } (null when the code was wrong or expired).
+  async verifyEmailOtp(email, token) {
+    try {
+      const supabase = await getSupabase();
+      if (!supabase) return { session: null };
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: "email",
+      });
+      if (error) {
+        console.info("Email OTP verify failed", error);
+        return { session: null };
+      }
+      return { session: data?.session ?? null };
+    } catch (error) {
+      console.info("Email OTP verify unavailable", error);
+      return { session: null };
     }
   },
 });

@@ -543,6 +543,39 @@ button {
   cursor: default;
 }
 
+.otp-hint {
+  margin: -4px 0 2px;
+  color: var(--color-mauve);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.otp-hint span {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+.otp-input {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+}
+
+.otp-input::placeholder {
+  letter-spacing: 0.24em;
+}
+
+.otp-error {
+  margin: -2px 0 0;
+  color: var(--color-deep-petal);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .back-button {
   min-height: 44px;
   padding: 0 12px;

@@ -24,6 +24,13 @@ const emailInput = document.querySelector("#emailInput");
 const emailContinueButton = document.querySelector("#emailContinueButton");
 const emailOptionButton = document.querySelector("#emailOptionButton");
 const backToOptionsButton = document.querySelector("#backToOptionsButton");
+const otpForm = document.querySelector("#otpForm");
+const otpInput = document.querySelector("#otpInput");
+const otpEmail = document.querySelector("#otpEmail");
+const otpError = document.querySelector("#otpError");
+const otpVerifyButton = document.querySelector("#otpVerifyButton");
+const otpResendButton = document.querySelector("#otpResendButton");
+const backToEmailButton = document.querySelector("#backToEmailButton");
 const onboardingScreen = document.querySelector("#onboardingScreen");
 const doneScreen = document.querySelector("#doneScreen");
 const doneHeadline = document.querySelector("#doneHeadline");
@@ -331,11 +338,100 @@ function leaveEmailMode() {
   emailOptionButton.focus({ preventScroll: true });
 }
 
+// After a completed sign-in: returning onboarded users go straight to
+// Home; everyone else continues into onboarding (now with a session, so
+// their answers persist).
+async function routeSignedInUser() {
+  try {
+    const supabase = await getSupabase();
+    const session = await getSession();
+    if (!supabase || !session) return false;
+    const { data } = await supabase
+      .from("profiles")
+      .select("display_name, age_range")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    if (data?.age_range) {
+      skipToHomeFromLogin({ name: data.display_name });
+      return true;
+    }
+  } catch (error) {
+    console.info("Post-auth routing fell back to onboarding", error);
+  }
+  return false;
+}
+
+function skipToHomeFromLogin(state) {
+  onboardingStarted = true;
+  onboardingFinished = true;
+  loginScreen.classList.remove("is-active");
+  loginScreen.setAttribute("aria-hidden", "true");
+  showHome(state);
+
+  const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
+  window.setTimeout(() => {
+    loginScreen.hidden = true;
+  }, transitionDelay);
+}
+
+function syncOtpState() {
+  const digits = otpInput.value.replace(/\D/g, "").slice(0, 6);
+  if (digits !== otpInput.value) otpInput.value = digits;
+  otpInput.classList.toggle("has-value", digits.length > 0);
+  otpVerifyButton.disabled = digits.length !== 6;
+  otpError.hidden = true;
+}
+
+function enterOtpMode(email) {
+  otpEmail.textContent = email;
+  otpInput.value = "";
+  syncOtpState();
+  emailForm.hidden = true;
+  emailForm.setAttribute("aria-hidden", "true");
+  otpForm.hidden = false;
+  otpForm.setAttribute("aria-hidden", "false");
+  window.requestAnimationFrame(() => otpInput.focus({ preventScroll: true }));
+}
+
+function leaveOtpMode() {
+  otpForm.hidden = true;
+  otpForm.setAttribute("aria-hidden", "true");
+  emailForm.hidden = false;
+  emailForm.setAttribute("aria-hidden", "false");
+  window.requestAnimationFrame(() => emailInput.focus({ preventScroll: true }));
+}
+
 async function handleEmailSubmit(event) {
   event.preventDefault();
   const email = emailInput.value.trim();
   if (!isValidEmail(email)) return;
-  await finishAuth(() => authActions.requestEmailOtp(email));
+  emailContinueButton.disabled = true;
+  const { sent } = await authActions.requestEmailOtp(email);
+  emailContinueButton.disabled = false;
+  if (sent) {
+    enterOtpMode(email);
+    return;
+  }
+  // Demo mode: no backend reachable, keep the prototype flow.
+  showOnboarding();
+}
+
+async function handleOtpSubmit(event) {
+  event.preventDefault();
+  const token = otpInput.value.trim();
+  if (token.length !== 6) return;
+  otpVerifyButton.disabled = true;
+  const { session } = await authActions.verifyEmailOtp(otpEmail.textContent, token);
+  if (!session) {
+    otpVerifyButton.disabled = false;
+    otpError.hidden = false;
+    otpInput.setAttribute("aria-invalid", "true");
+    otpInput.select();
+    return;
+  }
+  otpInput.setAttribute("aria-invalid", "false");
+  const routedHome = await routeSignedInUser();
+  if (!routedHome) showOnboarding();
 }
 
 document.querySelector("#appleButton").addEventListener("click", () => {
@@ -353,6 +449,15 @@ backToOptionsButton.addEventListener("click", leaveEmailMode);
 emailInput.addEventListener("input", syncEmailState);
 emailInput.addEventListener("focus", () => window.setTimeout(keepEmailVisible, 180));
 emailForm.addEventListener("submit", handleEmailSubmit);
+otpInput.addEventListener("input", syncOtpState);
+otpForm.addEventListener("submit", handleOtpSubmit);
+otpResendButton.addEventListener("click", () => {
+  void authActions.requestEmailOtp(otpEmail.textContent);
+  otpInput.value = "";
+  syncOtpState();
+  otpInput.focus({ preventScroll: true });
+});
+backToEmailButton.addEventListener("click", leaveOtpMode);
 
 document.querySelectorAll("[data-legal]").forEach((button) => {
   button.addEventListener("click", () => {
