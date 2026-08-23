@@ -114,6 +114,16 @@ function profileMarkup() {
             `,
           ).join("")}
         </div>
+        <button
+          id="profileSignOut"
+          class="profile-setting profile-signout profile-entrance"
+          style="--profile-delay: 860ms"
+          type="button"
+        >
+          <span class="profile-setting-copy">
+            <strong>Sign out</strong>
+          </span>
+        </button>
       </section>
     </div>
 
@@ -244,6 +254,11 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => {
       profileActions.openSetting(button.dataset.profileSetting);
     });
+  });
+
+  mount.querySelector("#profileSignOut").addEventListener("click", () => {
+    status.textContent = "Signing out.";
+    void profileActions.signOut();
   });
 
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {

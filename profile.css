@@ -584,3 +584,12 @@
     animation: none;
   }
 }
+
+.profile-signout {
+  margin-top: 14px;
+  justify-content: center;
+}
+
+.profile-signout .profile-setting-copy strong {
+  color: var(--color-deep-petal);
+}
