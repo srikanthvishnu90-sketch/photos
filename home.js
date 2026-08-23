@@ -1,6 +1,7 @@
 import { homeActions } from "./home-actions.js";
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
-import { getSupabase, getSession } from "./gems-supabase.js";
+import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
+import { pickGemOfTheDay } from "./gems-daily.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -320,11 +321,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   const replyText = mount.querySelector("#homeReplyText");
   const replyChips = mount.querySelector("#homeReplyChips");
   const replyClose = mount.querySelector("#homeReplyClose");
+  const hiddenGemBtn = mount.querySelector("#openHiddenGem");
   let activeGem = 0;
   let scrollFrame = 0;
   let activated = false;
   let chatInFlight = false;
   let navigateTimer = 0;
+  // The real photo currently backing the Hidden-gem card (null in demo mode),
+  // plus the id we last fired a "shown" event for (so we fire it once per gem).
+  let hiddenGemPhotoId = null;
+  let hiddenGemShownFor = null;
   // The signed-in user's chosen aesthetics, fetched once per activation.
   let aestheticsPromise = null;
 
@@ -504,6 +510,57 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
+  // Strip the shared lead off the reason so it reads cleanly under the fixed
+  // "You forgot about this one" heading, leaving just the detail sentence.
+  function hiddenGemDetail(reason) {
+    const line = String(reason ?? "").trim();
+    if (!line) return "A gem you never posted";
+    const stripped = line.replace(/^you forgot about this one\s*[—–-]\s*/i, "").trim();
+    return stripped || line;
+  }
+
+  // Real-library mode: swap the Hidden-gem card's demo CSS scene for the actual
+  // photo of the day plus its reason. When there's no real gem (empty library,
+  // signed out, private browsing) the demo scene is left byte-identical.
+  // Text lands via textContent, so nothing here can inject markup. Never throws.
+  async function refreshHiddenGem() {
+    if (!hiddenGemBtn) return;
+    try {
+      const result = await pickGemOfTheDay();
+      if (!result?.record?.url) return; // keep the demo scene untouched
+      const { record, reason } = result;
+      hiddenGemPhotoId = record.id;
+
+      let img = hiddenGemBtn.querySelector(".hidden-gem-photo");
+      if (!img) {
+        img = document.createElement("img");
+        img.className = "hidden-gem-photo";
+        img.alt = "";
+        img.setAttribute("aria-hidden", "true");
+        const scene = hiddenGemBtn.querySelector(".home-scene");
+        if (scene) scene.replaceWith(img);
+        else hiddenGemBtn.prepend(img);
+      }
+      img.src = record.url;
+
+      const strong = hiddenGemBtn.querySelector(".hidden-gem-copy strong");
+      const small = hiddenGemBtn.querySelector(".hidden-gem-copy small");
+      if (strong) strong.textContent = "You forgot about this one";
+      if (small) small.textContent = hiddenGemDetail(reason);
+
+      if (hiddenGemShownFor !== record.id) {
+        hiddenGemShownFor = record.id;
+        try {
+          recordTasteEvent("gem_of_day_shown", { photoId: record.id });
+        } catch (error) {
+          console.info("gem_of_day_shown skipped", error);
+        }
+      }
+    } catch (error) {
+      console.info("Hidden gem of the day unavailable", error);
+    }
+  }
+
   carousel.addEventListener("scroll", queueCarouselUpdate, { passive: true });
   profile.addEventListener("click", () => {
     homeActions.openProfile();
@@ -514,7 +571,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     homeActions.openDraft();
     goTo("Studio", { projectId: 1 });
   });
-  mount.querySelector("#openHiddenGem").addEventListener("click", homeActions.openHiddenGem);
+  hiddenGemBtn.addEventListener("click", () => {
+    homeActions.openHiddenGem();
+    // Real gem → open it in the editor ("do something with it"). Demo mode
+    // keeps its original telemetry-only behavior.
+    if (hiddenGemPhotoId) goTo("Editor", { mode: "describe", photoId: hiddenGemPhotoId });
+  });
   mount.querySelector("#discoverVibes").addEventListener("click", () => {
     homeActions.selectTab("Discover");
     goTo("Discover");
@@ -579,6 +641,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       aestheticsPromise = null;
       window.clearTimeout(navigateTimer);
       hideReply();
+      // Recompute today's hidden gem each activation (rotates daily; upgrades
+      // the demo card to a real photo once a library exists).
+      void refreshHiddenGem();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });

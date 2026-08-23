@@ -3,6 +3,7 @@ import { studioActions } from "./studio-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
 import { fetchMoodboardCounts } from "./gems-moodboards.js";
 import { DUMP_STYLES, buildDumpOptions, reviseDump } from "./gems-dump.js";
+import { buildDatingProfile, buildScopedDump, SCOPED_MODES } from "./gems-modes.js";
 
 // Small HTML escaper for user-controlled text (requests, revision notes) that
 // lands in innerHTML template strings.
@@ -230,6 +231,27 @@ function studioMarkup() {
             </button>
           `,
         ).join("")}
+      </div>
+
+      <div id="studioModeActions" class="studio-mode-actions" aria-label="Guided Studio modes">
+        <button id="studioDatingAction" class="studio-mode-chip studio-entrance" type="button" style="--studio-delay: 220ms">
+          <span class="studio-mode-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16"><path d="M8 14S2 10 2 5.8A3.3 3.3 0 0 1 8 4a3.3 3.3 0 0 1 6 1.8C14 10 8 14 8 14z"></path></svg>
+          </span>
+          <span class="studio-mode-chip-copy">
+            <strong>Dating profile</strong>
+            <small>Six roles, in order</small>
+          </span>
+        </button>
+        <button id="studioTravelAction" class="studio-mode-chip studio-entrance" type="button" style="--studio-delay: 260ms">
+          <span class="studio-mode-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16"><path d="M2 12h12M4 12V6l4-3 4 3v6M7 12V9h2v3"></path></svg>
+          </span>
+          <span class="studio-mode-chip-copy">
+            <strong>Travel recap</strong>
+            <small>One trip, one story</small>
+          </span>
+        </button>
       </div>
 
       <section id="studioHero" class="studio-hero-section" aria-label="Continue your latest draft">
@@ -717,6 +739,8 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     dumpOptionsData = [];
     dumpSelected = null;
     dumpLastFocus = document.activeElement;
+    // Reset the shared sheet's title in case a guided mode changed it.
+    dumpTitle.textContent = "Make a photo dump";
     dumpRequestEl.textContent = `“${dumpRequest}”`;
     dump.hidden = false;
     document.body.classList.add("studio-dump-open");
@@ -746,6 +770,311 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   });
   dump.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeDumpFlow();
+  });
+
+  // -------------------------------------------------------------------------
+  // Dating Profile Director (#18) + Travel/Event scoped modes (#19).
+  // Both reuse the #studioDump sheet (scrim, close, Escape, focus restore) —
+  // only the title, sub, and body content differ.
+  // -------------------------------------------------------------------------
+  let datingSlots = null; // built dating slots for saving
+  let scopedMode = "travel";
+  let scopedRangeKey = "all";
+  let scopedOption = null; // built scoped set
+  let scopedCluster = null; // date cluster the set came from
+
+  // Open the shared sheet with a fresh title/sub for a guided mode.
+  function openModeSheet(titleText, subText) {
+    dumpLastFocus = document.activeElement;
+    dumpTitle.textContent = titleText;
+    dumpRequestEl.textContent = subText;
+    dump.hidden = false;
+    document.body.classList.add("studio-dump-open");
+    dumpTitle.focus({ preventScroll: true });
+  }
+
+  function renderModeLoading(message) {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-loading">
+        <span class="studio-dump-spinner" aria-hidden="true"></span>
+        <span>${escapeHtml(message)}</span>
+      </div>
+    `;
+  }
+
+  function renderModeEmpty(message) {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-empty">
+        <strong>Nothing to build yet</strong>
+        <span>${escapeHtml(message)}</span>
+      </div>
+    `;
+    status.textContent = message;
+  }
+
+  // ----- Dating Profile Director -------------------------------------------
+  async function openDatingFlow() {
+    datingSlots = null;
+    openModeSheet("Dating profile", "Six photos, in the right order");
+    renderModeLoading("Reading your library and casting six roles…");
+    status.textContent = "Building your dating profile.";
+    try {
+      const result = await buildDatingProfile();
+      if (!result || result.error) {
+        renderModeEmpty(
+          result?.error === "failed"
+            ? "Couldn't build your profile just now."
+            : "Import photos first to build a dating profile.",
+        );
+        return;
+      }
+      datingSlots = result.slots;
+      renderDatingRoles(result);
+      studioActions.createProject();
+    } catch (error) {
+      console.info("Dating flow failed", error);
+      renderModeEmpty("Couldn't build your profile just now.");
+    }
+  }
+
+  function renderDatingRoles(result) {
+    const filled = result.slots.filter((slot) => slot.record).length;
+    dumpBody.innerHTML = `
+      <div class="studio-dump-set">
+        <p class="studio-dump-step">${filled} of ${result.slots.length} roles filled${
+          result.gaps.length ? ` · ${result.gaps.length} still to shoot` : ""
+        }.</p>
+        <ol class="studio-role-list">
+          ${result.slots
+            .map(
+              (slot) => `
+                <li class="studio-role${slot.record ? "" : " is-gap"}">
+                  <span class="studio-role-frame">
+                    ${
+                      slot.record?.url
+                        ? `<img src="${encodeURI(slot.record.url)}" alt="" loading="lazy" />`
+                        : `<span class="studio-role-frame-blank" aria-hidden="true">+</span>`
+                    }
+                  </span>
+                  <span class="studio-role-copy">
+                    <strong>${escapeHtml(slot.role)}</strong>
+                    <small>${escapeHtml(slot.because || "")}</small>
+                  </span>
+                </li>
+              `,
+            )
+            .join("")}
+        </ol>
+        <button id="studioDatingSave" class="studio-dump-build" type="button">Save to Studio</button>
+      </div>
+    `;
+    dumpBody.querySelector("#studioDatingSave").addEventListener("click", () => {
+      void saveDatingProfile();
+    });
+    status.textContent = `Dating profile: ${filled} of ${result.slots.length} roles filled.`;
+  }
+
+  async function saveDatingProfile() {
+    if (!datingSlots) return;
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) {
+        status.textContent = "Sign in to save this to Studio.";
+        return;
+      }
+      const gaps = datingSlots.filter((slot) => !slot.record).map((slot) => slot.role);
+      const { error } = await supabase.from("projects").insert({
+        profile_id: session.user.id,
+        kind: "template",
+        template_slug: "dating",
+        name: "Dating profile",
+        meta: {
+          filled: datingSlots.length - gaps.length,
+          roles: datingSlots.map((slot) => slot.role),
+          gaps,
+        },
+      });
+      if (error) {
+        status.textContent = "Couldn't save just now.";
+        return;
+      }
+      studioActions.createProject();
+      status.textContent = "Saved your dating profile to Studio.";
+      closeDumpFlow();
+      await loadProjects();
+    } catch (error) {
+      console.info("Dating profile save stayed local", error);
+      status.textContent = "Couldn't save just now.";
+    }
+  }
+
+  // ----- Travel / Event scoped modes ---------------------------------------
+  async function openTravelFlow() {
+    scopedMode = "travel";
+    scopedRangeKey = "all";
+    scopedOption = null;
+    scopedCluster = null;
+    openModeSheet("Travel recap", "One trip, told in order");
+    renderScopedQuestions();
+    studioActions.createProject();
+  }
+
+  function renderScopedQuestions() {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-questions">
+        <div class="studio-dump-q">
+          <span class="studio-dump-q-label">Which mode?</span>
+          <div class="studio-dump-chips" data-scoped-modes>
+            ${SCOPED_MODES.map(
+              (mode) => `
+                <button class="studio-dump-pick${scopedMode === mode.key ? " is-active" : ""}" type="button"
+                  data-scoped-mode="${escapeHtml(mode.key)}" aria-pressed="${scopedMode === mode.key}">
+                  ${escapeHtml(mode.label)}
+                </button>
+              `,
+            ).join("")}
+          </div>
+        </div>
+        <div class="studio-dump-q">
+          <span class="studio-dump-q-label">From when?</span>
+          <div class="studio-dump-chips" data-scoped-ranges>
+            ${DUMP_RANGES.map(
+              (range) => `
+                <button class="studio-dump-pick${scopedRangeKey === range.key ? " is-active" : ""}" type="button"
+                  data-scoped-range="${range.key}" aria-pressed="${scopedRangeKey === range.key}">
+                  ${escapeHtml(range.label)}
+                </button>
+              `,
+            ).join("")}
+          </div>
+        </div>
+        <button id="studioScopedBuild" class="studio-dump-build" type="button">Build the set</button>
+        <p class="studio-dump-hint">Skip the date and I'll find your densest trip automatically.</p>
+      </div>
+    `;
+
+    dumpBody.querySelectorAll("[data-scoped-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        scopedMode = button.dataset.scopedMode;
+        renderScopedQuestions();
+      });
+    });
+    dumpBody.querySelectorAll("[data-scoped-range]").forEach((button) => {
+      button.addEventListener("click", () => {
+        scopedRangeKey = button.dataset.scopedRange;
+        renderScopedQuestions();
+      });
+    });
+    dumpBody.querySelector("#studioScopedBuild").addEventListener("click", () => {
+      void runScopedBuild();
+    });
+  }
+
+  async function runScopedBuild() {
+    renderModeLoading("Finding the trip and ordering the story…");
+    status.textContent = "Building your recap.";
+    try {
+      const range = dumpDateRange(scopedRangeKey);
+      const result = await buildScopedDump({
+        mode: scopedMode,
+        startMs: range?.startMs ?? null,
+        endMs: range?.endMs ?? null,
+      });
+      if (!result || result.error) {
+        renderModeEmpty(
+          result?.error === "failed"
+            ? "Couldn't build the set just now."
+            : "Import photos first to build a recap.",
+        );
+        return;
+      }
+      scopedOption = result.option;
+      scopedCluster = result.cluster;
+      renderScopedSet();
+    } catch (error) {
+      console.info("Scoped build failed", error);
+      renderModeEmpty("Couldn't build the set just now.");
+    }
+  }
+
+  function renderScopedSet() {
+    const option = scopedOption;
+    if (!option) return;
+    const windowLabel = scopedCluster?.label ? ` · ${escapeHtml(scopedCluster.label)}` : "";
+    dumpBody.innerHTML = `
+      <div class="studio-dump-set">
+        <div class="studio-dump-set-head">
+          <button class="studio-dump-back" type="button" data-scoped-back>‹ Options</button>
+          <span class="studio-dump-set-label">${escapeHtml(option.label)} · ${option.count} photos${windowLabel}</span>
+        </div>
+        <div class="studio-dump-grid">
+          ${option.photos
+            .map(
+              (photo, index) => `
+                <span class="studio-dump-slot">
+                  <span class="studio-dump-slot-frame">
+                    ${
+                      photo?.url
+                        ? `<img src="${encodeURI(photo.url)}" alt="" loading="lazy" />`
+                        : `<span class="studio-dump-slot-blank" aria-hidden="true"></span>`
+                    }
+                  </span>
+                  <span class="studio-dump-slot-no">${String(index + 1).padStart(2, "0")}</span>
+                </span>
+              `,
+            )
+            .join("")}
+        </div>
+        <button id="studioScopedSave" class="studio-dump-build" type="button">Save to Studio</button>
+      </div>
+    `;
+
+    dumpBody.querySelector("[data-scoped-back]").addEventListener("click", () => {
+      renderScopedQuestions();
+    });
+    dumpBody.querySelector("#studioScopedSave").addEventListener("click", () => {
+      void saveScopedDump();
+    });
+    status.textContent = `${option.label}: ${option.count} photos ready.`;
+  }
+
+  async function saveScopedDump() {
+    const option = scopedOption;
+    if (!option) return;
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) {
+        status.textContent = "Sign in to save this dump to Studio.";
+        return;
+      }
+      const { error } = await supabase.from("projects").insert({
+        profile_id: session.user.id,
+        kind: "dump",
+        name: option.label.slice(0, 80),
+        aesthetic: option.label,
+        meta: { mode: scopedMode, count: option.count, window: scopedCluster?.label ?? null },
+      });
+      if (error) {
+        status.textContent = "Couldn't save the dump just now.";
+        return;
+      }
+      studioActions.createProject();
+      status.textContent = `Saved "${option.label}" to Studio.`;
+      closeDumpFlow();
+      await loadProjects();
+    } catch (error) {
+      console.info("Scoped dump save stayed local", error);
+      status.textContent = "Couldn't save the dump just now.";
+    }
+  }
+
+  mount.querySelector("#studioDatingAction").addEventListener("click", () => {
+    void openDatingFlow();
+  });
+  mount.querySelector("#studioTravelAction").addEventListener("click", () => {
+    void openTravelFlow();
   });
 
   mount.querySelector("#studioNewProject").addEventListener("click", () => {

@@ -1,6 +1,7 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { profileActions } from "./profile-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
+import { shareTasteProfile } from "./gems-share.js";
 
 const TASTE = Object.freeze([
   { name: "Euro Summer", percent: 46, key: "euro" },
@@ -346,7 +347,23 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
 
   plusButton.addEventListener("click", openPaywall);
   mount.querySelector("#profileShare").addEventListener("click", () => {
+    // Keep the engagement signal, then render + present the live taste card.
     profileActions.shareTasteProfile({ ...profileState, taste: tasteData });
+    void (async () => {
+      try {
+        status.textContent = "Preparing your card…";
+        const result = await shareTasteProfile({
+          name: profileState.name,
+          taste: tasteData,
+        });
+        status.textContent = result?.shared
+          ? "Shared!"
+          : "Saved your taste card.";
+      } catch (error) {
+        console.info("Taste share stayed local", error);
+        status.textContent = "Couldn't share right now.";
+      }
+    })();
   });
 
   mount.querySelectorAll("[data-profile-setting]").forEach((button) => {
