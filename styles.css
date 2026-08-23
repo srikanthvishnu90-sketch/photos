@@ -6,10 +6,16 @@
   --color-blossom: #ffd3e1;
   --color-blush: #fff0f5;
   --color-ink: #170b10;
-  --color-mauve: #8e7480;
+  --color-mauve: #746d70;
   --color-deep-petal: #e0507e;
   --color-white: #ffffff;
-  --color-auth-outline: #e9dee3;
+  --color-auth-outline: var(--color-border);
+  --color-stage: #efedef;
+  --color-surface: #f7f6f6;
+  --color-surface-strong: #eeeaec;
+  --color-border: #dfd9dc;
+  --color-device-frame: #211e20;
+  --color-device-shadow: rgba(23, 11, 16, 0.22);
 
   --color-card-left-start: #ffffff;
   --color-card-left-end: #ffe3ec;
@@ -163,6 +169,31 @@ button {
   overflow: hidden;
   isolation: isolate;
   background: var(--color-white);
+}
+
+/* On larger screens the website becomes a device stage, not a stretched page. */
+@media (min-width: 700px) and (min-height: 650px) {
+  body {
+    display: grid;
+    padding: 32px;
+    place-items: center;
+    background: var(--color-stage);
+  }
+
+  .gems-app {
+    width: 390px;
+    height: min(820px, calc(var(--app-height, 100dvh) - 64px));
+    min-height: 586px;
+    border-radius: 44px;
+    box-shadow:
+      0 0 0 9px var(--color-device-frame),
+      0 30px 70px var(--color-device-shadow);
+  }
+
+  .login-layout {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
 }
 
 .screen {
@@ -419,10 +450,15 @@ button {
   background: var(--color-white);
 }
 
-.auth-button-email,
-.email-continue:not(:disabled) {
+.auth-button-email {
   color: var(--color-ink);
-  background: var(--color-petal);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.email-continue:not(:disabled) {
+  color: var(--color-white);
+  background: var(--color-ink);
 }
 
 .auth-mark {
@@ -474,11 +510,11 @@ button {
   width: 100%;
   height: 54px;
   padding: 0 18px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 16px;
   outline: none;
   color: var(--color-ink);
-  background: var(--color-blush);
+  background: var(--color-surface);
   font-size: 16px;
   line-height: 1;
   caret-color: var(--color-deep-petal);
@@ -503,7 +539,7 @@ button {
 
 .email-continue:disabled {
   color: var(--color-mauve);
-  background: var(--color-blossom);
+  background: var(--color-surface-strong);
   cursor: default;
 }
 
@@ -655,7 +691,7 @@ button {
 }
 
 .onboarding-back:hover {
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .onboarding-back:active {
@@ -697,7 +733,7 @@ button {
   height: 4px;
   overflow: hidden;
   border-radius: 2px;
-  background: var(--color-blossom);
+  background: var(--color-border);
 }
 
 .progress-segment::after {
@@ -788,7 +824,7 @@ button {
   margin-top: 36px;
   padding: 14px 2px;
   border: 0;
-  border-bottom: 2px solid var(--color-blossom);
+  border-bottom: 2px solid var(--color-border);
   border-radius: 0;
   outline: none;
   color: var(--color-ink);
@@ -844,7 +880,7 @@ button {
 
 .primary-button:disabled {
   color: var(--color-mauve);
-  background: var(--color-blossom);
+  background: var(--color-surface-strong);
   cursor: default;
 }
 
@@ -862,7 +898,7 @@ button {
   width: 100%;
   min-height: 59px;
   padding: 17px 20px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 18px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -896,7 +932,7 @@ button {
   width: 22px;
   height: 22px;
   margin-left: 16px;
-  border: 2px solid var(--color-blossom);
+  border: 2px solid var(--color-border);
   border-radius: 50%;
   place-items: center;
   background: transparent;
@@ -954,9 +990,9 @@ button {
   height: 52px;
   margin-top: 24px;
   padding: 0 8px 0 16px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 16px;
-  background: var(--color-blush);
+  background: var(--color-surface);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -1072,7 +1108,7 @@ button {
   align-items: center;
   min-height: 44px;
   padding: 9px 16px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -1101,7 +1137,7 @@ button {
 }
 
 .vibe-chip.is-dimmed {
-  color: var(--color-blossom);
+  color: var(--color-border);
   cursor: default;
 }
 
@@ -1323,13 +1359,6 @@ button {
   .login-spacer {
     flex-basis: 30px;
     min-height: 24px;
-  }
-}
-
-@media (min-width: 768px) {
-  .login-layout {
-    padding-right: 40px;
-    padding-left: 40px;
   }
 }
 

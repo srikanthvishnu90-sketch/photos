@@ -344,7 +344,7 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
-      if (tab === "Home" || tab === "Photos" || tab === "Profile") {
+      if (tab === "Home" || tab === "Photos" || tab === "Studio" || tab === "Profile") {
         onNavigate(tab);
         return;
       }

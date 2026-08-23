@@ -4,6 +4,7 @@ import { createHomeScreen } from "./home.js";
 import { createDiscoverScreen } from "./discover.js";
 import { createPhotosScreen } from "./photos.js";
 import { createEditorScreen } from "./editor.js";
+import { createStudioScreen } from "./studio.js";
 import { createProfileScreen } from "./profile.js";
 
 const SPLASH_DURATION_MS = 2600;
@@ -30,6 +31,7 @@ const homeScreen = document.querySelector("#homeScreen");
 const discoverScreen = document.querySelector("#discoverScreen");
 const photosScreen = document.querySelector("#photosScreen");
 const editorScreen = document.querySelector("#editorScreen");
+const studioScreen = document.querySelector("#studioScreen");
 const profileScreen = document.querySelector("#profileScreen");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -73,6 +75,12 @@ const photosController = createPhotosScreen({
 const editorController = createEditorScreen({
   screen: editorScreen,
   mount: document.querySelector("#editorMount"),
+  onNavigate: navigateAuthenticated,
+});
+
+const studioController = createStudioScreen({
+  screen: studioScreen,
+  mount: document.querySelector("#studioMount"),
   onNavigate: navigateAuthenticated,
 });
 
@@ -233,6 +241,7 @@ function transitionAuthenticated(targetName, payload = {}) {
     Discover: { screen: discoverScreen, controller: discoverController },
     Photos: { screen: photosScreen, controller: photosController },
     Editor: { screen: editorScreen, controller: editorController },
+    Studio: { screen: studioScreen, controller: studioController },
     Profile: { screen: profileScreen, controller: profileController },
   };
   const source = routes[activeAuthenticatedScreen];
@@ -265,6 +274,7 @@ function navigateAuthenticated(tab, payload = {}) {
     tab === "Discover" ||
     tab === "Photos" ||
     tab === "Editor" ||
+    tab === "Studio" ||
     tab === "Profile"
   ) {
     transitionAuthenticated(tab, payload);

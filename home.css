@@ -72,11 +72,11 @@
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 50%;
   place-items: center;
-  color: var(--color-deep-petal);
-  background: var(--color-blush);
+  color: var(--color-ink);
+  background: var(--color-surface);
   font-family: var(--font-display);
   font-size: 16px;
   font-weight: 560;
@@ -88,7 +88,7 @@
 }
 
 .home-avatar:hover {
-  background: var(--color-blossom);
+  background: var(--color-surface-strong);
 }
 
 .home-avatar:active {
@@ -137,7 +137,7 @@
   padding: 0 0 0 12px;
   border: 0;
   border-radius: 8px;
-  color: var(--color-deep-petal);
+  color: var(--color-ink);
   background: transparent;
   font-size: 13px;
   font-weight: 600;
@@ -466,7 +466,7 @@
   width: 6px;
   height: 6px;
   border-radius: 3px;
-  background: var(--color-blossom);
+  background: var(--color-border);
   transition:
     width 250ms ease,
     background-color 250ms ease;
@@ -493,7 +493,7 @@
   align-items: center;
   min-height: 60px;
   padding: 12px 14px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 16px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -510,8 +510,8 @@
 }
 
 .home-action:hover {
-  border-color: var(--color-deep-petal);
-  background: var(--color-blush);
+  border-color: var(--color-ink);
+  background: var(--color-surface);
 }
 
 .home-action:active {
@@ -547,7 +547,7 @@
   min-height: 94px;
   margin-top: 12px;
   padding: 14px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 20px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -561,8 +561,8 @@
 }
 
 .home-draft:hover {
-  border-color: var(--color-deep-petal);
-  background: var(--color-blush);
+  border-color: var(--color-ink);
+  background: var(--color-surface);
 }
 
 .home-draft:active {
@@ -800,9 +800,9 @@
   align-items: center;
   min-height: 56px;
   padding: 4px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 999px;
-  background: var(--color-blush);
+  background: var(--color-surface);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -877,7 +877,7 @@
   position: absolute;
   inset: 3px;
   border-radius: 50%;
-  background: var(--color-blossom);
+  background: var(--color-surface-strong);
   content: "";
   transition: background-color 200ms ease;
 }
@@ -912,7 +912,7 @@
     8px
     10px
     max(20px, calc(env(safe-area-inset-bottom) + 8px));
-  border-top: 1px solid var(--color-blush);
+  border-top: 1px solid var(--color-surface);
   background: var(--color-white);
 }
 
@@ -939,7 +939,7 @@
 }
 
 .home-tab:hover {
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .home-tab.is-active {

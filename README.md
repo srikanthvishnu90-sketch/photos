@@ -2,7 +2,7 @@
 
 This is a standalone, framework-free mobile web app containing the splash,
 login, account-creation, Home, Discover, Photos, Editor, and Profile/Gems Plus
-experiences.
+experiences, plus the five-tab Studio project library.
 
 Run it from this directory:
 
@@ -11,6 +11,8 @@ python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
 Then open <http://localhost:8080>.
+
+Public preview: <https://photos-chi-azure.vercel.app>
 
 ## Deploy to Vercel
 

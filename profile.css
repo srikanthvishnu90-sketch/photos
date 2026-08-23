@@ -38,10 +38,10 @@
   height: 64px;
   flex: 0 0 64px;
   place-items: center;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 50%;
-  color: var(--color-deep-petal);
-  background: var(--color-blush);
+  color: var(--color-ink);
+  background: var(--color-surface);
   font-family: var(--font-display);
   font-size: 26px;
   font-weight: 560;
@@ -81,7 +81,7 @@
   min-width: 0;
   padding: 13px 3px;
   border-radius: 16px;
-  background: var(--color-blush);
+  background: var(--color-surface);
   text-align: center;
 }
 
@@ -133,7 +133,7 @@
   padding: 0 8px;
   border: 0;
   border-radius: 10px;
-  color: var(--color-deep-petal);
+  color: var(--color-ink);
   background: transparent;
   font-size: 13px;
   font-weight: 600;
@@ -143,7 +143,7 @@
 .profile-taste-card {
   margin-top: 12px;
   padding: 16px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 20px;
   background: var(--color-white);
 }
@@ -153,7 +153,7 @@
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .profile-taste-fill {
@@ -228,14 +228,10 @@
   flex-direction: column;
   align-items: flex-start;
   padding: 18px;
-  border: 0;
-  border-radius: 22px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 16px;
   color: var(--color-ink);
-  background: linear-gradient(
-    150deg,
-    var(--color-petal) 0%,
-    var(--color-petal-gradient) 100%
-  );
+  background: var(--color-surface);
   text-align: left;
   cursor: pointer;
 }
@@ -286,7 +282,7 @@
   gap: 12px;
   padding: 12px 2px;
   border: 0;
-  border-bottom: 1px solid var(--color-blush);
+  border-bottom: 1px solid var(--color-surface);
   color: var(--color-ink);
   background: transparent;
   text-align: left;
@@ -377,7 +373,7 @@
   height: 4px;
   margin: 0 auto 16px;
   border-radius: 999px;
-  background: var(--color-blossom);
+  background: var(--color-border);
 }
 
 .profile-sheet-close {
@@ -391,7 +387,7 @@
   border: 0;
   border-radius: 50%;
   color: var(--color-ink);
-  background: var(--color-blush);
+  background: var(--color-surface);
   cursor: pointer;
 }
 
@@ -453,7 +449,7 @@
   place-items: center;
   border-radius: 50%;
   color: var(--color-deep-petal);
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .profile-feature-check svg {
@@ -492,7 +488,7 @@
 .profile-link:hover,
 .profile-setting:hover,
 .profile-sheet-close:hover {
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .profile-link:focus-visible,

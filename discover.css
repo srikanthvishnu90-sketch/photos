@@ -66,9 +66,9 @@
   min-height: 52px;
   margin-top: 16px;
   padding: 0 14px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 16px;
-  background: var(--color-blush);
+  background: var(--color-surface);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -140,7 +140,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 15px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -156,7 +156,7 @@
 }
 
 .discover-category:hover {
-  background: var(--color-blush);
+  background: var(--color-surface);
 }
 
 .discover-category:active {
@@ -217,7 +217,7 @@
 }
 
 .discover-card.is-open {
-  border: 2px solid var(--color-deep-petal);
+  border: 2px solid var(--color-ink);
   box-shadow: none;
 }
 
@@ -519,7 +519,7 @@
   align-items: center;
   width: 100%;
   padding: 7px 12px;
-  border: 1.5px solid var(--color-blossom);
+  border: 1.5px solid var(--color-border);
   border-radius: 14px;
   color: var(--color-ink);
   background: var(--color-white);
@@ -536,8 +536,8 @@
 }
 
 .discover-card-action:hover {
-  border-color: var(--color-deep-petal);
-  background: var(--color-blush);
+  border-color: var(--color-ink);
+  background: var(--color-surface);
 }
 
 .discover-card-action:active {

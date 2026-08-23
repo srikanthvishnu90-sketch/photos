@@ -249,7 +249,7 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
-      if (tab === "Home" || tab === "Discover" || tab === "Photos") {
+      if (tab === "Home" || tab === "Discover" || tab === "Photos" || tab === "Studio") {
         closePaywall({ restoreFocus: false });
         onNavigate(tab);
         return;

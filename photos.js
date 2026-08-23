@@ -429,7 +429,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
-      if (tab === "Home" || tab === "Discover" || tab === "Profile") {
+      if (tab === "Home" || tab === "Discover" || tab === "Studio" || tab === "Profile") {
         closeSheet();
         onNavigate(tab);
         return;

@@ -325,7 +325,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     onNavigate("Profile");
   });
   mount.querySelector("#seeAllGems").addEventListener("click", homeActions.seeAllGems);
-  mount.querySelector("#openDraft").addEventListener("click", homeActions.openDraft);
+  mount.querySelector("#openDraft").addEventListener("click", () => {
+    homeActions.openDraft();
+    onNavigate("Studio", { projectId: 1 });
+  });
   mount.querySelector("#openHiddenGem").addEventListener("click", homeActions.openHiddenGem);
   mount.querySelector("#discoverVibes").addEventListener("click", () => {
     homeActions.selectTab("Discover");
@@ -353,7 +356,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
       homeActions.selectTab(tab);
-      if (tab === "Discover" || tab === "Photos" || tab === "Profile") {
+      if (tab === "Discover" || tab === "Photos" || tab === "Studio" || tab === "Profile") {
         onNavigate(tab);
         return;
       }
