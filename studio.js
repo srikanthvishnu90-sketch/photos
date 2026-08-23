@@ -2,6 +2,53 @@ import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { studioActions } from "./studio-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
 import { fetchMoodboardCounts } from "./gems-moodboards.js";
+import { DUMP_STYLES, buildDumpOptions, reviseDump } from "./gems-dump.js";
+
+// Small HTML escaper for user-controlled text (requests, revision notes) that
+// lands in innerHTML template strings.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) =>
+    char === "&"
+      ? "&amp;"
+      : char === "<"
+        ? "&lt;"
+        : char === ">"
+          ? "&gt;"
+          : char === '"'
+            ? "&quot;"
+            : "&#39;",
+  );
+}
+
+// The two visual questions that precede a build. Vibe chips fall back to the
+// DUMP_STYLES labels when the user has no saved aesthetics.
+const DUMP_RANGES = Object.freeze([
+  { key: "all", label: "All time" },
+  { key: "month", label: "This month" },
+  { key: "summer", label: "This summer" },
+  { key: "year", label: "This year" },
+]);
+
+// Resolve a range key to {startMs,endMs} (or null for "all"), computed from the
+// current clock so the chips stay honest as time passes.
+function dumpDateRange(key) {
+  const now = new Date();
+  const endMs = Date.now();
+  if (key === "month") {
+    return { startMs: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), endMs };
+  }
+  if (key === "year") {
+    return { startMs: new Date(now.getFullYear(), 0, 1).getTime(), endMs };
+  }
+  if (key === "summer") {
+    // Northern-hemisphere summer: June 1 → Aug 31 of the current year.
+    return {
+      startMs: new Date(now.getFullYear(), 5, 1).getTime(),
+      endMs: new Date(now.getFullYear(), 8, 1).getTime() - 1,
+    };
+  }
+  return null;
+}
 
 const KIND_TO_TYPE = Object.freeze({
   dump: "Dumps",
@@ -230,6 +277,29 @@ function studioMarkup() {
       ${appTabBarMarkup("Studio")}
     </div>
     <p id="studioStatus" class="sr-only" aria-live="polite"></p>
+
+    <div id="studioDump" class="studio-dump" hidden>
+      <div class="studio-dump-scrim" data-dump-close></div>
+      <section
+        class="studio-dump-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="studioDumpTitle"
+      >
+        <header class="studio-dump-head">
+          <div class="studio-dump-head-copy">
+            <h2 id="studioDumpTitle" class="studio-dump-title" tabindex="-1">Make a photo dump</h2>
+            <p id="studioDumpRequest" class="studio-dump-sub"></p>
+          </div>
+          <button class="studio-dump-close" type="button" data-dump-close aria-label="Close">
+            <svg viewBox="0 0 14 14" aria-hidden="true">
+              <path d="M1 1l12 12M13 1L1 13"></path>
+            </svg>
+          </button>
+        </header>
+        <div id="studioDumpBody" class="studio-dump-body"></div>
+      </section>
+    </div>
   `;
 }
 
@@ -249,6 +319,10 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   const empty = mount.querySelector("#studioEmpty");
   const templatesSection = mount.querySelector("#studioTemplatesSection");
   const status = mount.querySelector("#studioStatus");
+  const dump = mount.querySelector("#studioDump");
+  const dumpTitle = mount.querySelector("#studioDumpTitle");
+  const dumpRequestEl = mount.querySelector("#studioDumpRequest");
+  const dumpBody = mount.querySelector("#studioDumpBody");
   let activeFilter = "All";
   let activated = false;
   // Demo projects until a signed-in user's real rows load from Supabase.
@@ -365,11 +439,317 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     });
   });
 
-  mount.querySelector("#studioNewProject").addEventListener("click", () => {
-    studioActions.createProject();
-    void createLiveProject().then((created) => {
-      if (!created) status.textContent = "Project creation will open here.";
+  // -------------------------------------------------------------------------
+  // Make-me-a-photo-dump flow (docs/MASTER-FEATURES.md #10)
+  // -------------------------------------------------------------------------
+  let dumpRequest = "a photo dump";
+  let dumpVibe = null; // chip label or null (skipped)
+  let dumpRangeKey = "all";
+  let dumpOptionsData = []; // built options
+  let dumpSelected = null; // currently open option
+  let dumpLastFocus = null;
+
+  async function loadDumpVibes() {
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) return [];
+      const { data } = await supabase
+        .from("profile_aesthetics")
+        .select("label")
+        .eq("profile_id", session.user.id)
+        .order("position")
+        .limit(5);
+      return (data ?? []).map((row) => row?.label).filter(Boolean);
+    } catch (error) {
+      console.info("Dump vibe chips fell back to presets", error);
+      return [];
+    }
+  }
+
+  function photoStack(photos, limit) {
+    const shown = photos.slice(0, limit);
+    if (!shown.length) {
+      return `<span class="studio-dump-stack is-empty" aria-hidden="true"></span>`;
+    }
+    return `
+      <span class="studio-dump-stack" aria-hidden="true">
+        ${shown
+          .map((photo, index) =>
+            photo?.url
+              ? `<i class="studio-dump-chip" style="--i:${index}; background-image:url('${encodeURI(photo.url)}')"></i>`
+              : `<i class="studio-dump-chip is-blank" style="--i:${index}"></i>`,
+          )
+          .join("")}
+      </span>
+    `;
+  }
+
+  function renderDumpQuestions(vibes) {
+    const vibeChips = vibes.length ? vibes : DUMP_STYLES.map((style) => style.label);
+    dumpBody.innerHTML = `
+      <div class="studio-dump-questions">
+        <div class="studio-dump-q">
+          <span class="studio-dump-q-label">What's the vibe?</span>
+          <div class="studio-dump-chips" data-dump-vibes>
+            ${vibeChips
+              .slice(0, 5)
+              .map(
+                (label) => `
+                  <button class="studio-dump-pick${dumpVibe === label ? " is-active" : ""}" type="button"
+                    data-dump-vibe="${escapeHtml(label)}" aria-pressed="${dumpVibe === label}">
+                    ${escapeHtml(label)}
+                  </button>
+                `,
+              )
+              .join("")}
+          </div>
+        </div>
+        <div class="studio-dump-q">
+          <span class="studio-dump-q-label">From when?</span>
+          <div class="studio-dump-chips" data-dump-ranges>
+            ${DUMP_RANGES.map(
+              (range) => `
+                <button class="studio-dump-pick${dumpRangeKey === range.key ? " is-active" : ""}" type="button"
+                  data-dump-range="${range.key}" aria-pressed="${dumpRangeKey === range.key}">
+                  ${escapeHtml(range.label)}
+                </button>
+              `,
+            ).join("")}
+          </div>
+        </div>
+        <button id="studioDumpBuild" class="studio-dump-build" type="button">Build my dump</button>
+        <p class="studio-dump-hint">Both are optional — skip and I'll read the whole library.</p>
+      </div>
+    `;
+
+    dumpBody.querySelectorAll("[data-dump-vibe]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const label = button.dataset.dumpVibe;
+        dumpVibe = dumpVibe === label ? null : label;
+        renderDumpQuestions(vibes);
+      });
     });
+    dumpBody.querySelectorAll("[data-dump-range]").forEach((button) => {
+      button.addEventListener("click", () => {
+        dumpRangeKey = button.dataset.dumpRange;
+        renderDumpQuestions(vibes);
+      });
+    });
+    dumpBody.querySelector("#studioDumpBuild").addEventListener("click", () => {
+      void runDumpBuild();
+    });
+  }
+
+  function renderDumpLoading() {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-loading">
+        <span class="studio-dump-spinner" aria-hidden="true"></span>
+        <span>Reading your library and assembling three sets…</span>
+      </div>
+    `;
+    status.textContent = "Building your photo dump.";
+  }
+
+  function renderDumpEmpty() {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-empty">
+        <strong>No photos to pull from yet</strong>
+        <span>Import photos first to build a dump.</span>
+      </div>
+    `;
+    status.textContent = "Import photos first to build a dump.";
+  }
+
+  function renderDumpOptions() {
+    dumpBody.innerHTML = `
+      <div class="studio-dump-options">
+        <p class="studio-dump-step">Three complete sets. Pick the one that feels like you.</p>
+        <div class="studio-dump-cards">
+          ${dumpOptionsData
+            .map(
+              (option, index) => `
+                <button class="studio-dump-card" type="button" data-dump-option="${index}">
+                  ${photoStack(option.photos, 4)}
+                  <span class="studio-dump-card-copy">
+                    <strong>${escapeHtml(option.label)}</strong>
+                    <small>${escapeHtml(option.sublabel)}</small>
+                    <em>${option.count} photos</em>
+                  </span>
+                </button>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+    dumpBody.querySelectorAll("[data-dump-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const option = dumpOptionsData[Number(button.dataset.dumpOption)];
+        if (!option) return;
+        dumpSelected = option;
+        renderDumpSet();
+      });
+    });
+    status.textContent = `Three dumps ready for "${dumpRequest}".`;
+  }
+
+  function renderDumpSet(note) {
+    const option = dumpSelected;
+    if (!option) return;
+    dumpBody.innerHTML = `
+      <div class="studio-dump-set">
+        <div class="studio-dump-set-head">
+          <button class="studio-dump-back" type="button" data-dump-back>‹ Options</button>
+          <span class="studio-dump-set-label">${escapeHtml(option.label)} · ${option.count} photos</span>
+        </div>
+        <div class="studio-dump-grid">
+          ${option.photos
+            .map(
+              (photo, index) => `
+                <span class="studio-dump-slot">
+                  <span class="studio-dump-slot-frame">
+                    ${
+                      photo?.url
+                        ? `<img src="${encodeURI(photo.url)}" alt="" loading="lazy" />`
+                        : `<span class="studio-dump-slot-blank" aria-hidden="true"></span>`
+                    }
+                  </span>
+                  <span class="studio-dump-slot-no">${String(index + 1).padStart(2, "0")}</span>
+                </span>
+              `,
+            )
+            .join("")}
+        </div>
+        ${note ? `<p class="studio-dump-note">${escapeHtml(note)}</p>` : ""}
+        <form class="studio-dump-revise" data-dump-revise>
+          <input class="studio-dump-input" type="text" name="revision"
+            placeholder="more friends · replace slide 6" autocomplete="off" />
+          <button class="studio-dump-revise-go" type="submit">Revise</button>
+        </form>
+        <button id="studioDumpSave" class="studio-dump-build" type="button">Save to Studio</button>
+      </div>
+    `;
+
+    dumpBody.querySelector("[data-dump-back]").addEventListener("click", () => {
+      renderDumpOptions();
+    });
+    dumpBody.querySelector("[data-dump-revise]").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = event.currentTarget.querySelector("input[name='revision']");
+      const instruction = input?.value ?? "";
+      if (!instruction.trim()) return;
+      void applyDumpRevision(instruction);
+    });
+    dumpBody.querySelector("#studioDumpSave").addEventListener("click", () => {
+      void saveDumpSet();
+    });
+    if (note) status.textContent = note;
+  }
+
+  async function applyDumpRevision(instruction) {
+    if (!dumpSelected) return;
+    try {
+      const revised = await reviseDump(dumpSelected, instruction);
+      // Keep the revised option in the options list so "Options" stays in sync.
+      const index = dumpOptionsData.findIndex((option) => option.key === revised.key);
+      if (index !== -1) dumpOptionsData[index] = revised;
+      dumpSelected = revised;
+      renderDumpSet(revised.note);
+    } catch (error) {
+      console.info("Dump revision skipped", error);
+    }
+  }
+
+  async function saveDumpSet() {
+    const option = dumpSelected;
+    if (!option) return;
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) {
+        status.textContent = "Sign in to save this dump to Studio.";
+        return;
+      }
+      const { error } = await supabase.from("projects").insert({
+        profile_id: session.user.id,
+        kind: "dump",
+        name: dumpRequest.slice(0, 80),
+        aesthetic: dumpVibe ?? option.label,
+        meta: { style: option.key, count: option.count },
+      });
+      if (error) {
+        status.textContent = "Couldn't save the dump just now.";
+        return;
+      }
+      studioActions.createProject();
+      status.textContent = `Saved "${dumpRequest}" to Studio.`;
+      closeDumpFlow();
+      await loadProjects();
+    } catch (error) {
+      console.info("Dump save stayed local", error);
+      status.textContent = "Couldn't save the dump just now.";
+    }
+  }
+
+  async function runDumpBuild() {
+    renderDumpLoading();
+    try {
+      const dateRange = dumpDateRange(dumpRangeKey);
+      const request = dumpVibe ? `${dumpRequest} — ${dumpVibe}` : dumpRequest;
+      const result = await buildDumpOptions({ request, dateRange });
+      dumpOptionsData = result.options ?? [];
+      if (!dumpOptionsData.length) {
+        renderDumpEmpty();
+        return;
+      }
+      renderDumpOptions();
+    } catch (error) {
+      console.info("Dump build failed", error);
+      renderDumpEmpty();
+    }
+  }
+
+  async function openDumpFlow(request) {
+    dumpRequest = String(request ?? "").trim() || "a photo dump";
+    dumpVibe = null;
+    dumpRangeKey = "all";
+    dumpOptionsData = [];
+    dumpSelected = null;
+    dumpLastFocus = document.activeElement;
+    dumpRequestEl.textContent = `“${dumpRequest}”`;
+    dump.hidden = false;
+    document.body.classList.add("studio-dump-open");
+    renderDumpLoading();
+    const vibes = await loadDumpVibes();
+    renderDumpQuestions(vibes);
+    dumpTitle.focus({ preventScroll: true });
+    studioActions.createProject();
+  }
+
+  function closeDumpFlow() {
+    if (dump.hidden) return;
+    dump.hidden = true;
+    document.body.classList.remove("studio-dump-open");
+    dumpBody.innerHTML = "";
+    if (dumpLastFocus && typeof dumpLastFocus.focus === "function") {
+      try {
+        dumpLastFocus.focus({ preventScroll: true });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  dump.querySelectorAll("[data-dump-close]").forEach((element) => {
+    element.addEventListener("click", closeDumpFlow);
+  });
+  dump.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDumpFlow();
+  });
+
+  mount.querySelector("#studioNewProject").addEventListener("click", () => {
+    void openDumpFlow("a photo dump");
   });
 
   mount.querySelector("#studioContinueDraft").addEventListener("click", () => {
@@ -411,6 +791,11 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
           (item) => String(item.id) === String(payload.projectId),
         );
         if (project) status.textContent = `${project.name} is your most recent draft.`;
+      }
+      // Chat "build a dump" hand-off arrives as payload.request → open the flow
+      // pre-filled with that request.
+      if (payload.request) {
+        void openDumpFlow(payload.request);
       }
       if (activated) return;
       activated = true;

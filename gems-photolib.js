@@ -341,6 +341,15 @@ export async function importPhotoFiles(fileList) {
       }
     }
     recordTasteEvent("photos_imported", { count: imported.length });
+    // Additive, decoupled hook: let the first-run Hidden-Gems reveal trigger
+    // off a successful import without this module knowing anything about it.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("gems:photos-imported", {
+          detail: { count: imported.length },
+        }),
+      );
+    }
   } catch (error) {
     console.info("Photo import failed", error);
   }

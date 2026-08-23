@@ -2,6 +2,7 @@ import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { photosActions } from "./photos-actions.js";
 import { describePhoto, importPhotoFiles, listPhotos } from "./gems-photolib.js";
 import { isRankQuery, rankPhotos } from "./gems-ranker.js";
+import { computeCollections, semanticFilter } from "./gems-collections.js";
 import { exportAll } from "./gems-export.js";
 import { getSession } from "./gems-supabase.js";
 
@@ -277,6 +278,19 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   // the newest-first library order. rankSeq guards against stale async results.
   let ranked = null;
   let rankSeq = 0;
+  // Smart Collections (real-library mode only). `realCollections` is the last
+  // computed set of standing-query collections; `activeRealCollection` is the
+  // key of the one currently filtering the grid (toggle off to clear).
+  // `semanticActive` gates the natural-language (semanticFilter) grid path:
+  // per-keystroke stays filename-cheap; a submit turns it on. `collectionsMode`
+  // tracks what's rendered in the rail so demo markup is only re-touched when
+  // actually switching modes (keeps demo mode byte-identical). `collectionsSeq`
+  // guards stale async collection computes.
+  let realCollections = [];
+  let activeRealCollection = null;
+  let semanticActive = false;
+  let collectionsMode = "demo"; // "demo" | "real" | "none"
+  let collectionsSeq = 0;
 
   function clearRanked() {
     rankSeq += 1;
@@ -322,16 +336,147 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
 
   function syncMode() {
     const real = isRealMode();
-    if (real) activeCollection = null;
+    if (real) {
+      activeCollection = null;
+    } else {
+      activeRealCollection = null;
+    }
     hintsRow.hidden = real;
-    collectionsSection.hidden = real;
+    if (real) {
+      // The real rail's visibility is owned by renderRealCollections (hidden
+      // until there are collections to show).
+      renderRealCollections();
+    } else {
+      restoreDemoCollections();
+      collectionsSection.hidden = false;
+    }
+  }
+
+  // Re-render the demo collection cards + rewire them, but only when the rail
+  // isn't already showing them — so demo mode's initial DOM stays untouched
+  // (byte-identical) and we only rebuild after a real→demo switch.
+  function restoreDemoCollections() {
+    if (collectionsMode === "demo") return;
+    collectionsRoot.innerHTML = collectionMarkup(activeCollection);
+    wireDemoCollections();
+    collectionsMode = "demo";
+  }
+
+  function wireDemoCollections() {
+    collectionsRoot.querySelectorAll("[data-photo-collection]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const collection = button.dataset.photoCollection;
+        activeCollection = activeCollection === collection ? null : collection;
+        query = "";
+        search.value = "";
+        searchShell.classList.remove("has-value");
+        syncCollections();
+        renderGrid();
+        if (activeCollection) photosActions.openCollection(activeCollection);
+      });
+    });
+  }
+
+  function syncRealCollections() {
+    collectionsRoot.querySelectorAll("[data-photo-collection-key]").forEach((button) => {
+      const active = button.dataset.photoCollectionKey === activeRealCollection;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  // Render the "Collections Gems keeps for you" rail from the last computed
+  // standing queries. Empty set → the whole section is hidden.
+  function renderRealCollections() {
+    if (!isRealMode()) return;
+    if (realCollections.length === 0) {
+      collectionsRoot.replaceChildren();
+      collectionsSection.hidden = true;
+      collectionsMode = "none";
+      return;
+    }
+    const chips = realCollections.map((collection, index) => {
+      const active = collection.key === activeRealCollection;
+      const button = document.createElement("button");
+      button.className = `photos-collection-chip photos-entrance${active ? " is-active" : ""}`;
+      button.type = "button";
+      button.dataset.photoCollectionKey = collection.key;
+      button.setAttribute("aria-pressed", String(active));
+      button.style.setProperty("--photos-delay", `${220 + index * 35}ms`);
+      button.innerHTML = `
+        <strong>${escapeHtml(collection.label)}</strong>
+        <small>${collection.count} photo${collection.count === 1 ? "" : "s"}</small>
+      `;
+      button.addEventListener("click", () => toggleRealCollection(collection.key));
+      return button;
+    });
+    collectionsRoot.replaceChildren(...chips);
+    collectionsSection.hidden = false;
+    collectionsMode = "real";
+  }
+
+  function toggleRealCollection(key) {
+    activeRealCollection = activeRealCollection === key ? null : key;
+    query = "";
+    search.value = "";
+    searchShell.classList.remove("has-value");
+    semanticActive = false;
+    clearRanked();
+    syncRealCollections();
+    renderGrid();
+    if (activeRealCollection) {
+      const collection = realCollections.find((item) => item.key === key);
+      photosActions.openCollection(collection ? collection.label : key);
+    }
+  }
+
+  // Recompute the standing queries and repaint the rail. Also re-hydrates the
+  // in-memory library so any descriptions ensureDescriptions just cached become
+  // visible to semanticFilter without a reload. Never throws.
+  async function refreshRealCollections() {
+    if (!isRealMode()) return;
+    const token = ++collectionsSeq;
+    try {
+      const collections = await computeCollections();
+      if (token !== collectionsSeq || !isRealMode()) return;
+      realCollections = collections;
+      if (
+        activeRealCollection &&
+        !collections.some((item) => item.key === activeRealCollection)
+      ) {
+        activeRealCollection = null;
+      }
+      const hydrated = await listPhotos();
+      if (
+        token === collectionsSeq &&
+        isRealMode() &&
+        hydrated.length === libraryPhotos.length
+      ) {
+        libraryPhotos = hydrated;
+      }
+      if (token !== collectionsSeq || !isRealMode()) return;
+      renderRealCollections();
+      renderGrid();
+    } catch (error) {
+      console.info("Smart collections refresh skipped", error);
+    }
   }
 
   function visiblePhotos() {
     if (isRealMode()) {
       if (ranked) return ranked.order;
-      const normalized = query.trim().toLocaleLowerCase();
-      if (!normalized) return libraryPhotos;
+      if (activeRealCollection) {
+        const collection = realCollections.find(
+          (item) => item.key === activeRealCollection,
+        );
+        return collection ? collection.photos : libraryPhotos;
+      }
+      const trimmed = query.trim();
+      if (!trimmed) return libraryPhotos;
+      // On submit, a non-rank query runs the cheap natural-language match over
+      // the cache; per-keystroke stays filename-only so typing never stalls.
+      if (semanticActive) return semanticFilter(libraryPhotos, trimmed);
+      const normalized = trimmed.toLocaleLowerCase();
       return libraryPhotos.filter((photo) =>
         String(photo.name ?? "").toLocaleLowerCase().includes(normalized),
       );
@@ -389,6 +534,16 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
       if (ranked) {
         libraryTitle.textContent = "Search results";
         status.textContent = `Ranked ${photos.length} photo${photos.length === 1 ? "" : "s"} for you`;
+        return;
+      }
+      if (activeRealCollection) {
+        const collection = realCollections.find(
+          (item) => item.key === activeRealCollection,
+        );
+        libraryTitle.textContent = collection ? collection.label : "Your library";
+        status.textContent = `${photos.length} photo${photos.length === 1 ? "" : "s"} in ${
+          collection ? collection.label : "this collection"
+        }`;
         return;
       }
       libraryTitle.textContent = query.trim() ? "Search results" : "Your library";
@@ -574,23 +729,35 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     ).length;
     status.textContent = `Added ${added.length} photos. ${gemCount} ranked as gems.`;
     photosActions.importCompleted(added.length, gemCount);
+    void refreshRealCollections();
   });
 
   search.addEventListener("input", () => {
     query = search.value;
     activeCollection = null;
-    clearRanked(); // per-keystroke filtering stays cheap (filename-only)
+    activeRealCollection = null;
+    semanticActive = false; // per-keystroke filtering stays cheap (filename-only)
+    clearRanked();
     searchShell.classList.toggle("has-value", query.length > 0);
     syncCollections();
+    syncRealCollections();
     renderGrid();
   });
 
   search.addEventListener("search", () => {
     const trimmed = query.trim();
     photosActions.search(trimmed);
-    if (isRealMode() && trimmed && isRankQuery(trimmed)) {
+    if (!isRealMode() || !trimmed) return;
+    if (isRankQuery(trimmed)) {
       void runRankedSearch(trimmed);
+      return;
     }
+    // A plain (non-rank) query submits the cheap natural-language search over
+    // the cached descriptions, so "everyone smiling" works offline.
+    activeRealCollection = null;
+    semanticActive = true;
+    syncRealCollections();
+    renderGrid();
   });
 
   mount.querySelectorAll("[data-photo-hint]").forEach((button) => {
@@ -606,18 +773,10 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     });
   });
 
-  collectionsRoot.querySelectorAll("[data-photo-collection]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const collection = button.dataset.photoCollection;
-      activeCollection = activeCollection === collection ? null : collection;
-      query = "";
-      search.value = "";
-      searchShell.classList.remove("has-value");
-      syncCollections();
-      renderGrid();
-      if (activeCollection) photosActions.openCollection(activeCollection);
-    });
-  });
+  // Demo collection cards ship in the initial markup; wire them in place so the
+  // demo DOM stays byte-identical. Real-mode chips get their own handlers when
+  // renderRealCollections builds them.
+  wireDemoCollections();
 
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -643,12 +802,17 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
       const rank = payload?.rank;
       void refreshLibrary().then(() => {
         try {
-          if (!rank?.request || !isRealMode()) return;
+          if (!isRealMode()) return;
+          void refreshRealCollections();
+          if (!rank?.request) return;
           query = String(rank.request);
           search.value = query;
           activeCollection = null;
+          activeRealCollection = null;
+          semanticActive = false;
           searchShell.classList.add("has-value");
           syncCollections();
+          syncRealCollections();
           renderGrid();
           void runRankedSearch(query, rank.purpose ?? "general");
         } catch (error) {
