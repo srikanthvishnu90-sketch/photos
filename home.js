@@ -660,6 +660,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
 
     resume() {
       syncActiveTab(mount, "Home");
+      // Returning to Home (e.g. after importing photos) recomputes the gem —
+      // the first activate() ran on an empty library.
+      void refreshHiddenGem();
     },
 
     focusHeading() {
