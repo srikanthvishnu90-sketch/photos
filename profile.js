@@ -1,11 +1,24 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { profileActions } from "./profile-actions.js";
+import { getSupabase, getSession } from "./gems-supabase.js";
 
 const TASTE = Object.freeze([
   { name: "Euro Summer", percent: 46, key: "euro" },
   { name: "Dark Gym", percent: 31, key: "gym" },
   { name: "Golden Hour", percent: 23, key: "golden" },
 ]);
+
+// The three chart colors act as ranked slots when live data replaces the
+// demo aesthetics.
+const TASTE_SLOT_KEYS = Object.freeze(["euro", "gym", "golden"]);
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
 
 const STATS = Object.freeze([
   { value: "16", label: "gems found" },
@@ -189,6 +202,92 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
   let profileState = {};
   let activated = false;
   let paywallOpen = false;
+  let tasteData = TASTE.map(({ name: label, percent }) => ({ name: label, percent }));
+
+  function renderTaste(taste, choiceCount) {
+    const card = mount.querySelector(".profile-taste-card");
+    const bar = card.querySelector(".profile-taste-bar");
+    const legend = card.querySelector(".profile-taste-legend");
+
+    bar.innerHTML = taste
+      .map(
+        (entry, index) => `
+          <span
+            class="profile-taste-fill taste-${TASTE_SLOT_KEYS[index]}"
+            style="width: ${entry.percent}%"
+          ></span>
+        `,
+      )
+      .join("");
+    legend.innerHTML = taste
+      .map(
+        (entry, index) => `
+          <div class="profile-taste-row">
+            <span class="profile-taste-dot taste-${TASTE_SLOT_KEYS[index]}"></span>
+            <strong>${entry.percent}%</strong>
+            <span>${escapeHtml(entry.name)}</span>
+          </div>
+        `,
+      )
+      .join("");
+    card.querySelector("p").textContent =
+      `Learned from ${choiceCount} choices you've made — it sharpens every time you pick.`;
+    card.setAttribute(
+      "aria-label",
+      `Taste profile: ${taste.map((entry) => `${entry.percent} percent ${entry.name}`).join(", ")}`,
+    );
+  }
+
+  // Replaces the demo chart with real signal: the user's chosen aesthetics
+  // ranked by how often they show up in their recent taste_events.
+  async function refreshTasteProfile() {
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) return;
+      const [{ data: aesthetics }, { data: events }] = await Promise.all([
+        supabase
+          .from("profile_aesthetics")
+          .select("label")
+          .eq("profile_id", session.user.id)
+          .order("position"),
+        supabase
+          .from("taste_events")
+          .select("subject")
+          .eq("profile_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(400),
+      ]);
+      if (!aesthetics?.length || !events?.length) return;
+
+      const ranked = aesthetics
+        .map(({ label }) => {
+          const needle = label.toLowerCase();
+          const count = events.filter((event) =>
+            JSON.stringify(event.subject ?? {}).toLowerCase().includes(needle),
+          ).length;
+          return { name: label, count };
+        })
+        .filter((entry) => entry.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3);
+      if (!ranked.length) return;
+
+      const total = ranked.reduce((sum, entry) => sum + entry.count, 0);
+      let remaining = 100;
+      tasteData = ranked.map((entry, index) => {
+        const percent =
+          index === ranked.length - 1
+            ? remaining
+            : Math.round((entry.count / total) * 100);
+        remaining -= percent;
+        return { name: entry.name, percent };
+      });
+      renderTaste(tasteData, events.length);
+    } catch (error) {
+      console.info("Taste profile stayed in demo mode", error);
+    }
+  }
 
   function closePaywall({ restoreFocus = true } = {}) {
     if (!paywallOpen) return;
@@ -247,7 +346,7 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
 
   plusButton.addEventListener("click", openPaywall);
   mount.querySelector("#profileShare").addEventListener("click", () => {
-    profileActions.shareTasteProfile({ ...profileState, taste: TASTE });
+    profileActions.shareTasteProfile({ ...profileState, taste: tasteData });
   });
 
   mount.querySelectorAll("[data-profile-setting]").forEach((button) => {
@@ -284,6 +383,7 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
       name.textContent = firstName;
       avatar.textContent = firstName.charAt(0).toLocaleUpperCase();
       syncActiveTab(mount, "Profile");
+      void refreshTasteProfile();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });
