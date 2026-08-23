@@ -307,11 +307,6 @@ function showHome(state = {}) {
   }, transitionDelay);
 }
 
-async function finishAuth(authCall) {
-  await authCall();
-  showOnboarding();
-}
-
 function enterEmailMode() {
   authOptions.hidden = true;
   authOptions.setAttribute("aria-hidden", "true");
@@ -485,12 +480,42 @@ async function handleOtpSubmit(event) {
   if (!routedHome) showOnboarding();
 }
 
-document.querySelector("#appleButton").addEventListener("click", () => {
-  void finishAuth(() => authActions.signInWithApple());
+// OAuth is redirect-only: initiate the provider redirect and paint NOTHING —
+// painting the next screen here flashes onboarding for a frame before the
+// browser navigates away. On return, checkExistingSession routes the user by
+// their profile (existing -> Home, new -> onboarding). Only if no redirect
+// starts (offline / not configured) do we keep the prototype flow going.
+const appleButton = document.querySelector("#appleButton");
+const googleButton = document.querySelector("#googleButton");
+
+function setOAuthConnecting(button) {
+  authOptions.setAttribute("aria-busy", "true");
+  [appleButton, googleButton, emailOptionButton].forEach((b) => (b.disabled = true));
+  const label = button.querySelector("span");
+  if (label) label.textContent = "Connecting…";
+}
+
+function clearOAuthConnecting() {
+  authOptions.removeAttribute("aria-busy");
+  [appleButton, googleButton, emailOptionButton].forEach((b) => (b.disabled = false));
+  appleButton.querySelector("span").textContent = "Continue with Apple";
+  googleButton.querySelector("span").textContent = "Continue with Google";
+}
+
+async function startOAuth(button, authCall) {
+  setOAuthConnecting(button);
+  const { redirecting } = await authCall();
+  if (redirecting) return; // browser is navigating to the provider — leave the screen as-is
+  clearOAuthConnecting();
+  showOnboarding();
+}
+
+appleButton.addEventListener("click", () => {
+  void startOAuth(appleButton, () => authActions.signInWithApple());
 });
 
-document.querySelector("#googleButton").addEventListener("click", () => {
-  void finishAuth(() => authActions.signInWithGoogle());
+googleButton.addEventListener("click", () => {
+  void startOAuth(googleButton, () => authActions.signInWithGoogle());
 });
 
 splashScreen.addEventListener("click", showLogin);

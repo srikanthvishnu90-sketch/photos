@@ -5,27 +5,37 @@
 // call resolves so the demo flow continues.
 import { getSupabase } from "./gems-supabase.js";
 
+// Returns { redirecting } so the caller knows the browser is navigating to the
+// provider — and must NOT paint any next screen (doing so flashes onboarding
+// for a frame before the redirect completes). When redirecting is false
+// (offline / not configured), the caller keeps the prototype flow.
 async function signInWithOAuth(provider) {
   try {
     const supabase = await getSupabase();
-    if (!supabase) return;
+    if (!supabase) return { redirecting: false };
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: window.location.origin },
     });
-    if (error) console.info(`${provider} sign-in not configured yet`, error);
+    if (error) {
+      console.info(`${provider} sign-in not configured yet`, error);
+      return { redirecting: false };
+    }
+    // supabase-js has begun the browser redirect to the provider.
+    return { redirecting: true };
   } catch (error) {
     console.info(`${provider} sign-in unavailable`, error);
+    return { redirecting: false };
   }
 }
 
 export const authActions = Object.freeze({
   async signInWithApple() {
-    await signInWithOAuth("apple");
+    return signInWithOAuth("apple");
   },
 
   async signInWithGoogle() {
-    await signInWithOAuth("google");
+    return signInWithOAuth("google");
   },
 
   // Resolves { sent } so the login flow knows whether to show the
