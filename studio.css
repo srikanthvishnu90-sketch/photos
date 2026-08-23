@@ -45,7 +45,7 @@
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 560;
   letter-spacing: -0.015em;
   line-height: 1.14;
@@ -237,7 +237,7 @@
 .studio-section-title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
 }

@@ -46,7 +46,7 @@
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 560;
   letter-spacing: -0.015em;
   line-height: 1.14;
@@ -207,7 +207,7 @@
 .photos-section-title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
   --photos-delay: 200ms;
@@ -631,7 +631,7 @@
   margin: 1px 0 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 560;
   line-height: 1.2;
 }

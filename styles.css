@@ -364,7 +364,7 @@ button {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: clamp(33px, 9.6vw, 36px);
+  font-size: clamp(31px, calc(9.6vw - 2px), 34px);
   font-weight: 560;
   letter-spacing: -0.015em;
   line-height: 1.14;
@@ -774,7 +774,7 @@ button {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 33px;
+  font-size: 31px;
   font-weight: 560;
   letter-spacing: -0.015em;
   line-height: 1.16;
@@ -1230,7 +1230,7 @@ button {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 560;
   letter-spacing: -0.015em;
   line-height: 1.2;
