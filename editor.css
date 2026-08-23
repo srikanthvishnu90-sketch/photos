@@ -1,0 +1,579 @@
+.editor-screen {
+  z-index: 8;
+  background: var(--color-white);
+}
+
+.editor-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--color-ink);
+  background: var(--color-white);
+}
+
+.editor-topbar {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 72px 1fr 72px;
+  align-items: center;
+  padding:
+    max(50px, calc(env(safe-area-inset-top) + 14px))
+    20px
+    8px;
+}
+
+.editor-icon-button,
+.editor-done,
+.editor-reroll,
+.editor-version,
+.editor-mode,
+.editor-suggestion,
+.editor-tool,
+.editor-apply {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-icon-button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-left: -6px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-ink);
+  background: transparent;
+}
+
+.editor-icon-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+}
+
+.editor-icon-button path {
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.editor-title {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 560;
+  text-align: center;
+  outline: 0;
+}
+
+.editor-done {
+  justify-self: end;
+  min-height: 44px;
+  padding: 0 17px;
+  border-radius: 999px;
+  color: var(--color-white);
+  background: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.editor-canvas-region {
+  flex: 0 1 auto;
+  min-height: 0;
+  padding: 4px 20px 0;
+}
+
+.editor-canvas {
+  position: relative;
+  width: 100%;
+  height: clamp(250px, 47vh, 372px);
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--color-photo-black);
+  box-shadow: 0 10px 26px var(--color-home-shadow);
+  isolation: isolate;
+}
+
+.editor-beach-scene {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--scene-discover-beach-sky) 0%,
+    var(--scene-editor-horizon) 44%,
+    var(--scene-beach-water-a) 44%,
+    var(--scene-beach-water-b) 66%,
+    var(--scene-discover-beach-sand-a) 66%,
+    var(--scene-discover-beach-sand-b) 100%
+  );
+  filter: sepia(0.2) saturate(1.15);
+}
+
+.editor-ship {
+  position: absolute;
+  top: 38%;
+  right: 18%;
+  width: 34px;
+  height: 18px;
+  opacity: 1;
+  transition:
+    opacity 400ms ease,
+    transform 400ms var(--ease-gems),
+    visibility 0s linear 0s;
+}
+
+.editor-ship i {
+  position: absolute;
+  display: block;
+}
+
+.editor-ship-hull {
+  bottom: 0;
+  left: 0;
+  width: 34px;
+  height: 10px;
+  border-radius: 2px 2px 6px 6px;
+  background: var(--scene-editor-ship);
+}
+
+.editor-ship-mast {
+  bottom: 9px;
+  left: 13px;
+  width: 3px;
+  height: 10px;
+  background: var(--scene-editor-ship);
+}
+
+.editor-ship-cabin {
+  bottom: 10px;
+  left: 16px;
+  width: 10px;
+  height: 6px;
+  background: var(--scene-editor-ship-light);
+}
+
+.editor-canvas.has-no-ship .editor-ship {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(5px) scale(0.9);
+  transition-delay: 0s, 0s, 400ms;
+}
+
+.editor-subject-head,
+.editor-subject-body {
+  position: absolute;
+  left: 38%;
+  display: block;
+  background: var(--scene-discover-beach-figure);
+}
+
+.editor-subject-head {
+  bottom: 22%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+.editor-subject-body {
+  bottom: 2%;
+  left: 36%;
+  width: 32px;
+  height: 20%;
+  border-radius: 11px 11px 5px 5px;
+}
+
+.editor-processing {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--color-white);
+  background: var(--color-editor-processing);
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(2px);
+}
+
+.editor-processing-card {
+  width: 44px;
+  height: 58px;
+  border-radius: 10px;
+  background: var(--color-white-90);
+  animation: editor-shimmer 1.1s ease-in-out infinite;
+}
+
+@keyframes editor-shimmer {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1.02);
+  }
+}
+
+.editor-reroll {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 13px;
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-card-border);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px var(--color-discover-shadow);
+}
+
+.editor-reroll svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+}
+
+.editor-reroll path {
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.editor-versions,
+.editor-suggestions {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.editor-versions {
+  gap: 8px;
+  min-height: 48px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.editor-version {
+  min-width: 58px;
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-blossom);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.editor-version.is-active {
+  border-color: var(--color-ink);
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-mode-region {
+  flex: 0 0 auto;
+  padding: 8px 20px 0;
+}
+
+.editor-mode-toggle {
+  display: flex;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--color-blush);
+}
+
+.editor-mode {
+  min-height: 42px;
+  flex: 1;
+  border-radius: 999px;
+  color: var(--color-mauve);
+  background: transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition:
+    color 200ms ease,
+    background-color 200ms ease;
+}
+
+.editor-mode.is-active {
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-panel-spacer {
+  min-height: 4px;
+  flex: 1 1 auto;
+}
+
+.editor-panel {
+  flex: 0 0 auto;
+  padding:
+    0
+    20px
+    max(24px, calc(env(safe-area-inset-bottom) + 12px));
+}
+
+.editor-suggestions {
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.editor-suggestion {
+  min-height: 38px;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  border: 1.5px solid var(--color-blossom);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.editor-prompt-form {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 7px 7px 17px;
+  border: 1.5px solid var(--color-blossom);
+  border-radius: 999px;
+  background: var(--color-blush);
+  transition: border-color 150ms ease;
+}
+
+.editor-prompt-form:focus-within,
+.editor-prompt-form.has-value {
+  border-color: var(--color-deep-petal);
+}
+
+.editor-prompt-form input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--color-ink);
+  background: transparent;
+  font-size: 16px;
+}
+
+.editor-prompt-form input::placeholder {
+  color: var(--color-mauve);
+  opacity: 1;
+}
+
+.editor-apply {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-mauve);
+  background: var(--color-blossom);
+  transition:
+    color 200ms ease,
+    background-color 200ms ease;
+}
+
+.editor-apply:not(:disabled) {
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-apply svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+}
+
+.editor-apply path {
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.editor-tools {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.editor-tool {
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 3px;
+  border: 1.5px solid var(--color-blossom);
+  border-radius: 15px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.editor-tool.is-active {
+  border-color: var(--color-ink);
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.editor-tool-help {
+  min-height: 36px;
+  margin: 11px 8px 0;
+  color: var(--color-mauve);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.editor-icon-button:hover,
+.editor-suggestion:hover,
+.editor-version:not(.is-active):hover,
+.editor-tool:not(.is-active):hover {
+  background: var(--color-blush);
+}
+
+.editor-icon-button:focus-visible,
+.editor-done:focus-visible,
+.editor-reroll:focus-visible,
+.editor-version:focus-visible,
+.editor-mode:focus-visible,
+.editor-suggestion:focus-visible,
+.editor-tool:focus-visible,
+.editor-apply:focus-visible,
+.editor-prompt-form input:focus-visible {
+  outline: 3px solid var(--color-deep-petal);
+  outline-offset: 2px;
+}
+
+.editor-done:disabled,
+.editor-version:disabled,
+.editor-apply:disabled {
+  cursor: default;
+}
+
+@media (max-height: 700px) {
+  .editor-topbar {
+    padding-top: max(42px, calc(env(safe-area-inset-top) + 8px));
+    padding-bottom: 4px;
+  }
+
+  .editor-canvas {
+    height: clamp(220px, 42vh, 284px);
+  }
+
+  .editor-mode-region {
+    padding-top: 4px;
+  }
+
+  .editor-panel-spacer {
+    min-height: 0;
+  }
+
+  .editor-panel {
+    padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
+  }
+}
+
+/* Compact when the software keyboard owns most of the visual viewport. */
+@media (max-height: 520px) {
+  .editor-topbar {
+    padding-top: max(4px, env(safe-area-inset-top));
+    padding-bottom: 2px;
+  }
+
+  .editor-canvas-region {
+    padding-top: 0;
+  }
+
+  .editor-canvas {
+    height: 128px;
+  }
+
+  .editor-versions {
+    min-height: 42px;
+    margin-top: 1px;
+  }
+
+  .editor-mode-region {
+    padding-top: 1px;
+  }
+
+  .editor-mode {
+    min-height: 38px;
+  }
+
+  .editor-suggestions {
+    display: none;
+  }
+
+  .editor-panel {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .editor-tool-help {
+    min-height: 30px;
+    margin-top: 7px;
+  }
+}
+
+@media (max-width: 359px) {
+  .editor-canvas-region,
+  .editor-mode-region,
+  .editor-panel {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .editor-tools {
+    gap: 5px;
+  }
+
+  .editor-tool {
+    font-size: 10.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-processing-card {
+    animation: none;
+    opacity: 0.75;
+  }
+
+  .editor-ship,
+  .editor-version,
+  .editor-mode,
+  .editor-tool,
+  .editor-prompt-form,
+  .editor-apply {
+    transition: none;
+  }
+}

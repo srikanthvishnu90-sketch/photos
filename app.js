@@ -3,6 +3,8 @@ import { createOnboardingFlow } from "./onboarding.js";
 import { createHomeScreen } from "./home.js";
 import { createDiscoverScreen } from "./discover.js";
 import { createPhotosScreen } from "./photos.js";
+import { createEditorScreen } from "./editor.js";
+import { createProfileScreen } from "./profile.js";
 
 const SPLASH_DURATION_MS = 2600;
 const SCREEN_FADE_MS = 400;
@@ -27,6 +29,8 @@ const doneName = document.querySelector("#doneName");
 const homeScreen = document.querySelector("#homeScreen");
 const discoverScreen = document.querySelector("#discoverScreen");
 const photosScreen = document.querySelector("#photosScreen");
+const editorScreen = document.querySelector("#editorScreen");
+const profileScreen = document.querySelector("#profileScreen");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let splashFinished = false;
@@ -37,6 +41,7 @@ let activeAuthenticatedScreen = null;
 let splashTimer;
 let homeTimer;
 let routeTimer;
+let authenticatedProfileState = {};
 
 const onboardingFlow = createOnboardingFlow({
   screen: onboardingScreen,
@@ -62,6 +67,18 @@ const discoverController = createDiscoverScreen({
 const photosController = createPhotosScreen({
   screen: photosScreen,
   mount: document.querySelector("#photosMount"),
+  onNavigate: navigateAuthenticated,
+});
+
+const editorController = createEditorScreen({
+  screen: editorScreen,
+  mount: document.querySelector("#editorMount"),
+  onNavigate: navigateAuthenticated,
+});
+
+const profileController = createProfileScreen({
+  screen: profileScreen,
+  mount: document.querySelector("#profileMount"),
   onNavigate: navigateAuthenticated,
 });
 
@@ -173,6 +190,7 @@ function showDone(state) {
 function showHome(state = {}) {
   if (homeShown) return;
   homeShown = true;
+  authenticatedProfileState = { ...state };
   activeAuthenticatedScreen = "Home";
   window.clearTimeout(homeTimer);
 
@@ -208,12 +226,14 @@ function enterEmailMode() {
   });
 }
 
-function transitionAuthenticated(targetName) {
+function transitionAuthenticated(targetName, payload = {}) {
   if (!homeShown || activeAuthenticatedScreen === targetName) return;
   const routes = {
     Home: { screen: homeScreen, controller: homeController },
     Discover: { screen: discoverScreen, controller: discoverController },
     Photos: { screen: photosScreen, controller: photosController },
+    Editor: { screen: editorScreen, controller: editorController },
+    Profile: { screen: profileScreen, controller: profileController },
   };
   const source = routes[activeAuthenticatedScreen];
   const target = routes[targetName];
@@ -221,13 +241,15 @@ function transitionAuthenticated(targetName) {
 
   activeAuthenticatedScreen = targetName;
   window.clearTimeout(routeTimer);
+  source.controller.deactivate?.();
   source.screen.classList.remove("is-active");
   source.screen.setAttribute("aria-hidden", "true");
   target.screen.hidden = false;
   target.screen.classList.add("is-active");
   target.screen.setAttribute("aria-hidden", "false");
   if (targetName === "Home") target.controller.resume();
-  else target.controller.activate();
+  else if (targetName === "Profile") target.controller.activate(authenticatedProfileState);
+  else target.controller.activate(payload);
   syncThemeColor("--color-white");
 
   const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
@@ -237,9 +259,15 @@ function transitionAuthenticated(targetName) {
   }, transitionDelay);
 }
 
-function navigateAuthenticated(tab) {
-  if (tab === "Home" || tab === "Discover" || tab === "Photos") {
-    transitionAuthenticated(tab);
+function navigateAuthenticated(tab, payload = {}) {
+  if (
+    tab === "Home" ||
+    tab === "Discover" ||
+    tab === "Photos" ||
+    tab === "Editor" ||
+    tab === "Profile"
+  ) {
+    transitionAuthenticated(tab, payload);
   }
 }
 

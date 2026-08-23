@@ -1,4 +1,4 @@
-export const APP_TABS = Object.freeze(["Home", "Discover", "Photos", "Studio"]);
+export const APP_TABS = Object.freeze(["Home", "Discover", "Photos", "Studio", "Profile"]);
 
 function tabIconMarkup(tab) {
   if (tab === "Home") {
@@ -28,12 +28,21 @@ function tabIconMarkup(tab) {
     `;
   }
 
-  return `
+  if (tab === "Studio") {
+    return `
     <svg class="home-tab-icon" viewBox="0 0 22 22" aria-hidden="true">
       <rect x="3" y="3" width="7" height="9" rx="2"></rect>
       <rect x="12" y="3" width="7" height="5.5" rx="2"></rect>
       <rect x="12" y="10.5" width="7" height="8.5" rx="2"></rect>
       <rect x="3" y="14" width="7" height="5" rx="2"></rect>
+    </svg>
+    `;
+  }
+
+  return `
+    <svg class="home-tab-icon" viewBox="0 0 22 22" aria-hidden="true">
+      <circle cx="11" cy="7.5" r="3.5"></circle>
+      <path d="M4.5 19c.5-4.1 2.7-6.2 6.5-6.2s6 2.1 6.5 6.2"></path>
     </svg>
   `;
 }

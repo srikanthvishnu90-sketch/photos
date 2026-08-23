@@ -31,6 +31,7 @@
   --color-home-shadow: rgba(23, 11, 16, 0.16);
   --color-photo-overlay: rgba(8, 6, 10, 0.74);
   --color-white-70: rgba(255, 255, 255, 0.7);
+  --color-white-90: rgba(255, 255, 255, 0.9);
   --color-white-66: rgba(255, 255, 255, 0.66);
   --color-white-65: rgba(255, 255, 255, 0.65);
   --color-white-16: rgba(255, 255, 255, 0.16);
@@ -40,6 +41,9 @@
   --color-discover-overlay: rgba(8, 6, 10, 0.7);
   --color-collection-overlay: rgba(8, 6, 10, 0.68);
   --color-sheet-scrim: rgba(23, 11, 16, 0.35);
+  --color-sheet-scrim-strong: rgba(23, 11, 16, 0.4);
+  --color-editor-processing: rgba(23, 11, 16, 0.28);
+  --color-ink-68: rgba(23, 11, 16, 0.68);
 
   --scene-portrait-sky: #e8b98a;
   --scene-portrait-mid: #d89060;
@@ -84,6 +88,9 @@
   --scene-discover-beach-sand-a: #e9d8b5;
   --scene-discover-beach-sand-b: #dcc69d;
   --scene-discover-beach-figure: #4c4034;
+  --scene-editor-horizon: #e2ebec;
+  --scene-editor-ship: #54606a;
+  --scene-editor-ship-light: #8a96a0;
   --scene-discover-gym-glow: #3a3138;
   --scene-discover-gym-night: #14101a;
   --scene-discover-gym-figure: #0b080d;
@@ -110,6 +117,7 @@
   --trend-y2k-end: #b8a9e0;
   --trend-golden-start: #ffd9a0;
   --trend-golden-end: #e8865a;
+  --taste-dark-gym: #3d3036;
 
   --font-display: "Fraunces", Georgia, serif;
   --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;

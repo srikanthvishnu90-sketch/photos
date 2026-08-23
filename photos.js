@@ -351,7 +351,15 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     sheetRoot.querySelector(".photos-sheet-scrim").addEventListener("click", closeSheet);
     sheetRoot.querySelectorAll("[data-photo-action]").forEach((button) => {
       button.addEventListener("click", () => {
-        photosActions.runPhotoAction(button.dataset.photoAction, photoId);
+        const action = button.dataset.photoAction;
+        photosActions.runPhotoAction(action, photoId);
+        if (action === "Describe an edit" || action === "Make it look like…") {
+          closeSheet();
+          onNavigate("Editor", { mode: "describe", photoId });
+        } else if (action === "Edit manually") {
+          closeSheet();
+          onNavigate("Editor", { mode: "manual", photoId });
+        }
       });
     });
 
@@ -421,7 +429,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
-      if (tab === "Home" || tab === "Discover") {
+      if (tab === "Home" || tab === "Discover" || tab === "Profile") {
         closeSheet();
         onNavigate(tab);
         return;

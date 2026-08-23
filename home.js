@@ -320,7 +320,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   }
 
   carousel.addEventListener("scroll", queueCarouselUpdate, { passive: true });
-  profile.addEventListener("click", homeActions.openProfile);
+  profile.addEventListener("click", () => {
+    homeActions.openProfile();
+    onNavigate("Profile");
+  });
   mount.querySelector("#seeAllGems").addEventListener("click", homeActions.seeAllGems);
   mount.querySelector("#openDraft").addEventListener("click", homeActions.openDraft);
   mount.querySelector("#openHiddenGem").addEventListener("click", homeActions.openHiddenGem);
@@ -350,7 +353,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => {
       const tab = button.dataset.appTab;
       homeActions.selectTab(tab);
-      if (tab === "Discover" || tab === "Photos") {
+      if (tab === "Discover" || tab === "Photos" || tab === "Profile") {
         onNavigate(tab);
         return;
       }
