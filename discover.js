@@ -1,5 +1,6 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { discoverActions } from "./discover-actions.js";
+import { saveCardToMoodboard } from "./gems-moodboards.js";
 
 const CATEGORIES = Object.freeze([
   "For you",
@@ -299,6 +300,17 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
         );
         if (!card) return;
         discoverActions.runCardAction(button.dataset.discoverAction, card);
+        if (button.dataset.discoverAction === "Save to moodboard") {
+          saveCardToMoodboard(card).then((result) => {
+            if (result?.saved) {
+              status.textContent = "Saved to your moodboard.";
+            } else if (result?.duplicate) {
+              status.textContent = "Already in your moodboard.";
+            } else {
+              status.textContent = "Sign in to save gems to a moodboard.";
+            }
+          });
+        }
       });
     });
 

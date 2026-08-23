@@ -1,6 +1,7 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { studioActions } from "./studio-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
+import { fetchMoodboardCounts } from "./gems-moodboards.js";
 
 const KIND_TO_TYPE = Object.freeze({
   dump: "Dumps",
@@ -286,6 +287,17 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
         .limit(40);
       if (error || !data?.length) return;
       projects = data.map(projectFromRow);
+      try {
+        const counts = await fetchMoodboardCounts();
+        data.forEach((row, index) => {
+          if (row.kind !== "moodboard") return;
+          const count =
+            (counts instanceof Map ? counts.get(row.id) : counts?.[row.id]) ?? 0;
+          projects[index].meta = `${count} saved`;
+        });
+      } catch (error) {
+        console.info("Moodboard counts stayed unavailable", error);
+      }
       usingLive = true;
       renderFilter();
     } catch (error) {
