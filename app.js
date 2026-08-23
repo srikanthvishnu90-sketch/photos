@@ -401,10 +401,18 @@ function leaveOtpMode() {
   window.requestAnimationFrame(() => emailInput.focus({ preventScroll: true }));
 }
 
+// Deliberate demo entrance: this address skips auth entirely (QA, app-store
+// review, offline demos) — no OTP is ever requested for it.
+const DEMO_EMAIL = "demo@gems.app";
+
 async function handleEmailSubmit(event) {
   event.preventDefault();
   const email = emailInput.value.trim();
   if (!isValidEmail(email)) return;
+  if (email.toLowerCase() === DEMO_EMAIL) {
+    showOnboarding();
+    return;
+  }
   emailContinueButton.disabled = true;
   const { sent } = await authActions.requestEmailOtp(email);
   emailContinueButton.disabled = false;
@@ -412,7 +420,7 @@ async function handleEmailSubmit(event) {
     enterOtpMode(email);
     return;
   }
-  // Demo mode: no backend reachable, keep the prototype flow.
+  // Fallback: backend unreachable, keep the prototype flow.
   showOnboarding();
 }
 
