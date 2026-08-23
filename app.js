@@ -1,5 +1,5 @@
 import { authActions } from "./auth-actions.js";
-import { getSession, getSupabase } from "./gems-supabase.js";
+import { getSession, getSupabase, waitForSession } from "./gems-supabase.js";
 import { createOnboardingFlow } from "./onboarding.js";
 import { createHomeScreen } from "./home.js";
 import { createDiscoverScreen } from "./discover.js";
@@ -127,10 +127,31 @@ function focusLoginHeading() {
 //   - completed profile  -> existing user  -> straight to Home  (sign in)
 //   - session, not done   -> new/unfinished -> onboarding       (sign up)
 //   - no session          -> the login screen
+// True when this page load is a return from an OAuth provider (Google) — the
+// URL carries the PKCE code (or an implicit-flow token / error).
+function isOAuthReturn() {
+  const hash = window.location.hash || "";
+  const query = window.location.search || "";
+  return (
+    /[?&#](code|access_token|refresh_token|error)=/.test(hash) ||
+    /[?&](code|error)=/.test(query)
+  );
+}
+
 async function checkExistingSession() {
   try {
-    const session = await getSession();
+    // On an OAuth return the session appears a beat after boot (code exchange),
+    // so wait for it rather than reading once and falling through to login.
+    const session = isOAuthReturn() ? await waitForSession() : await getSession();
     if (!session) return;
+    // Strip the OAuth params so a manual refresh doesn't reprocess them.
+    if (isOAuthReturn()) {
+      try {
+        window.history.replaceState(null, "", window.location.pathname);
+      } catch {
+        /* ignore */
+      }
+    }
     const supabase = await getSupabase();
     const { data } = await supabase
       .from("profiles")
@@ -556,7 +577,10 @@ syncEmailState();
 checkExistingSession().then(() => {
   if (restoredProfile || pendingOnboarding) showLogin();
 });
-splashTimer = window.setTimeout(showLogin, SPLASH_DURATION_MS);
+// On an OAuth return, hold the splash as a branded loader while the session
+// resolves — it must never flash the login screen and reset the flow. The
+// session check above routes to Home/onboarding the instant it's ready.
+splashTimer = window.setTimeout(showLogin, isOAuthReturn() ? 8000 : SPLASH_DURATION_MS);
 
 // Keep this reference intentional: it makes the app-height owner explicit and
 // prevents accidental garbage collection in embedded WebViews.
