@@ -880,6 +880,10 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   return Object.freeze({
     activate(payload = {}) {
       syncActiveTab(mount, "Photos");
+      // Sync the demo/real state up front so the first-run import CTA shows on
+      // entry (refreshLibrary only re-syncs when the photo count changes, which
+      // is 0→0 on an empty first visit).
+      syncMode();
       const rank = payload?.rank;
       void refreshLibrary().then(() => {
         try {
