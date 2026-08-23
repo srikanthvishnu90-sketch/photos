@@ -709,10 +709,13 @@
 
 .photos-sheet-photo {
   display: block;
-  width: 100%;
-  max-height: 40vh;
+  /* A little smaller, centered, in the Instagram 4:5 portrait frame. */
+  width: 78%;
+  max-width: 300px;
+  margin: 0 auto;
+  aspect-ratio: 4 / 5;
   border-radius: 14px;
-  object-fit: contain;
+  object-fit: cover;
   background: var(--color-photo-black);
 }
 
