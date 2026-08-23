@@ -1,5 +1,41 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { studioActions } from "./studio-actions.js";
+import { getSupabase, getSession } from "./gems-supabase.js";
+
+const KIND_TO_TYPE = Object.freeze({
+  dump: "Dumps",
+  edit: "Edits",
+  template: "Dumps",
+  moodboard: "Moodboards",
+});
+
+const STATUS_LABEL = Object.freeze({
+  draft: "Draft",
+  exported: "Exported",
+  archived: "Archived",
+});
+
+function sceneForProject(row) {
+  const hint = `${row.aesthetic ?? ""} ${row.kind}`.toLowerCase();
+  if (hint.includes("gym")) return "gym";
+  if (hint.includes("night") || hint.includes("concert")) return "night";
+  if (hint.includes("golden")) return "golden";
+  if (hint.includes("city") || hint.includes("downtown")) return "city";
+  if (hint.includes("euro") || hint.includes("beach") || hint.includes("summer") || hint.includes("coastal"))
+    return "beach";
+  return "cafe";
+}
+
+function projectFromRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    meta: row.aesthetic ?? KIND_TO_TYPE[row.kind] ?? "Project",
+    status: STATUS_LABEL[row.status] ?? "Draft",
+    type: KIND_TO_TYPE[row.kind] ?? "Dumps",
+    scenes: [sceneForProject(row)],
+  };
+}
 
 const FILTERS = Object.freeze(["All", "Dumps", "Edits", "Templates", "Moodboards"]);
 
@@ -214,21 +250,65 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   const status = mount.querySelector("#studioStatus");
   let activeFilter = "All";
   let activated = false;
+  // Demo projects until a signed-in user's real rows load from Supabase.
+  let projects = [...PROJECTS];
+  let usingLive = false;
 
   function visibleProjects() {
-    if (activeFilter === "All") return PROJECTS;
-    return PROJECTS.filter((project) => project.type === activeFilter);
+    if (activeFilter === "All") return projects;
+    return projects.filter((project) => project.type === activeFilter);
   }
 
   function bindProjectButtons() {
     projectsGrid.querySelectorAll("[data-studio-project]").forEach((button) => {
       button.addEventListener("click", () => {
-        const project = PROJECTS.find((item) => item.id === Number(button.dataset.studioProject));
+        const project = projects.find(
+          (item) => String(item.id) === button.dataset.studioProject,
+        );
         if (!project) return;
         studioActions.openProject(project);
         status.textContent = `${project.name} is ready to open when project storage is connected.`;
       });
     });
+  }
+
+  async function loadProjects() {
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) return;
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id, kind, name, status, aesthetic, updated_at")
+        .eq("profile_id", session.user.id)
+        .neq("status", "archived")
+        .order("updated_at", { ascending: false })
+        .limit(40);
+      if (error || !data?.length) return;
+      projects = data.map(projectFromRow);
+      usingLive = true;
+      renderFilter();
+    } catch (error) {
+      console.info("Studio stayed in demo mode", error);
+    }
+  }
+
+  async function createLiveProject() {
+    try {
+      const supabase = await getSupabase();
+      const session = await getSession();
+      if (!supabase || !session) return false;
+      const { error } = await supabase
+        .from("projects")
+        .insert({ profile_id: session.user.id, kind: "dump", name: "Untitled" });
+      if (error) return false;
+      status.textContent = "Untitled draft created.";
+      await loadProjects();
+      return true;
+    } catch (error) {
+      console.info("Project creation stayed in demo mode", error);
+      return false;
+    }
   }
 
   function renderFilter() {
@@ -242,7 +322,8 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
       button.setAttribute("aria-pressed", String(active));
     });
 
-    hero.hidden = activeFilter !== "All" && activeFilter !== "Dumps";
+    // The hero card narrates the hardcoded demo draft; hide it once real rows load.
+    hero.hidden = usingLive || (activeFilter !== "All" && activeFilter !== "Dumps");
     projectsSection.hidden = templateOnly;
     templatesSection.hidden = activeFilter !== "All" && !templateOnly;
     projectsTitle.textContent =
@@ -253,7 +334,7 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
           : "Your projects";
     projectsGrid.innerHTML = projects.map(projectMarkup).join("");
     projectsGrid.hidden = projects.length === 0;
-    empty.hidden = !moodboards;
+    empty.hidden = !moodboards || projects.length > 0;
     bindProjectButtons();
 
     const resultLabel = templateOnly
@@ -274,11 +355,14 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
 
   mount.querySelector("#studioNewProject").addEventListener("click", () => {
     studioActions.createProject();
-    status.textContent = "Project creation will open here.";
+    void createLiveProject().then((created) => {
+      if (!created) status.textContent = "Project creation will open here.";
+    });
   });
 
   mount.querySelector("#studioContinueDraft").addEventListener("click", () => {
-    const project = PROJECTS[0];
+    const project = projects[0];
+    if (!project) return;
     studioActions.openProject(project);
     status.textContent = `${project.name} is ready to open when project storage is connected.`;
   });
@@ -309,8 +393,11 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   return Object.freeze({
     activate(payload = {}) {
       syncActiveTab(mount, "Studio");
+      void loadProjects();
       if (payload.projectId) {
-        const project = PROJECTS.find((item) => item.id === Number(payload.projectId));
+        const project = projects.find(
+          (item) => String(item.id) === String(payload.projectId),
+        );
         if (project) status.textContent = `${project.name} is your most recent draft.`;
       }
       if (activated) return;
