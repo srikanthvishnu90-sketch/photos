@@ -46,6 +46,9 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 // Filled while the splash plays if a Supabase session already exists
 // (returning visit or OAuth redirect); null keeps the demo login flow.
 let restoredProfile = null;
+// Set when a session exists but onboarding isn't finished (new Google/email
+// signup) — routes to onboarding instead of the login screen.
+let pendingOnboarding = null;
 let splashFinished = false;
 let onboardingStarted = false;
 let onboardingFinished = false;
@@ -117,6 +120,13 @@ function focusLoginHeading() {
   loginHeadline.focus({ preventScroll: true });
 }
 
+// OAuth (Google) and email OTP both produce a Supabase session. There is no
+// separate "reject unknown account" for OAuth — signing in with Google either
+// signs an existing user in or creates their account. We tell the two apart by
+// whether their profile finished onboarding (age_range set):
+//   - completed profile  -> existing user  -> straight to Home  (sign in)
+//   - session, not done   -> new/unfinished -> onboarding       (sign up)
+//   - no session          -> the login screen
 async function checkExistingSession() {
   try {
     const session = await getSession();
@@ -127,8 +137,16 @@ async function checkExistingSession() {
       .select("display_name, gender, age_range")
       .eq("id", session.user.id)
       .maybeSingle();
-    // Only skip onboarding for accounts that finished it.
-    if (data?.age_range) restoredProfile = { name: data.display_name };
+    const oauthName =
+      session.user?.user_metadata?.full_name ||
+      session.user?.user_metadata?.name ||
+      "";
+    if (data?.age_range) {
+      restoredProfile = { name: data.display_name };
+    } else {
+      // Signed in but not onboarded — route to signup, prefilling their name.
+      pendingOnboarding = { name: (data?.display_name || oauthName || "").trim() };
+    }
   } catch (error) {
     console.info("Session restore skipped", error);
   }
@@ -148,19 +166,44 @@ function restoreToHome() {
   }, transitionDelay);
 }
 
+function dismissSplash() {
+  splashScreen.classList.remove("is-active");
+  splashScreen.setAttribute("aria-hidden", "true");
+  splashScreen.removeAttribute("tabindex");
+}
+
+// A returning user who signed in with Google/email lands here without ever
+// seeing the login screen: existing -> Home, new -> straight into onboarding.
+function routeFromSplash() {
+  if (restoredProfile) {
+    restoreToHome();
+    return true;
+  }
+  if (pendingOnboarding) {
+    dismissSplash();
+    onboardingStarted = true;
+    onboardingScreen.hidden = false;
+    onboardingScreen.classList.add("is-active");
+    onboardingScreen.setAttribute("aria-hidden", "false");
+    onboardingFlow.start({ name: pendingOnboarding.name });
+    syncThemeColor("--color-white");
+    const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
+    window.setTimeout(() => {
+      splashScreen.hidden = true;
+    }, transitionDelay);
+    return true;
+  }
+  return false;
+}
+
 function showLogin() {
   if (splashFinished) return;
   splashFinished = true;
   window.clearTimeout(splashTimer);
 
-  if (restoredProfile) {
-    restoreToHome();
-    return;
-  }
+  if (routeFromSplash()) return;
 
-  splashScreen.classList.remove("is-active");
-  splashScreen.setAttribute("aria-hidden", "true");
-  splashScreen.removeAttribute("tabindex");
+  dismissSplash();
   loginScreen.classList.add("is-active");
   loginScreen.setAttribute("aria-hidden", "false");
   syncThemeColor("--color-white");
@@ -482,7 +525,12 @@ window.visualViewport?.addEventListener("resize", () => {
 syncAppHeight();
 syncThemeColor();
 syncEmailState();
-void checkExistingSession();
+// Route as soon as the session check resolves — a returning/just-authenticated
+// user (Google redirect or email) skips straight past the splash instead of
+// waiting out the full timer or flashing the login screen.
+checkExistingSession().then(() => {
+  if (restoredProfile || pendingOnboarding) showLogin();
+});
 splashTimer = window.setTimeout(showLogin, SPLASH_DURATION_MS);
 
 // Keep this reference intentional: it makes the app-height owner explicit and

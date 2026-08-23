@@ -608,9 +608,14 @@ export function createOnboardingFlow(options) {
   });
 
   return Object.freeze({
-    start() {
+    start(prefill = {}) {
       if (started) return;
       started = true;
+      // Prefill the name from an OAuth profile (e.g. Google) so signup is
+      // one tap shorter for new users.
+      if (typeof prefill.name === "string" && prefill.name.trim()) {
+        state.name = prefill.name.trim().slice(0, 80);
+      }
       renderStep();
     },
     getState: snapshot,
