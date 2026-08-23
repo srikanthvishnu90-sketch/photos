@@ -237,6 +237,8 @@ function urlForRecord(record) {
 }
 
 // Public shape: everything except the blob, plus a cached object URL.
+// `derived` carries downstream annotations (e.g. the ranker's cached Pass A
+// description) and is always present, defaulting to {}.
 function toPublicRecord(record, gem = false) {
   return Object.freeze({
     id: record.id,
@@ -245,6 +247,7 @@ function toPublicRecord(record, gem = false) {
     height: record.height,
     addedAt: record.addedAt,
     metrics: Object.freeze({ ...record.metrics }),
+    derived: Object.freeze({ ...(record.derived ?? {}) }),
     gem,
     url: urlForRecord(record),
   });
@@ -409,6 +412,46 @@ export async function deletePhoto(id) {
   } catch (error) {
     console.info("Photo delete failed", error);
     return false;
+  }
+}
+
+// Merge a partial `derived` object into a stored record and persist it.
+// Used by the ranker to cache model descriptions on-device so each photo is
+// only ever described once. Returns true when the merge was persisted.
+export async function updatePhotoDerived(id, derived) {
+  try {
+    if (!id || !derived || typeof derived !== "object") return false;
+    return await withStore(
+      "readwrite",
+      async (store) => {
+        const record = await requestToPromise(store.get(id), null);
+        if (!record) return false;
+        record.derived = { ...(record.derived ?? {}), ...derived };
+        return requestToPromise(store.put(record), null).then(() => true);
+      },
+      false,
+    );
+  } catch (error) {
+    console.info("Photo derived update failed", error);
+    return false;
+  }
+}
+
+// The original stored Blob (full resolution), or null. Deliberately separate
+// from the public record shape — listings never carry blobs; this exists for
+// thumbnail generation and full-res edit export.
+export async function getPhotoBlob(id) {
+  try {
+    if (!id) return null;
+    const record = await withStore(
+      "readonly",
+      (store) => requestToPromise(store.get(id), null),
+      null,
+    );
+    return record?.blob ?? null;
+  } catch (error) {
+    console.info("Photo blob lookup failed", error);
+    return null;
   }
 }
 

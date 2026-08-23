@@ -1,6 +1,9 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { photosActions } from "./photos-actions.js";
 import { describePhoto, importPhotoFiles, listPhotos } from "./gems-photolib.js";
+import { isRankQuery, rankPhotos } from "./gems-ranker.js";
+import { exportAll } from "./gems-export.js";
+import { getSession } from "./gems-supabase.js";
 
 const SEARCH_HINTS = Object.freeze([
   "best of me last summer",
@@ -171,6 +174,12 @@ function photosMarkup() {
     <div id="photosContent" class="photos-content home-scroll">
       <header class="photos-header">
         <h1 id="photosTitle" class="photos-title photos-entrance" tabindex="-1">Photos</h1>
+        <button id="photosExport" class="photos-import photos-entrance" type="button">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M6 1.5v6M3.5 5 6 7.5 8.5 5M1.5 10.5h9"></path>
+          </svg>
+          <span>Export</span>
+        </button>
         <button id="photosImport" class="photos-import photos-entrance" type="button">
           <svg viewBox="0 0 12 12" aria-hidden="true">
             <path d="M6 1v10M1 6h10"></path>
@@ -262,6 +271,41 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   let selectedPhotoId = null;
   let activated = false;
   let libraryPhotos = [];
+  // Ranked search state (real-library mode only). When set, the grid shows
+  // ranked.order and the detail sheet prefers ranked.because. Cleared on any
+  // keystroke, on library changes, and when the search is emptied — restoring
+  // the newest-first library order. rankSeq guards against stale async results.
+  let ranked = null;
+  let rankSeq = 0;
+
+  function clearRanked() {
+    rankSeq += 1;
+    ranked = null;
+  }
+
+  async function runRankedSearch(request, purpose = "general") {
+    const token = ++rankSeq;
+    try {
+      const session = await getSession();
+      if (!session || token !== rankSeq || !isRealMode()) return;
+      status.textContent = "Ranking your photos…";
+      const results = await rankPhotos({ request, purpose });
+      if (token !== rankSeq || !isRealMode()) return;
+      if (!Array.isArray(results) || results.length === 0) return;
+      ranked = {
+        order: results.map((entry) => entry.record),
+        because: new Map(
+          results
+            .filter((entry) => entry.because)
+            .map((entry) => [entry.record.id, entry.because]),
+        ),
+      };
+      renderGrid();
+    } catch (error) {
+      // Silent fallback: the grid keeps its current (quality/newest) order.
+      console.info("Ranked search skipped", error);
+    }
+  }
 
   const fileInput = document.createElement("input");
   fileInput.type = "file";
@@ -285,6 +329,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
 
   function visiblePhotos() {
     if (isRealMode()) {
+      if (ranked) return ranked.order;
       const normalized = query.trim().toLocaleLowerCase();
       if (!normalized) return libraryPhotos;
       return libraryPhotos.filter((photo) =>
@@ -341,6 +386,11 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     grid.hidden = photos.length === 0;
     empty.hidden = photos.length !== 0;
     if (isRealMode()) {
+      if (ranked) {
+        libraryTitle.textContent = "Search results";
+        status.textContent = `Ranked ${photos.length} photo${photos.length === 1 ? "" : "s"} for you`;
+        return;
+      }
       libraryTitle.textContent = query.trim() ? "Search results" : "Your library";
       status.textContent = query.trim()
         ? `${photos.length} of ${libraryPhotos.length} photos match`
@@ -393,7 +443,9 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
           />
         `
       : `<div class="photos-sheet-preview">${sceneMarkup(photo.scene, true)}</div>`;
-    const why = real ? describePhoto(photo.metrics) : WHY;
+    const why = real
+      ? ranked?.because.get(photo.id) ?? describePhoto(photo.metrics)
+      : WHY;
     selectedPhotoId = photoId;
     content.inert = true;
     bottomChrome.inert = true;
@@ -478,6 +530,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     const changed = records.length !== libraryPhotos.length;
     libraryPhotos = records;
     if (changed) {
+      clearRanked();
       syncMode();
       renderGrid();
     }
@@ -488,11 +541,30 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     fileInput.click();
   });
 
+  mount.querySelector("#photosExport").addEventListener("click", async () => {
+    try {
+      photosActions.exportTapped(libraryPhotos.length);
+      if (!isRealMode()) {
+        status.textContent = "Import photos first — then export them in full quality.";
+        return;
+      }
+      status.textContent = `Preparing ${libraryPhotos.length} photos…`;
+      const result = await exportAll("gems-library");
+      status.textContent =
+        result.skipped.length > 0
+          ? `Downloaded ${result.count} photos. Skipped ${result.skipped.length}.`
+          : `Downloaded ${result.count} photos.`;
+    } catch (error) {
+      console.info("Export skipped", error);
+    }
+  });
+
   fileInput.addEventListener("change", async () => {
     if (!fileInput.files || fileInput.files.length === 0) return;
     const added = await importPhotoFiles(fileInput.files);
     fileInput.value = "";
     libraryPhotos = await listPhotos();
+    clearRanked();
     syncMode();
     renderGrid();
     if (added.length === 0) return;
@@ -507,12 +579,19 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   search.addEventListener("input", () => {
     query = search.value;
     activeCollection = null;
+    clearRanked(); // per-keystroke filtering stays cheap (filename-only)
     searchShell.classList.toggle("has-value", query.length > 0);
     syncCollections();
     renderGrid();
   });
 
-  search.addEventListener("search", () => photosActions.search(query.trim()));
+  search.addEventListener("search", () => {
+    const trimmed = query.trim();
+    photosActions.search(trimmed);
+    if (isRealMode() && trimmed && isRankQuery(trimmed)) {
+      void runRankedSearch(trimmed);
+    }
+  });
 
   mount.querySelectorAll("[data-photo-hint]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -559,9 +638,23 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
   renderGrid();
 
   return Object.freeze({
-    activate() {
+    activate(payload = {}) {
       syncActiveTab(mount, "Photos");
-      void refreshLibrary();
+      const rank = payload?.rank;
+      void refreshLibrary().then(() => {
+        try {
+          if (!rank?.request || !isRealMode()) return;
+          query = String(rank.request);
+          search.value = query;
+          activeCollection = null;
+          searchShell.classList.add("has-value");
+          syncCollections();
+          renderGrid();
+          void runRankedSearch(query, rank.purpose ?? "general");
+        } catch (error) {
+          console.info("Rank handoff skipped", error);
+        }
+      });
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });

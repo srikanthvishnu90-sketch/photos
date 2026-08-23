@@ -1,4 +1,12 @@
 import { editorActions } from "./editor-actions.js";
+import { getPhoto, getPhotoBlob } from "./gems-photolib.js";
+import { getSession } from "./gems-supabase.js";
+
+// Deployed editing edge function. The publishable key is client-safe by
+// design — the function authorizes every call with the user's session token.
+const EDIT_FUNCTION_URL =
+  "https://hkwkxacvcgorhthwyslx.supabase.co/functions/v1/edit-photo";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze(["Erase", "Add", "Crop", "Adjust", "Filters"]);
 
@@ -45,6 +53,7 @@ function editorMarkup() {
     <div class="editor-canvas-region">
       <div id="editorCanvas" class="editor-canvas">
         ${beachSceneMarkup()}
+        <img id="editorPhotoView" class="editor-photo" alt="" decoding="async" hidden />
         <div id="editorProcessing" class="editor-processing" role="status" aria-live="polite" hidden>
           <span class="editor-processing-card" aria-hidden="true"></span>
           <strong>Working on it…</strong>
@@ -130,6 +139,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const title = mount.querySelector("#editorTitle");
   const done = mount.querySelector("#editorDone");
   const canvas = mount.querySelector("#editorCanvas");
+  const photoView = mount.querySelector("#editorPhotoView");
   const processingOverlay = mount.querySelector("#editorProcessing");
   const reroll = mount.querySelector("#editorReroll");
   const versionsRoot = mount.querySelector("#editorVersions");
@@ -146,6 +156,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   let activeVersionId = 0;
   let processing = false;
   let processingTimer = 0;
+  // Real-photo mode: set when the activation payload names a library photo AND
+  // a session exists. Null means the simulated demo flow is in charge.
+  let photo = null;
+  let lastInstruction = "";
+  let abortController = null;
+  // Bumped on every activate/deactivate so stale async work bails cleanly.
+  let activationToken = 0;
 
   function currentVersion() {
     return versions.find((version) => version.id === activeVersionId) || versions[0];
@@ -153,7 +170,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   function syncCanvas() {
     const version = currentVersion();
-    canvas.classList.toggle("has-no-ship", version && !version.ship);
+    canvas.classList.toggle("is-real", Boolean(photo));
+    photoView.hidden = !photo;
+    if (photo) {
+      const url = version?.url ?? "";
+      if (url && photoView.getAttribute("src") !== url) photoView.src = url;
+    } else {
+      photoView.removeAttribute("src");
+      canvas.classList.toggle("has-no-ship", version && !version.ship);
+    }
     canvas.classList.toggle("is-processing", processing);
     processingOverlay.hidden = !processing;
     reroll.hidden = processing || activeVersionId === 0;
@@ -223,9 +248,123 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     editorActions.selectManualTool(tool);
   }
 
+  // Try to swap the canvas from the simulated scene to the real library photo.
+  // Anything missing — no record, no session, storage failure — leaves the
+  // demo flow untouched.
+  async function loadRealPhoto(photoId, token) {
+    try {
+      const [record, session] = await Promise.all([getPhoto(photoId), getSession()]);
+      if (token !== activationToken || !record || !session) return;
+      // A simulated edit already started in the gap — don't clobber it.
+      if (processing || versions.length > 1) return;
+      photo = record;
+      photoView.alt = record.name || "Photo being edited";
+      versions = [{ id: 0, label: "Original", url: record.url }];
+      activeVersionId = 0;
+      renderVersions();
+      syncCanvas();
+    } catch (error) {
+      console.info("Real photo load skipped, staying in demo mode", error);
+    }
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        resolve(result.slice(result.indexOf(",") + 1));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("Photo read failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Real edit: sends the instruction and the original photo to the deployed
+  // edge function, then appends the signed result URL as a new version.
+  async function requestRealEdit(instruction, kind) {
+    if (!instruction || processing) return;
+    const token = activationToken;
+    const sourceVersion = currentVersion();
+    editorActions.requestEdit(instruction, sourceVersion);
+    if (kind === "describe") lastInstruction = instruction;
+    promptInput.value = "";
+    processing = true;
+    syncPrompt();
+    renderVersions();
+    syncCanvas();
+    status.textContent = `Applying edit: ${instruction}`;
+    abortController = new AbortController();
+    let succeeded = false;
+
+    try {
+      // Full-resolution pixels leave the browser only for an explicitly
+      // requested edit — per the privacy architecture, everything else
+      // (ranking, metrics, thumbnails) stays fully on-device.
+      const blob = await getPhotoBlob(photo.id);
+      if (!blob) throw new Error("Original photo unavailable");
+      const imageBase64 = await blobToBase64(blob);
+      const session = await getSession();
+      if (!session) throw new Error("No session for edit");
+      if (token !== activationToken) return;
+
+      const response = await fetch(EDIT_FUNCTION_URL, {
+        method: "POST",
+        signal: abortController.signal,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          instruction,
+          kind,
+          photoId: photo.id,
+          imageBase64,
+          mimeType: blob.type || photo.type || "image/jpeg",
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (token !== activationToken) return;
+
+      if (response.ok && data?.url) {
+        const nextId = versions.length;
+        versions.push({ id: nextId, label: `V${nextId}`, url: data.url });
+        activeVersionId = nextId;
+        succeeded = true;
+        status.textContent = `Version ${nextId} is ready.`;
+        editorActions.editResultShown(data.kind ?? kind, data.model ?? "unknown");
+      } else if (response.status === 402) {
+        const cap = Number(data?.cap);
+        status.textContent = Number.isFinite(cap)
+          ? `You've used all ${cap} free edits this month — Gems Plus unlocks more.`
+          : "You've used all your free edits this month — Gems Plus unlocks more.";
+      } else if (response.status === 503 && data?.error === "image_model_quota") {
+        status.textContent = "The editing model is warming up — try again soon.";
+      } else {
+        status.textContent = "That edit didn't go through — try again.";
+      }
+    } catch (error) {
+      if (error?.name === "AbortError" || token !== activationToken) return;
+      console.info("Edit request failed", error);
+      status.textContent = "That edit didn't go through — try again.";
+    } finally {
+      if (token === activationToken) {
+        processing = false;
+        renderVersions({ focusActive: succeeded });
+        syncCanvas();
+        syncPrompt();
+      }
+    }
+  }
+
   function requestEdit(rawPrompt) {
     const prompt = rawPrompt.trim();
     if (!prompt || processing) return;
+    if (photo) {
+      void requestRealEdit(prompt, "describe");
+      return;
+    }
     const sourceVersion = currentVersion();
     editorActions.requestEdit(prompt, sourceVersion);
     promptInput.value = "";
@@ -260,7 +399,12 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     editorActions.completeEdit(currentVersion());
     onNavigate("Photos");
   });
-  reroll.addEventListener("click", () => requestEdit("Try another result"));
+  reroll.addEventListener("click", () => {
+    // In real-photo mode a reroll re-sends the LAST instruction with a
+    // "reroll" kind; the demo keeps its original simulated behavior.
+    if (photo) void requestRealEdit(lastInstruction, "reroll");
+    else requestEdit("Try another result");
+  });
 
   mount.querySelectorAll("[data-editor-mode]").forEach((button) => {
     button.addEventListener("click", () => setMode(button.dataset.editorMode));
@@ -283,6 +427,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   return Object.freeze({
     activate(options = {}) {
       window.clearTimeout(processingTimer);
+      abortController?.abort();
+      abortController = null;
+      activationToken += 1;
+      photo = null;
+      lastInstruction = "";
       versions = [{ id: 0, label: "Original", ship: true }];
       activeVersionId = 0;
       processing = false;
@@ -294,6 +443,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       setTool("Erase");
       setMode(options.mode === "manual" ? "manual" : "describe");
       status.textContent = "Original photo loaded.";
+      if (options.photoId) void loadRealPhoto(options.photoId, activationToken);
     },
 
     focusHeading() {
@@ -302,6 +452,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
     deactivate() {
       window.clearTimeout(processingTimer);
+      abortController?.abort();
+      abortController = null;
+      activationToken += 1;
       processing = false;
       syncCanvas();
       syncPrompt();

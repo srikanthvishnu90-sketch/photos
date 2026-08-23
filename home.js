@@ -1,5 +1,26 @@
 import { homeActions } from "./home-actions.js";
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
+import { getSupabase, getSession } from "./gems-supabase.js";
+
+// Keep in sync with gems-supabase.js, which declares these but does not
+// export them (client-safe by design — RLS does the real gatekeeping).
+const SUPABASE_URL = "https://hkwkxacvcgorhthwyslx.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
+
+const CHAT_ENDPOINT = `${SUPABASE_URL}/functions/v1/gems-chat`;
+const CHAT_NAVIGATE_DELAY_MS = 900;
+const CHAT_TABS = Object.freeze(["Photos", "Studio", "Editor", "Discover"]);
+const SIGNED_OUT_REPLY =
+  "Sign in to chat with Gems — I can find, build, and edit your photos.";
+const CHAT_ERROR_REPLY = "I couldn't think just then — try again.";
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
 
 const GEMS = Object.freeze([
   { id: 1, label: "Best cover", meta: "Golden hour", scene: "portrait" },
@@ -231,6 +252,17 @@ function homeMarkup() {
     </div>
 
     <div class="home-bottom-chrome">
+      <div id="homeReplyStrip" class="home-reply-strip" aria-live="polite" hidden>
+        <div class="home-reply-line">
+          <p id="homeReplyText" class="home-reply-text"></p>
+          <button id="homeReplyClose" class="home-reply-close" type="button" aria-label="Dismiss Gems reply">
+            <svg viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"></path>
+            </svg>
+          </button>
+        </div>
+        <div id="homeReplyChips" class="home-reply-chips" hidden></div>
+      </div>
       <div class="home-chat-dock">
         <form id="homeChatForm" class="home-chat-form home-entrance">
           <button id="attachPhoto" class="home-chat-icon" type="button" aria-label="Attach a photo">
@@ -284,9 +316,17 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   const chatInput = mount.querySelector("#homeChatInput");
   const chatSend = mount.querySelector("#homeChatSend");
   const chatStatus = mount.querySelector("#homeChatStatus");
+  const replyStrip = mount.querySelector("#homeReplyStrip");
+  const replyText = mount.querySelector("#homeReplyText");
+  const replyChips = mount.querySelector("#homeReplyChips");
+  const replyClose = mount.querySelector("#homeReplyClose");
   let activeGem = 0;
   let scrollFrame = 0;
   let activated = false;
+  let chatInFlight = false;
+  let navigateTimer = 0;
+  // The signed-in user's chosen aesthetics, fetched once per activation.
+  let aestheticsPromise = null;
 
   function updateCarousel() {
     scrollFrame = 0;
@@ -310,7 +350,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   function syncChat() {
     const hasInput = chatInput.value.trim().length > 0;
     chatForm.classList.toggle("has-value", hasInput);
-    chatSend.disabled = !hasInput;
+    chatSend.disabled = chatInFlight || !hasInput;
   }
 
   function setChatPrompt(prompt) {
@@ -319,22 +359,176 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     chatInput.focus({ preventScroll: true });
   }
 
+  function hideReply() {
+    replyStrip.hidden = true;
+    replyText.textContent = "";
+    replyChips.innerHTML = "";
+    replyChips.hidden = true;
+  }
+
+  // The dock reply: one short assistant line plus up to two clarify chips.
+  // Text lands via textContent and chip labels/values via escapeHtml, so
+  // model output can never inject markup.
+  function showReply(text, clarify) {
+    try {
+      replyText.textContent = String(text);
+      const chips = (Array.isArray(clarify) ? clarify : [])
+        .filter(
+          (chip) =>
+            chip && typeof chip.label === "string" && typeof chip.value === "string",
+        )
+        .slice(0, 2);
+      replyChips.innerHTML = chips
+        .map(
+          (chip) => `
+            <button class="home-reply-chip" type="button" data-chip-value="${escapeHtml(chip.value)}">
+              ${escapeHtml(chip.label)}
+            </button>
+          `,
+        )
+        .join("");
+      replyChips.hidden = chips.length === 0;
+      replyStrip.hidden = false;
+    } catch (error) {
+      console.info("Gems reply strip unavailable", error);
+    }
+  }
+
+  // Any navigation away from Home also dismisses the dock reply.
+  function goTo(tab, payload) {
+    window.clearTimeout(navigateTimer);
+    hideReply();
+    onNavigate(tab, payload);
+  }
+
+  function loadAesthetics() {
+    if (!aestheticsPromise) {
+      aestheticsPromise = (async () => {
+        try {
+          const supabase = await getSupabase();
+          const session = await getSession();
+          if (!supabase || !session) return [];
+          const { data } = await supabase
+            .from("profile_aesthetics")
+            .select("label")
+            .eq("profile_id", session.user.id)
+            .order("position");
+          return (data ?? [])
+            .map((row) => row?.label)
+            .filter((label) => typeof label === "string");
+        } catch (error) {
+          console.info("Aesthetics unavailable for chat", error);
+          return [];
+        }
+      })();
+    }
+    return aestheticsPromise;
+  }
+
+  function chatActionPayload(data) {
+    const action = data?.action;
+    if (!action || !CHAT_TABS.includes(action.navigate)) return null;
+    let payload =
+      action.payload && typeof action.payload === "object" ? { ...action.payload } : {};
+    if (
+      action.navigate === "Photos" &&
+      data?.intent === "find" &&
+      data?.rankRequest &&
+      payload.rank == null
+    ) {
+      payload.rank = data.rankRequest;
+    }
+    if (
+      action.navigate === "Editor" &&
+      typeof data?.editInstruction === "string" &&
+      data.editInstruction &&
+      payload.instruction == null
+    ) {
+      payload = { mode: "describe", instruction: data.editInstruction, ...payload };
+    }
+    return { navigate: action.navigate, payload };
+  }
+
+  // The real Gems orchestrator call. Every failure path degrades to a gentle
+  // strip message — this function never throws and always re-enables send.
+  async function sendChatMessage(message) {
+    const prompt = String(message ?? "").trim();
+    if (!prompt || chatInFlight) return;
+
+    window.clearTimeout(navigateTimer);
+    hideReply();
+    chatInFlight = true;
+    chatSend.disabled = true;
+    void homeActions.sendPrompt(prompt);
+    chatStatus.textContent = `Sent: ${prompt}`;
+    chatInput.value = "";
+
+    try {
+      const session = await getSession();
+      if (!session) {
+        showReply(SIGNED_OUT_REPLY, null);
+        return;
+      }
+
+      const userAesthetics = await loadAesthetics();
+      const response = await fetch(CHAT_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: prompt, userAesthetics, screen: "Home" }),
+      });
+      if (!response.ok) throw new Error(`gems-chat ${response.status}`);
+      const data = await response.json();
+
+      const reply =
+        typeof data?.reply === "string" && data.reply.trim() ? data.reply : "Done.";
+      showReply(reply, data?.clarify);
+      homeActions.chatReplyShown(typeof data?.intent === "string" ? data.intent : "chat");
+
+      const routed = chatActionPayload(data);
+      if (routed) {
+        navigateTimer = window.setTimeout(
+          () => goTo(routed.navigate, routed.payload),
+          CHAT_NAVIGATE_DELAY_MS,
+        );
+      }
+    } catch (error) {
+      console.info("Gems chat unavailable", error);
+      showReply(CHAT_ERROR_REPLY, null);
+    } finally {
+      chatInFlight = false;
+      syncChat();
+    }
+  }
+
   carousel.addEventListener("scroll", queueCarouselUpdate, { passive: true });
   profile.addEventListener("click", () => {
     homeActions.openProfile();
-    onNavigate("Profile");
+    goTo("Profile");
   });
   mount.querySelector("#seeAllGems").addEventListener("click", homeActions.seeAllGems);
   mount.querySelector("#openDraft").addEventListener("click", () => {
     homeActions.openDraft();
-    onNavigate("Studio", { projectId: 1 });
+    goTo("Studio", { projectId: 1 });
   });
   mount.querySelector("#openHiddenGem").addEventListener("click", homeActions.openHiddenGem);
   mount.querySelector("#discoverVibes").addEventListener("click", () => {
     homeActions.selectTab("Discover");
-    onNavigate("Discover");
+    goTo("Discover");
   });
   mount.querySelector("#attachPhoto").addEventListener("click", homeActions.attachPhoto);
+  replyClose.addEventListener("click", () => {
+    window.clearTimeout(navigateTimer);
+    hideReply();
+  });
+  replyChips.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-chip-value]");
+    if (!chip) return;
+    void sendChatMessage(chip.dataset.chipValue);
+  });
 
   mount.querySelectorAll("[data-gem-id]").forEach((button) => {
     button.addEventListener("click", () => homeActions.openGem(Number(button.dataset.gemId)));
@@ -357,7 +551,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const tab = button.dataset.appTab;
       homeActions.selectTab(tab);
       if (tab === "Discover" || tab === "Photos" || tab === "Studio" || tab === "Profile") {
-        onNavigate(tab);
+        goTo(tab);
         return;
       }
       if (tab === "Home") syncActiveTab(mount, "Home");
@@ -365,16 +559,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   });
 
   chatInput.addEventListener("input", syncChat);
-  chatForm.addEventListener("submit", async (event) => {
+  chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const prompt = chatInput.value.trim();
-    if (!prompt) return;
-
-    chatSend.disabled = true;
-    await homeActions.sendPrompt(prompt);
-    chatStatus.textContent = `Sent: ${prompt}`;
-    chatInput.value = "";
-    syncChat();
+    void sendChatMessage(chatInput.value);
   });
 
   syncChat();
@@ -387,6 +574,11 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       initial.textContent = firstName.charAt(0).toLocaleUpperCase();
       profile.setAttribute("aria-label", `Open profile for ${firstName}`);
       syncActiveTab(mount, "Home");
+      // Each activation starts a fresh chat context: refetch aesthetics on
+      // the next send and clear any reply left over from a previous session.
+      aestheticsPromise = null;
+      window.clearTimeout(navigateTimer);
+      hideReply();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });

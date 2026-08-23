@@ -17,6 +17,11 @@ export const editorActions = Object.freeze({
     recordTasteEvent("manual_tool_selected", { tool });
   },
 
+  editResultShown(kind, model) {
+    // A real edited result reached the canvas — records which model served it.
+    recordTasteEvent("edit_result_shown", { kind, model });
+  },
+
   completeEdit(version) {
     // TODO: persist the selected version to the user's library and Studio.
     recordTasteEvent("edit_accepted", { version });

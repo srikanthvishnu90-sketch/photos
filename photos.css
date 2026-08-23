@@ -57,6 +57,12 @@
   outline: none;
 }
 
+/* With Export sharing the Import button's classes, let the title absorb the
+   header's free space so the two buttons sit together on the right. */
+.photos-title {
+  margin-right: auto;
+}
+
 .photos-import {
   display: inline-flex;
   min-height: 44px;

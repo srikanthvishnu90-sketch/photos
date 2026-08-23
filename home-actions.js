@@ -40,8 +40,12 @@ export const homeActions = Object.freeze({
   },
 
   async sendPrompt(prompt) {
-    // TODO: send the prompt to the Gems AI chat service.
+    // Telemetry only — the Gems orchestrator call itself lives in home.js.
     recordTasteEvent("chat_prompt_sent", { prompt });
+  },
+
+  chatReplyShown(intent) {
+    recordTasteEvent("chat_reply_shown", { intent });
   },
 
   selectTab(tab) {
