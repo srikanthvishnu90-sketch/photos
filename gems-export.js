@@ -3,7 +3,7 @@
 // Zero dependencies; safe to import in Node (browser APIs are guarded).
 
 import { buildZip } from "./gems-zip.js";
-import { listPhotos, getPhotoBlob } from "./gems-photolib.js";
+import { listPhotos, getPhotoBlob, updatePhotoDerived } from "./gems-photolib.js";
 import { recordTasteEvent } from "./gems-supabase.js";
 
 const IS_BROWSER =
@@ -102,6 +102,17 @@ export async function exportPhotos(records, { setName = "gems-export" } = {}) {
     const downloaded = triggerDownload(zip, `${setName}.zip`);
 
     if (downloaded) {
+      // Mark exported photos so the "Never posted" smart collection becomes
+      // real (it excludes derived.exported === true). Best-effort per photo.
+      for (const entry of entries.length ? list : []) {
+        if (entry && entry.id && !result.skipped.includes(entry.id)) {
+          try {
+            await updatePhotoDerived(entry.id, { exported: true });
+          } catch (err) {
+            console.info("[gems-export] exported-flag write failed:", entry.id, err);
+          }
+        }
+      }
       try {
         // North-star instrumentation: this event is the "kept" scoreboard write.
         recordTasteEvent("export_completed", {

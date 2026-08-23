@@ -530,6 +530,17 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     }
     grid.hidden = photos.length === 0;
     empty.hidden = photos.length !== 0;
+    // Semantic search leans on cached descriptions, which only populate after a
+    // signed-in analysis — so an empty result here usually means "sign in", not
+    // "no such photos". Soften the dead-end.
+    if (photos.length === 0 && semanticActive && isRealMode()) {
+      empty.innerHTML =
+        "<strong>Nothing matched that search.</strong>" +
+        "<span>Sign in and Gems learns your photos so search understands them.</span>";
+    } else {
+      empty.innerHTML =
+        "<strong>No photos match that yet.</strong><span>Try a broader description.</span>";
+    }
     if (isRealMode()) {
       if (ranked) {
         libraryTitle.textContent = "Search results";
