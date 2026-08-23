@@ -2,3 +2,10 @@
 .vercel
 *.log
 .gstack/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials*.json
+secrets/
