@@ -19,6 +19,24 @@ function json(status: number, body: unknown): Response {
   });
 }
 
+// Require a real signed-in user — the public apikey alone (which ships in the
+// client JS) must not be able to spend Claude budget.
+function userIdFromAuth(header: string | null): string | null {
+  try {
+    const token = header?.replace(/^Bearer\s+/i, "") ?? "";
+    const payload = JSON.parse(
+      new TextDecoder().decode(
+        Uint8Array.from(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+          c.charCodeAt(0),
+        ),
+      ),
+    );
+    return typeof payload.sub === "string" && payload.role === "authenticated" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 const VALID_INTENTS = new Set(["find", "build", "edit", "inspire", "chat"]);
 const VALID_SCREENS = new Set(["Photos", "Studio", "Editor", "Discover"]);
 
@@ -79,6 +97,7 @@ Deno.serve(async (request) => {
   if (!Deno.env.get("ANTHROPIC_API_KEY")) {
     return json(503, { error: "ANTHROPIC_API_KEY is not configured" });
   }
+  if (!userIdFromAuth(request.headers.get("authorization"))) return json(401, { error: "sign in required" });
 
   let body: { message?: string; userAesthetics?: string[]; screen?: string };
   try {

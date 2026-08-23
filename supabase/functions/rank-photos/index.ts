@@ -21,6 +21,28 @@ function json(status: number, body: unknown): Response {
   });
 }
 
+// Require a real signed-in user, not just the public apikey (which ships in
+// the client JS). The gateway's verify_jwt validates a token IF present but
+// accepts an apikey-only call; this guard closes that cost-exposure gap so
+// only authenticated users can spend model budget.
+const MAX_DESCRIBE_BYTES = 14_000_000; // ~14 MB of base64 — clients send 512px thumbs; guard against OOM.
+
+function userIdFromAuth(header: string | null): string | null {
+  try {
+    const token = header?.replace(/^Bearer\s+/i, "") ?? "";
+    const payload = JSON.parse(
+      new TextDecoder().decode(
+        Uint8Array.from(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+          c.charCodeAt(0),
+        ),
+      ),
+    );
+    return typeof payload.sub === "string" && payload.role === "authenticated" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 async function callGemini(parts: unknown[]): Promise<string> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -37,8 +59,10 @@ async function callGemini(parts: unknown[]): Promise<string> {
     },
   );
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`gemini ${response.status}: ${detail.slice(0, 300)}`);
+    // Log the provider detail server-side; never leak it (quota state, URLs) to the caller.
+    console.error(`gemini ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    const status = response.status === 429 ? 429 : response.status >= 500 ? 502 : response.status;
+    throw Object.assign(new Error("upstream model unavailable"), { httpStatus: status });
   }
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -60,6 +84,7 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (request.method !== "POST") return json(405, { error: "POST only" });
   if (!GEMINI_API_KEY) return json(503, { error: "GEMINI_API_KEY is not configured" });
+  if (!userIdFromAuth(request.headers.get("authorization"))) return json(401, { error: "sign in required" });
 
   let body: Record<string, unknown>;
   try {
@@ -75,6 +100,15 @@ Deno.serve(async (request) => {
       if (!photos.length) return json(400, { error: "photos[] required" });
       if (photos.length > MAX_BATCH) {
         return json(400, { error: `max ${MAX_BATCH} photos per call` });
+      }
+      // Guard payload size, not just count: full-res images OOM the worker far
+      // below 16. Clients must send 512px thumbnails (gems-ranker.makeThumbnail).
+      const totalBytes = photos.reduce(
+        (sum: number, p: { base64?: string }) => sum + (p.base64?.length ?? 0),
+        0,
+      );
+      if (totalBytes > MAX_DESCRIBE_BYTES) {
+        return json(413, { error: "payload too large — send 512px thumbnails, fewer per call" });
       }
       const parts: unknown[] = [{ text: PASS_A_PROMPT }];
       photos.forEach((photo: { mimeType?: string; base64?: string }, index: number) => {
@@ -123,6 +157,8 @@ Deno.serve(async (request) => {
     return json(400, { error: 'action must be "describe" or "rank"' });
   } catch (error) {
     console.error("rank-photos failed", error);
-    return json(502, { error: String((error as Error).message ?? error) });
+    const status = (error as { httpStatus?: number }).httpStatus;
+    if (status === 429) return json(503, { error: "temporarily unavailable — try again shortly" });
+    return json(502, { error: "ranking failed" });
   }
 });
