@@ -1,53 +1,50 @@
 // These boundaries keep the authenticated Home UI independent from the
 // eventual photo library, studio, profile, discovery, and AI services.
+// Behavioral signals now land in Supabase taste_events (owner-only RLS,
+// silent no-op when signed out); AI and native services still attach here.
+import { recordTasteEvent } from "./gems-supabase.js";
+
 export const homeActions = Object.freeze({
   openProfile() {
-    // TODO: navigate to profile and settings.
-    console.info("TODO: Open profile");
+    recordTasteEvent("profile_opened", { from: "home" });
   },
 
   openGem(gemId) {
-    // TODO: open the ranked photo detail.
-    console.info("TODO: Open gem", gemId);
+    recordTasteEvent("gem_tapped", { gemId, from: "home_carousel" });
   },
 
   seeAllGems() {
-    // TODO: navigate to the complete ranked-gems collection.
-    console.info("TODO: See all gems");
+    recordTasteEvent("gems_see_all_tapped", { from: "home" });
   },
 
   startAction(action) {
     // TODO: route the selected creation intent into the AI workflow.
-    console.info("TODO: Start home action", action);
+    recordTasteEvent("creation_intent_tapped", { action });
   },
 
   openDraft() {
-    // TODO: open the Studio draft.
-    console.info("TODO: Open draft");
+    recordTasteEvent("draft_resumed", { from: "home" });
   },
 
   openHiddenGem() {
-    // TODO: open the daily rediscovered photo.
-    console.info("TODO: Open hidden gem");
+    recordTasteEvent("hidden_gem_opened", {});
   },
 
   openTrend(vibe) {
-    // TODO: navigate to the selected Discover vibe.
-    console.info("TODO: Open trend", vibe);
+    recordTasteEvent("trend_tapped", { vibe });
   },
 
   attachPhoto() {
     // TODO: attach a photo once photo-library permissions are connected.
-    console.info("TODO: Attach photo");
+    recordTasteEvent("chat_attach_tapped", {});
   },
 
   async sendPrompt(prompt) {
     // TODO: send the prompt to the Gems AI chat service.
-    console.info("TODO: Send home prompt", prompt);
+    recordTasteEvent("chat_prompt_sent", { prompt });
   },
 
   selectTab(tab) {
-    // TODO: connect the tab to its matching route.
-    console.info("TODO: Select tab", tab);
+    recordTasteEvent("tab_selected", { tab, from: "Home" });
   },
 });

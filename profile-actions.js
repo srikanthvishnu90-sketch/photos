@@ -1,28 +1,29 @@
 // Integration boundaries for account, sharing, settings, and billing. The
 // prototype keeps these actions local so production services can attach later.
+// Engagement signals land in Supabase taste_events (no-op when signed out).
+import { recordTasteEvent } from "./gems-supabase.js";
+
 export const profileActions = Object.freeze({
   shareTasteProfile(profile) {
     // TODO: generate and present the shareable taste-profile card.
-    console.info("TODO: Share taste profile", profile);
+    recordTasteEvent("taste_profile_share_tapped", { profile });
   },
 
   openSetting(setting) {
     // TODO: route to the matching native settings screen.
-    console.info("TODO: Open profile setting", setting);
+    recordTasteEvent("setting_opened", { setting });
   },
 
   openPlus() {
-    // TODO: log the Gems Plus paywall impression.
-    console.info("TODO: Open Gems Plus paywall");
+    recordTasteEvent("paywall_impression", { plan: "plus" });
   },
 
   startTrial() {
     // TODO: attach App Store subscription purchase flow.
-    console.info("TODO: Start Gems Plus trial");
+    recordTasteEvent("trial_start_tapped", { plan: "plus" });
   },
 
   selectTab(tab) {
-    // TODO: connect remaining tab destinations as they are built.
-    console.info("TODO: Select app tab", tab);
+    recordTasteEvent("tab_selected", { tab, from: "Profile" });
   },
 });

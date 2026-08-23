@@ -1,23 +1,29 @@
 // These are the integration boundaries for Discover. Real creation, library,
 // aesthetic, and moodboard flows can attach here without changing the UI.
+// Engagement signals land in Supabase taste_events (no-op when signed out).
+import { recordTasteEvent } from "./gems-supabase.js";
+
 export const discoverActions = Object.freeze({
   chooseCategory(category) {
-    // TODO: record Discover category engagement.
-    console.info("TODO: Choose Discover category", category);
+    recordTasteEvent("discover_category_chosen", { category });
   },
 
   search(query) {
     // TODO: connect discovery search when the content service is available.
-    console.info("TODO: Search Discover", query);
+    recordTasteEvent("search_query", { surface: "discover", query });
   },
 
   runCardAction(action, card) {
     // TODO: route the selected inspiration action into its real workflow.
-    console.info("TODO: Run Discover action", action, card.id);
+    recordTasteEvent(
+      action === "Recreate this"
+        ? "discover_recreate_tapped"
+        : "discover_card_action",
+      { action, cardId: card.id, title: card.title },
+    );
   },
 
   selectTab(tab) {
-    // TODO: connect Photos and Studio when those routes are built.
-    console.info("TODO: Select tab", tab);
+    recordTasteEvent("tab_selected", { tab, from: "Discover" });
   },
 });

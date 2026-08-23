@@ -1,28 +1,29 @@
 // Integration boundaries for the intelligent photo library. The UI can remain
 // unchanged when native photo import, semantic search, and editing are attached.
+// Behavioral signals land in Supabase taste_events (no-op when signed out).
+import { recordTasteEvent } from "./gems-supabase.js";
+
 export const photosActions = Object.freeze({
   importPhotos() {
     // TODO: open the native photo picker after library permissions are connected.
-    console.info("TODO: Import photos");
+    recordTasteEvent("photo_import_tapped", {});
   },
 
   search(query) {
     // TODO: send natural-language photo searches to the media index.
-    console.info("TODO: Search photos", query);
+    recordTasteEvent("search_query", { surface: "photos", query });
   },
 
   openCollection(collection) {
-    // TODO: load the complete smart collection from the media index.
-    console.info("TODO: Open smart collection", collection);
+    recordTasteEvent("collection_opened", { collection: collection.name ?? collection });
   },
 
   runPhotoAction(action, photoId) {
     // TODO: route the photo into the matching editor or conversation workflow.
-    console.info("TODO: Run photo action", action, photoId);
+    recordTasteEvent("photo_action_tapped", { action, photoId });
   },
 
   selectTab(tab) {
-    // TODO: connect Studio when that route is built.
-    console.info("TODO: Select tab", tab);
+    recordTasteEvent("tab_selected", { tab, from: "Photos" });
   },
 });
