@@ -1,4 +1,5 @@
 import { authActions } from "./auth-actions.js";
+import { getSession, getSupabase } from "./gems-supabase.js";
 import { createOnboardingFlow } from "./onboarding.js";
 import { createHomeScreen } from "./home.js";
 import { createDiscoverScreen } from "./discover.js";
@@ -35,6 +36,9 @@ const studioScreen = document.querySelector("#studioScreen");
 const profileScreen = document.querySelector("#profileScreen");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+// Filled while the splash plays if a Supabase session already exists
+// (returning visit or OAuth redirect); null keeps the demo login flow.
+let restoredProfile = null;
 let splashFinished = false;
 let onboardingStarted = false;
 let onboardingFinished = false;
@@ -106,10 +110,46 @@ function focusLoginHeading() {
   loginHeadline.focus({ preventScroll: true });
 }
 
+async function checkExistingSession() {
+  try {
+    const session = await getSession();
+    if (!session) return;
+    const supabase = await getSupabase();
+    const { data } = await supabase
+      .from("profiles")
+      .select("display_name, gender, age_range")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    // Only skip onboarding for accounts that finished it.
+    if (data?.age_range) restoredProfile = { name: data.display_name };
+  } catch (error) {
+    console.info("Session restore skipped", error);
+  }
+}
+
+function restoreToHome() {
+  splashScreen.classList.remove("is-active");
+  splashScreen.setAttribute("aria-hidden", "true");
+  splashScreen.removeAttribute("tabindex");
+  onboardingStarted = true;
+  onboardingFinished = true;
+  showHome(restoredProfile);
+
+  const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
+  window.setTimeout(() => {
+    splashScreen.hidden = true;
+  }, transitionDelay);
+}
+
 function showLogin() {
   if (splashFinished) return;
   splashFinished = true;
   window.clearTimeout(splashTimer);
+
+  if (restoredProfile) {
+    restoreToHome();
+    return;
+  }
 
   splashScreen.classList.remove("is-active");
   splashScreen.setAttribute("aria-hidden", "true");
@@ -329,6 +369,7 @@ window.visualViewport?.addEventListener("resize", () => {
 syncAppHeight();
 syncThemeColor();
 syncEmailState();
+void checkExistingSession();
 splashTimer = window.setTimeout(showLogin, SPLASH_DURATION_MS);
 
 // Keep this reference intentional: it makes the app-height owner explicit and
