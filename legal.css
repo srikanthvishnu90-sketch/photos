@@ -1,0 +1,174 @@
+/* Shared styling for the standalone legal pages (privacy.html, terms.html).
+   Self-contained: these pages don't load the app's JS or styles.css, so they
+   render instantly and work as public URLs the App Store / Play Store can link
+   to. Brand tokens mirror the app. */
+:root {
+  --color-petal: #ffaecb;
+  --color-ink: #170b10;
+  --color-mauve: #746d70;
+  --color-white: #ffffff;
+  --color-surface: #f7f6f6;
+  --color-border: #dfd9dc;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-ui: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0 20px calc(56px + env(safe-area-inset-bottom));
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.legal-wrap {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.legal-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 22px) 0 8px;
+}
+
+.legal-badge {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  place-items: center;
+  color: var(--color-white);
+  background: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 560;
+}
+
+.legal-brand {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 560;
+}
+
+.legal-back {
+  margin-left: auto;
+  color: var(--color-mauve);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.legal-back:hover {
+  color: var(--color-ink);
+}
+
+h1 {
+  margin: 20px 0 4px;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 8vw, 38px);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.legal-updated {
+  margin: 0 0 8px;
+  color: var(--color-mauve);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.legal-lede {
+  margin: 0 0 8px;
+  color: var(--color-ink);
+  font-size: 16.5px;
+}
+
+.legal-note {
+  margin: 18px 0 8px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-mauve);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+h2 {
+  margin: 30px 0 6px;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
+}
+
+h3 {
+  margin: 20px 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+p {
+  margin: 8px 0;
+}
+
+ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+li {
+  margin: 5px 0;
+}
+
+strong {
+  font-weight: 600;
+}
+
+a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+hr {
+  margin: 34px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.legal-foot {
+  margin-top: 26px;
+  color: var(--color-mauve);
+  font-size: 13.5px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ink: #f4eef1;
+    --color-mauve: #a9a1a5;
+    --color-white: #141013;
+    --color-surface: #1e1a1d;
+    --color-border: #2c2529;
+  }
+  .legal-badge {
+    color: #141013;
+    background: #f4eef1;
+  }
+}

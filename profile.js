@@ -287,6 +287,13 @@ function privacyMarkup() {
             Delete my account and data
           </button>
         </div>
+
+        <p class="profile-privacy-legal">
+          Read our
+          <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+          and
+          <a href="terms.html" target="_blank" rel="noopener">Terms of Service</a>.
+        </p>
       </div>
 
       <div class="profile-privacy-confirm" data-privacy-confirm hidden>

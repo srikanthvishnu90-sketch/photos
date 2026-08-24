@@ -622,7 +622,9 @@ backToEmailButton.addEventListener("click", leaveOtpMode);
 
 document.querySelectorAll("[data-legal]").forEach((button) => {
   button.addEventListener("click", () => {
-    // TODO: route to the matching legal document when URLs are available.
+    const page = button.dataset.legal === "privacy" ? "privacy.html" : "terms.html";
+    // Open the public legal page in a new tab so the sign-in flow isn't lost.
+    window.open(page, "_blank", "noopener");
   });
 });
 

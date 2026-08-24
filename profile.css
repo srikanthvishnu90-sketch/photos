@@ -724,6 +724,21 @@
   margin-top: 20px;
 }
 
+.profile-privacy-legal {
+  margin: 16px 0 0;
+  color: var(--color-mauve);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.profile-privacy-legal a {
+  color: var(--color-ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .profile-privacy-btn {
   width: 100%;
   min-height: 50px;

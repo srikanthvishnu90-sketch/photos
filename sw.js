@@ -13,12 +13,16 @@
 //
 // Every handler is wrapped so a cache miss or error can never break the page.
 
-const CACHE = "gems-shell-v1";
+const CACHE = "gems-shell-v2";
 
 const SHELL = [
   "./",
   "index.html",
   "manifest.webmanifest",
+  // Public legal pages (also linked from the App Store listing)
+  "privacy.html",
+  "terms.html",
+  "legal.css",
   // Stylesheets
   "styles.css",
   "home.css",
