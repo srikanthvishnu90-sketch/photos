@@ -13,15 +13,18 @@ async function signInWithOAuth(provider) {
   try {
     const supabase = await getSupabase();
     if (!supabase) return { redirecting: false };
-    const { error } = await supabase.auth.signInWithOAuth({
+    // Get the provider URL WITHOUT letting the SDK redirect, then navigate
+    // ourselves right away. iOS Safari drops navigations that happen too far
+    // from the tap; assigning window.location directly is the most reliable.
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: window.location.origin, skipBrowserRedirect: true },
     });
-    if (error) {
-      console.info(`${provider} sign-in not configured yet`, error);
+    if (error || !data?.url) {
+      console.info(`${provider} sign-in not available`, error);
       return { redirecting: false };
     }
-    // supabase-js has begun the browser redirect to the provider.
+    window.location.assign(data.url);
     return { redirecting: true };
   } catch (error) {
     console.info(`${provider} sign-in unavailable`, error);

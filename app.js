@@ -49,6 +49,10 @@ let restoredProfile = null;
 // Set when a session exists but onboarding isn't finished (new Google/email
 // signup) — routes to onboarding instead of the login screen.
 let pendingOnboarding = null;
+// Set when an OAuth return came back without a usable session (provider error,
+// or the sign-in was declined) — show the login screen with a note, never sit
+// on the splash.
+let oauthFailed = false;
 let splashFinished = false;
 let onboardingStarted = false;
 let onboardingFinished = false;
@@ -138,20 +142,40 @@ function isOAuthReturn() {
   );
 }
 
+function isOAuthError() {
+  return /[?&#]error=/.test(window.location.hash || "") || /[?&]error=/.test(window.location.search || "");
+}
+
+function stripOAuthParams() {
+  try {
+    window.history.replaceState(null, "", window.location.pathname);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function checkExistingSession() {
   try {
+    const oauthReturn = isOAuthReturn();
+    // The provider bounced back with an error (declined, or the app isn't an
+    // approved test user yet) — don't wait for a session that won't come.
+    if (oauthReturn && isOAuthError()) {
+      oauthFailed = true;
+      stripOAuthParams();
+      return;
+    }
     // On an OAuth return the session appears a beat after boot (code exchange),
     // so wait for it rather than reading once and falling through to login.
-    const session = isOAuthReturn() ? await waitForSession() : await getSession();
-    if (!session) return;
-    // Strip the OAuth params so a manual refresh doesn't reprocess them.
-    if (isOAuthReturn()) {
-      try {
-        window.history.replaceState(null, "", window.location.pathname);
-      } catch {
-        /* ignore */
+    const session = oauthReturn ? await waitForSession() : await getSession();
+    if (!session) {
+      // A code came back but no session materialized — surface it, don't hang.
+      if (oauthReturn) {
+        oauthFailed = true;
+        stripOAuthParams();
       }
+      return;
     }
+    if (oauthReturn) stripOAuthParams();
     const supabase = await getSupabase();
     const { data } = await supabase
       .from("profiles")
@@ -228,12 +252,33 @@ function showLogin() {
   loginScreen.classList.add("is-active");
   loginScreen.setAttribute("aria-hidden", "false");
   syncThemeColor("--color-white");
+  if (oauthFailed) showOAuthNotice();
 
   const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
   window.setTimeout(() => {
     splashScreen.hidden = true;
     focusLoginHeading();
   }, transitionDelay);
+}
+
+// A quiet inline note on the login screen when an OAuth attempt came back
+// without a session, so a declined/blocked sign-in explains itself instead of
+// silently returning to login.
+function showOAuthNotice() {
+  try {
+    let note = document.querySelector("#oauthNotice");
+    if (!note) {
+      note = document.createElement("p");
+      note.id = "oauthNotice";
+      note.className = "oauth-notice";
+      note.setAttribute("role", "status");
+      authOptions.parentNode.insertBefore(note, authOptions);
+    }
+    note.textContent = "Sign-in didn't complete. Please try again.";
+    note.hidden = false;
+  } catch {
+    /* ignore */
+  }
 }
 
 function handleSplashKeydown(event) {
@@ -510,6 +555,8 @@ const appleButton = document.querySelector("#appleButton");
 const googleButton = document.querySelector("#googleButton");
 
 function setOAuthConnecting(button) {
+  const note = document.querySelector("#oauthNotice");
+  if (note) note.hidden = true;
   authOptions.setAttribute("aria-busy", "true");
   [appleButton, googleButton, emailOptionButton].forEach((b) => (b.disabled = true));
   const label = button.querySelector("span");
@@ -571,16 +618,19 @@ window.visualViewport?.addEventListener("resize", () => {
 syncAppHeight();
 syncThemeColor();
 syncEmailState();
-// Route as soon as the session check resolves — a returning/just-authenticated
-// user (Google redirect or email) skips straight past the splash instead of
-// waiting out the full timer or flashing the login screen.
+// Warm the Supabase client immediately so that when the user taps Continue with
+// Google there's no CDN import in the tap path (iOS drops late navigations).
+void getSupabase();
+const bootIsOAuthReturn = isOAuthReturn();
+// Route as soon as the session check resolves. On an OAuth return we ALWAYS
+// leave the splash once we know the outcome — Home/onboarding on success, or
+// the login screen (with a note) on failure — so a declined/blocked sign-in
+// never leaves the app stuck re-showing the splash.
 checkExistingSession().then(() => {
-  if (restoredProfile || pendingOnboarding) showLogin();
+  if (bootIsOAuthReturn || restoredProfile || pendingOnboarding) showLogin();
 });
-// On an OAuth return, hold the splash as a branded loader while the session
-// resolves — it must never flash the login screen and reset the flow. The
-// session check above routes to Home/onboarding the instant it's ready.
-splashTimer = window.setTimeout(showLogin, isOAuthReturn() ? 8000 : SPLASH_DURATION_MS);
+// Fallback timer only; the session check above drives routing on an OAuth return.
+splashTimer = window.setTimeout(showLogin, bootIsOAuthReturn ? 9000 : SPLASH_DURATION_MS);
 
 // Keep this reference intentional: it makes the app-height owner explicit and
 // prevents accidental garbage collection in embedded WebViews.
