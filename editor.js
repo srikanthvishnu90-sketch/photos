@@ -15,6 +15,7 @@ import {
   applyChannelGains,
   applyMaskedAdjust,
   applyPortraitBlur,
+  buildAutoMask,
   HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
@@ -2633,7 +2634,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     let timer = 0;
     toolPanel.innerHTML = `
       <div class="editor-adjust">
-        <p class="editor-erase-hint">Brush the part of the photo you want to change, then move the sliders.</p>
+        <p class="editor-erase-hint">Auto-select a region, or brush one — then move the sliders.</p>
+        <div class="editor-db-modes editor-automask" role="group" aria-label="Auto select">
+          <button type="button" class="editor-db-mode" data-auto="sky">Sky</button>
+          <button type="button" class="editor-db-mode" data-auto="foreground">Subject</button>
+          <button type="button" class="editor-db-mode" data-auto="bright">Bright</button>
+          <button type="button" class="editor-db-mode" data-auto="dark">Dark</button>
+        </div>
         <label class="editor-slider editor-draw-size">
           <span class="editor-slider-label">Brush</span>
           <input type="range" min="16" max="140" value="60" step="1" data-sel-size aria-label="Brush size" />
@@ -2667,6 +2674,35 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         if (applyBtn) applyBtn.disabled = false;
       }, 140);
     };
+    // One-tap auto-selection (Sky / Subject / Bright / Dark) → fills the mask.
+    toolPanel.querySelectorAll("[data-auto]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || !state.mask || !state.display) return;
+        const auto = buildAutoMask(bitmap, btn.dataset.auto);
+        if (!auto) return;
+        const mctx = state.mask.getContext("2d");
+        const dctx = state.display.getContext("2d");
+        if (mctx) {
+          mctx.clearRect(0, 0, state.natW, state.natH);
+          mctx.drawImage(auto, 0, 0);
+        }
+        if (dctx) {
+          // Tint the selected region blue so the user sees what's selected.
+          dctx.clearRect(0, 0, state.natW, state.natH);
+          dctx.globalAlpha = 0.5;
+          dctx.drawImage(auto, 0, 0);
+          dctx.globalCompositeOperation = "source-in";
+          dctx.fillStyle = "#4a86ff";
+          dctx.fillRect(0, 0, state.natW, state.natH);
+          dctx.globalCompositeOperation = "source-over";
+          dctx.globalAlpha = 1;
+        }
+        state.painted = true;
+        toolPanel.querySelectorAll("[data-auto]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        preview();
+      });
+    });
     toolPanel.querySelector("[data-sel-size]")?.addEventListener("input", (e) => {
       state.size = Number(e.target.value) || 60;
     });

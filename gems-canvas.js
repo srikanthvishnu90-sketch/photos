@@ -442,6 +442,69 @@ export function applyOverlay(bitmap, overlay, blendMode = "source-over") {
   }
 }
 
+function smooth01(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+/**
+ * Build a feathered selection mask heuristically (no ML): "sky", "foreground",
+ * "bright", or "dark". Returns a canvas of white pixels with per-pixel alpha =
+ * selection strength, for use as the mask in applyMaskedAdjust / applyPortraitBlur.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {"sky"|"foreground"|"bright"|"dark"} type
+ * @returns {HTMLCanvasElement|null}
+ */
+export function buildAutoMask(bitmap, type = "sky") {
+  try {
+    if (!bitmap) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const src = makeCanvas(w, h);
+    const sctx = src?.getContext("2d");
+    if (!sctx) return null;
+    sctx.drawImage(bitmap, 0, 0, w, h);
+    let img;
+    try {
+      img = sctx.getImageData(0, 0, w, h);
+    } catch (error) {
+      console.info("buildAutoMask getImageData blocked", error);
+      return null;
+    }
+    const d = img.data;
+    const out = makeCanvas(w, h);
+    const octx = out?.getContext("2d");
+    if (!octx) return null;
+    const o = octx.createImageData(w, h);
+    const od = o.data;
+    const skyness = (hue, sat, lum, y) => {
+      const posW = Math.max(0, 1 - (y / h) / 0.62); // upper ~62% of the frame
+      const blueish = hue >= 185 && hue <= 260 ? Math.min(1, sat * 2 + 0.3) : 0;
+      const brightLow = lum > 0.6 && sat < 0.35 ? 1 : 0;
+      return posW * Math.max(blueish, brightLow);
+    };
+    for (let i = 0, px = 0; i < d.length; i += 4, px += 1) {
+      const y = (px / w) | 0;
+      const [hue, sat, lum] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+      let weight = 0;
+      if (type === "sky") weight = skyness(hue, sat, lum, y);
+      else if (type === "foreground") weight = 1 - skyness(hue, sat, lum, y);
+      else if (type === "bright") weight = smooth01((lum - 0.55) / 0.3);
+      else if (type === "dark") weight = smooth01((0.45 - lum) / 0.3);
+      od[i] = 255;
+      od[i + 1] = 255;
+      od[i + 2] = 255;
+      od[i + 3] = Math.max(0, Math.min(255, weight * 255));
+    }
+    octx.putImageData(o, 0, 0);
+    return out;
+  } catch (error) {
+    console.info("buildAutoMask failed", error);
+    return null;
+  }
+}
+
 // Keep `layer`'s pixels only inside (or, if invert, outside) a white alpha mask.
 function maskLayer(layer, mask, invert) {
   const lctx = layer.getContext("2d");
