@@ -11,6 +11,8 @@ import {
   applyOverlay,
   applyCurve,
   applyLevels,
+  applyHsl,
+  HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
 } from "./gems-canvas.js";
@@ -22,16 +24,23 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Curves", "Levels", "Crop", "Rotate",
+  "Adjust", "Filters", "Curves", "Levels", "HSL", "Crop", "Rotate",
   "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen", "Stickers",
   "Retouch", "Erase", "Add",
 ]);
+
+// Representative swatch color per HSL band.
+const HSL_SWATCH = Object.freeze({
+  red: "#ff3b3b", orange: "#ff9f1c", yellow: "#ffd60a", green: "#3ac57a",
+  aqua: "#2ec4c4", blue: "#3a86ff", purple: "#9b5cff", magenta: "#ff5cc0",
+});
 
 const TOOL_HELP = Object.freeze({
   Adjust: "Exposure, contrast, highlights, shadows, color, sharpness — by hand.",
   Filters: "Your aesthetics as one-tap grades: Euro Summer, Dark Gym…",
   Curves: "Drag the tone curve — shape shadows, midtones, and highlights.",
   Levels: "Set the black point, white point, and midtone gamma.",
+  HSL: "Tune each color's hue, saturation, and brightness on its own.",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
@@ -522,6 +531,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Filters") renderFiltersTool();
     else if (toolName === "Curves") renderCurvesTool();
     else if (toolName === "Levels") renderLevelsTool();
+    else if (toolName === "HSL") renderHslTool();
     else if (toolName === "Draw") renderDrawTool();
     else if (toolName === "Text") renderTextTool();
     else if (toolName === "Dodge & Burn") renderDodgeBurnTool();
@@ -1481,6 +1491,102 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const blob = bitmap ? applyLevels(bitmap, state) : null;
       manualBusy = false;
       commitManualVersion("Levels", blob, "Levels");
+    });
+  }
+
+  // ---- HSL / Color Mix ---------------------------------------------------
+
+  function renderHslTool() {
+    const bands = {};
+    HSL_BANDS.forEach((b) => {
+      bands[b.key] = { h: 0, s: 0, l: 0 };
+    });
+    let selected = HSL_BANDS[0].key;
+    let timer = 0;
+    const channels = [
+      { key: "h", label: "Hue" },
+      { key: "s", label: "Saturation" },
+      { key: "l", label: "Luminance" },
+    ];
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <div class="editor-swatches editor-hsl-bands" role="group" aria-label="Color range">
+          ${HSL_BANDS.map(
+            (b) => `<button type="button" class="editor-swatch${b.key === selected ? " is-active" : ""}"
+              data-hsl-band="${b.key}" aria-label="${esc(b.label)}" style="--swatch:${HSL_SWATCH[b.key]}"></button>`,
+          ).join("")}
+        </div>
+        ${channels
+          .map(
+            (ch) => `
+              <label class="editor-slider">
+                <span class="editor-slider-label">${ch.label}</span>
+                <input type="range" min="-100" max="100" value="0" step="1" data-hsl="${ch.key}" aria-label="${ch.label}" />
+                <output data-hsl-out="${ch.key}">0</output>
+              </label>`,
+          )
+          .join("")}
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-hsl-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-hsl-apply>Apply</button>
+        </div>
+      </div>
+    `;
+    const loadBand = () => {
+      channels.forEach((ch) => {
+        const input = toolPanel.querySelector(`[data-hsl="${ch.key}"]`);
+        const out = toolPanel.querySelector(`[data-hsl-out="${ch.key}"]`);
+        const v = bands[selected][ch.key];
+        if (input) input.value = String(v);
+        if (out) out.textContent = String(v);
+      });
+    };
+    const preview = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || tool !== "HSL") return;
+        showToolPreview(applyHsl(bitmap, bands));
+      }, 150);
+    };
+    toolPanel.querySelectorAll("[data-hsl-band]").forEach((sw) => {
+      sw.addEventListener("click", () => {
+        selected = sw.dataset.hslBand;
+        toolPanel.querySelectorAll("[data-hsl-band]").forEach((s) => s.classList.toggle("is-active", s === sw));
+        loadBand();
+      });
+    });
+    toolPanel.querySelectorAll("[data-hsl]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const ch = input.dataset.hsl;
+        bands[selected][ch] = Number(input.value) || 0;
+        const out = toolPanel.querySelector(`[data-hsl-out="${ch}"]`);
+        if (out) out.textContent = String(bands[selected][ch]);
+      });
+      input.addEventListener("change", preview);
+    });
+    toolPanel.querySelector("[data-hsl-reset]")?.addEventListener("click", () => {
+      HSL_BANDS.forEach((b) => {
+        bands[b.key] = { h: 0, s: 0, l: 0 };
+      });
+      loadBand();
+      window.clearTimeout(timer);
+      resetPreview();
+    });
+    toolPanel.querySelector("[data-hsl-apply]")?.addEventListener("click", async () => {
+      if (manualBusy) return;
+      const changed = HSL_BANDS.some((b) => bands[b.key].h || bands[b.key].s || bands[b.key].l);
+      if (!changed) {
+        status.textContent = "Pick a color and move a slider, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying color mix…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyHsl(bitmap, bands) : null;
+      manualBusy = false;
+      commitManualVersion("Color Mix", blob, "HSL");
     });
   }
 

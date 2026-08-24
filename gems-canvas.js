@@ -475,6 +475,127 @@ export function applyCurve(bitmap, points) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// HSL / Color Mix — per color-range hue/saturation/luminance (Lightroom-style)
+// ---------------------------------------------------------------------------
+
+// The eight color bands and their hue centers (degrees).
+export const HSL_BANDS = Object.freeze([
+  { key: "red", label: "Red", center: 0 },
+  { key: "orange", label: "Orange", center: 30 },
+  { key: "yellow", label: "Yellow", center: 60 },
+  { key: "green", label: "Green", center: 120 },
+  { key: "aqua", label: "Aqua", center: 180 },
+  { key: "blue", label: "Blue", center: 240 },
+  { key: "purple", label: "Purple", center: 285 },
+  { key: "magenta", label: "Magenta", center: 330 },
+]);
+
+function rgbToHsl(r, g, b) {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  let h = 0;
+  const l = (mx + mn) / 2;
+  const d = mx - mn;
+  let s = 0;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+// Triangular weight: how strongly a hue belongs to a band center (wrap-aware).
+function bandWeight(h, center, half) {
+  let d = Math.abs(h - center);
+  if (d > 180) d = 360 - d;
+  return d >= half ? 0 : 1 - d / half;
+}
+
+/**
+ * Per-color-range HSL. `bands` maps a band key (red/orange/yellow/green/aqua/
+ * blue/purple/magenta) to { h, s, l } in -100..100 (hue shift, saturation,
+ * luminance). Returns a JPEG Blob; a no-op set returns a faithful re-encode.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {Record<string,{h?:number,s?:number,l?:number}>} bands
+ * @returns {Blob|null}
+ */
+export function applyHsl(bitmap, bands = {}) {
+  try {
+    if (!bitmap) return null;
+    const active = HSL_BANDS.map((band) => ({ ...band, adj: bands[band.key] }))
+      .filter((band) => band.adj && (band.adj.h || band.adj.s || band.adj.l));
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const canvas = makeCanvas(w, h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (!active.length) return encodeCanvas(canvas, "image/jpeg", 0.92);
+    let img;
+    try {
+      img = ctx.getImageData(0, 0, w, h);
+    } catch (error) {
+      console.info("getImageData blocked", error);
+      return encodeCanvas(canvas, "image/jpeg", 0.92);
+    }
+    const d = img.data;
+    const HALF = 40; // band half-width in degrees (adjacent bands overlap ~smoothly)
+    for (let i = 0; i < d.length; i += 4) {
+      let [hue, sat, lum] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+      if (sat < 0.02) continue; // near-gray pixels have no meaningful hue
+      let hShift = 0;
+      let satAcc = 0;
+      let lumAcc = 0;
+      for (const band of active) {
+        const weight = bandWeight(hue, band.center, HALF);
+        if (weight <= 0) continue;
+        hShift += ((band.adj.h || 0) / 100) * 30 * weight;
+        satAcc += ((band.adj.s || 0) / 100) * weight;
+        lumAcc += ((band.adj.l || 0) / 100) * weight;
+      }
+      if (hShift === 0 && satAcc === 0 && lumAcc === 0) continue;
+      hue = (hue + hShift + 360) % 360;
+      sat = Math.max(0, Math.min(1, sat * (1 + satAcc)));
+      lum = Math.max(0, Math.min(1, lum + lumAcc * 0.5));
+      const [r, g, b] = hslToRgb(hue, sat, lum);
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+    }
+    ctx.putImageData(img, 0, 0);
+    return encodeCanvas(canvas, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyHsl failed", error);
+    return null;
+  }
+}
+
 /**
  * Levels: remap tones between a black point and white point with a midtone gamma.
  * @param {ImageBitmap|HTMLImageElement} bitmap
