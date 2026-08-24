@@ -380,6 +380,33 @@ export function applyAdjust(bitmap, adjust = {}) {
 }
 
 /**
+ * Composite a painted overlay canvas on top of the photo and return a JPEG Blob.
+ * The overlay is stretched to the bitmap's pixel size (callers paint at natural
+ * resolution, so it's 1:1). Used by the Draw and Text tools — fully on-device.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {HTMLCanvasElement} overlay
+ * @returns {Blob|null}
+ */
+export function applyOverlay(bitmap, overlay) {
+  try {
+    if (!bitmap) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const canvas = makeCanvas(w, h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (overlay) ctx.drawImage(overlay, 0, 0, w, h);
+    return encodeCanvas(canvas, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyOverlay failed", error);
+    return null;
+  }
+}
+
+/**
  * Geometry: rotate in 90° steps and/or flip. `rotate` is degrees (any multiple
  * of 90; other values are snapped). Returns a JPEG Blob.
  * @param {ImageBitmap|HTMLImageElement} bitmap

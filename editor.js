@@ -8,6 +8,7 @@ import {
   applyCrop,
   applyGrade,
   applyGeometry,
+  applyOverlay,
   cssFilterFor,
   FILTER_GRADES,
 } from "./gems-canvas.js";
@@ -19,7 +20,7 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Crop", "Rotate", "Retouch", "Erase", "Add",
+  "Adjust", "Filters", "Crop", "Rotate", "Draw", "Text", "Retouch", "Erase", "Add",
 ]);
 
 const TOOL_HELP = Object.freeze({
@@ -27,10 +28,18 @@ const TOOL_HELP = Object.freeze({
   Filters: "Your aesthetics as one-tap grades: Euro Summer, Dark Gym…",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
+  Draw: "Draw on the photo freehand — pick a color and brush size.",
+  Text: "Add text, drag it into place, pick a color and size.",
   Retouch: "One-tap AI: remove background, enhance, restore, and more.",
   Erase: "Brush over anything to remove it — Gems fills the background.",
   Add: "Describe something to add to the photo.",
 });
+
+// Shared palette for the Draw and Text tools.
+const PAINT_COLORS = Object.freeze([
+  "#ffffff", "#170b10", "#ff3b6b", "#ff9f1c", "#ffd60a",
+  "#2ec4b6", "#3a86ff", "#8338ec", "#ff70a6", "#06d6a0",
+]);
 
 // The full camera-app / Photoshop adjustment set, grouped like a real editor.
 // Every key maps to gems-canvas.applyAdjust (all -100..100, 0 = neutral).
@@ -258,7 +267,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const bitmapCache = new Map(); // versionId -> decoded bitmap
   const createdUrls = []; // object URLs to revoke on teardown
   let cropCleanup = null; // detaches the active crop overlay + listeners
-  let eraseCleanup = null; // detaches the active erase-brush overlay + listeners
+  let overlayCleanup = null; // detaches the active erase-brush overlay + listeners
   let manualBusy = false; // guards overlapping client-side commits
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
@@ -381,13 +390,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       }
       cropCleanup = null;
     }
-    if (eraseCleanup) {
+    if (overlayCleanup) {
       try {
-        eraseCleanup();
+        overlayCleanup();
       } catch (error) {
         console.info("Erase cleanup failed", error);
       }
-      eraseCleanup = null;
+      overlayCleanup = null;
     }
   }
 
@@ -465,6 +474,8 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Rotate") renderRotateTool();
     else if (toolName === "Adjust") renderAdjustTool();
     else if (toolName === "Filters") renderFiltersTool();
+    else if (toolName === "Draw") renderDrawTool();
+    else if (toolName === "Text") renderTextTool();
     else if (toolName === "Retouch") renderRetouchTool();
     else if (toolName === "Erase") renderEraseTool();
     else if (toolName === "Add") renderAiTool("Add");
@@ -917,7 +928,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     eraseState.mask = mask;
 
     const cleanup = attachErasePointer(overlay, display);
-    eraseCleanup = () => {
+    overlayCleanup = () => {
       cleanup();
       overlay.remove();
       eraseState.overlay = null;
@@ -1049,6 +1060,301 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       "erase-brush",
       maskBase64,
     );
+  }
+
+  // ---- Draw / Text: shared image-overlay plumbing ------------------------
+
+  // Position an overlay div exactly over the letterboxed photo inside the
+  // canvas, and return its geometry. Callers append their own surface + wire
+  // pointer handling, and set overlayCleanup to remove it.
+  function buildImageOverlay(bitmap, className) {
+    const natW = bitmap.width || bitmap.naturalWidth || 0;
+    const natH = bitmap.height || bitmap.naturalHeight || 0;
+    const box = canvas.getBoundingClientRect();
+    const fit = containRect(box.width, box.height, natW, natH);
+    const overlay = document.createElement("div");
+    overlay.className = className;
+    overlay.style.left = `${fit.left}px`;
+    overlay.style.top = `${fit.top}px`;
+    overlay.style.width = `${fit.width}px`;
+    overlay.style.height = `${fit.height}px`;
+    canvas.appendChild(overlay);
+    return { overlay, natW, natH, scale: natW / fit.width };
+  }
+
+  function colorSwatchesMarkup(attr, active) {
+    return PAINT_COLORS.map(
+      (color) => `
+        <button type="button" class="editor-swatch${color === active ? " is-active" : ""}"
+          data-${attr}="${color}" aria-label="Color ${color}"
+          style="--swatch:${color}"></button>`,
+    ).join("");
+  }
+
+  // ---- Draw (freehand brush, on-device) ----------------------------------
+
+  function renderDrawTool() {
+    const state = { color: PAINT_COLORS[2], size: 8, painted: false, surface: null, scale: 1 };
+    toolPanel.innerHTML = `
+      <div class="editor-draw">
+        <div class="editor-swatches" role="group" aria-label="Brush color">
+          ${colorSwatchesMarkup("draw-color", state.color)}
+        </div>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="2" max="40" value="8" step="1" data-draw-size aria-label="Brush size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-draw-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-draw-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-draw-color]").forEach((swatch) => {
+      swatch.addEventListener("click", () => {
+        state.color = swatch.dataset.drawColor;
+        toolPanel.querySelectorAll("[data-draw-color]").forEach((s) =>
+          s.classList.toggle("is-active", s === swatch),
+        );
+      });
+    });
+    toolPanel.querySelector("[data-draw-size]")?.addEventListener("input", (event) => {
+      state.size = Number(event.target.value) || 8;
+    });
+    toolPanel.querySelector("[data-draw-clear]")?.addEventListener("click", () => {
+      state.surface?.getContext("2d")?.clearRect(0, 0, state.surface.width, state.surface.height);
+      state.painted = false;
+      const btn = toolPanel.querySelector("[data-draw-apply]");
+      if (btn) btn.disabled = true;
+    });
+    toolPanel.querySelector("[data-draw-apply]")?.addEventListener("click", async () => {
+      if (manualBusy || !state.surface || !state.painted) {
+        if (!state.painted) status.textContent = "Draw something first, then Apply.";
+        return;
+      }
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyOverlay(bitmap, state.surface) : null;
+      manualBusy = false;
+      commitManualVersion("Draw", blob, "Draw");
+    });
+
+    void setupDrawSurface(state);
+  }
+
+  async function setupDrawSurface(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Draw" || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-paint-overlay");
+    const surface = document.createElement("canvas");
+    surface.width = natW;
+    surface.height = natH;
+    surface.className = "editor-paint-canvas";
+    overlay.appendChild(surface);
+    state.surface = surface;
+    state.scale = scale;
+    const ctx = surface.getContext("2d");
+    if (ctx) {
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+    }
+    let drawing = false;
+    let last = null;
+    const at = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+    };
+    const down = (event) => {
+      drawing = true;
+      last = at(event);
+      // A dot on tap.
+      if (ctx) {
+        ctx.fillStyle = state.color;
+        ctx.beginPath();
+        ctx.arc(last.x, last.y, (state.size * scale) / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      state.painted = true;
+      const btn = toolPanel.querySelector("[data-draw-apply]");
+      if (btn) btn.disabled = false;
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!drawing || !ctx) return;
+      const p = at(event);
+      ctx.strokeStyle = state.color;
+      ctx.lineWidth = state.size * scale;
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      last = p;
+      event.preventDefault();
+    };
+    const up = () => {
+      drawing = false;
+      last = null;
+    };
+    overlay.addEventListener("pointerdown", down);
+    overlay.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", down);
+      overlay.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
+  }
+
+  // ---- Text (add a caption, drag to place, on-device) --------------------
+
+  function renderTextTool() {
+    const state = { color: "#ffffff", size: 42, text: "", el: null, overlay: null, scale: 1, pos: { x: 0.5, y: 0.5 } };
+    toolPanel.innerHTML = `
+      <div class="editor-text">
+        <input type="text" class="editor-text-input" data-text-input maxlength="80"
+          autocomplete="off" enterkeyhint="done" placeholder="Type your text…" />
+        <div class="editor-swatches" role="group" aria-label="Text color">
+          ${colorSwatchesMarkup("text-color", state.color)}
+        </div>
+        <label class="editor-slider editor-text-size">
+          <span class="editor-slider-label">Size</span>
+          <input type="range" min="18" max="120" value="42" step="1" data-text-size aria-label="Text size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-text-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-text-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const input = toolPanel.querySelector("[data-text-input]");
+    const applyBtn = toolPanel.querySelector("[data-text-apply]");
+    const sync = () => {
+      state.text = input.value;
+      if (state.el) state.el.textContent = state.text || "Type your text…";
+      if (applyBtn) applyBtn.disabled = state.text.trim().length === 0;
+    };
+    input?.addEventListener("input", sync);
+    toolPanel.querySelectorAll("[data-text-color]").forEach((swatch) => {
+      swatch.addEventListener("click", () => {
+        state.color = swatch.dataset.textColor;
+        if (state.el) state.el.style.color = state.color;
+        toolPanel.querySelectorAll("[data-text-color]").forEach((s) =>
+          s.classList.toggle("is-active", s === swatch),
+        );
+      });
+    });
+    toolPanel.querySelector("[data-text-size]")?.addEventListener("input", (event) => {
+      state.size = Number(event.target.value) || 42;
+      if (state.el) state.el.style.fontSize = `${state.size / state.scale}px`;
+    });
+    toolPanel.querySelector("[data-text-clear]")?.addEventListener("click", () => {
+      input.value = "";
+      sync();
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy || !state.text.trim()) return;
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? renderTextToImage(bitmap, state) : null;
+      manualBusy = false;
+      commitManualVersion("Text", blob, "Text");
+    });
+
+    void setupTextOverlay(state, sync);
+  }
+
+  async function setupTextOverlay(state, sync) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Text" || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-text-overlay");
+    state.overlay = overlay;
+    state.scale = scale;
+    state.natW = natW;
+    state.natH = natH;
+    const el = document.createElement("div");
+    el.className = "editor-text-draggable";
+    el.textContent = "Type your text…";
+    el.style.color = state.color;
+    el.style.fontSize = `${state.size / scale}px`;
+    el.style.left = "50%";
+    el.style.top = "50%";
+    overlay.appendChild(el);
+    state.el = el;
+
+    let dragging = false;
+    let start = null;
+    const down = (event) => {
+      dragging = true;
+      const rect = overlay.getBoundingClientRect();
+      start = { x: event.clientX, y: event.clientY, px: state.pos.x * rect.width, py: state.pos.y * rect.height, w: rect.width, h: rect.height };
+      try {
+        el.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!dragging || !start) return;
+      const nx = Math.max(0, Math.min(1, (start.px + (event.clientX - start.x)) / start.w));
+      const ny = Math.max(0, Math.min(1, (start.py + (event.clientY - start.y)) / start.h));
+      state.pos = { x: nx, y: ny };
+      el.style.left = `${nx * 100}%`;
+      el.style.top = `${ny * 100}%`;
+      event.preventDefault();
+    };
+    const up = () => {
+      dragging = false;
+      start = null;
+    };
+    el.addEventListener("pointerdown", down);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      el.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
+  }
+
+  // Rasterize the text overlay onto a natural-res canvas, positioned to match
+  // what the user placed, and composite it over the photo.
+  function renderTextToImage(bitmap, state) {
+    try {
+      const natW = state.natW || bitmap.width || bitmap.naturalWidth || 0;
+      const natH = state.natH || bitmap.height || bitmap.naturalHeight || 0;
+      const surface = document.createElement("canvas");
+      surface.width = natW;
+      surface.height = natH;
+      const ctx = surface.getContext("2d");
+      if (!ctx) return null;
+      const fontPx = state.size;
+      ctx.font = `700 ${fontPx}px "Instrument Sans", -apple-system, sans-serif`;
+      ctx.fillStyle = state.color;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      // A soft shadow so light text stays legible on light photos.
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = Math.max(2, fontPx * 0.08);
+      ctx.fillText(state.text, state.pos.x * natW, state.pos.y * natH);
+      return applyOverlay(bitmap, surface);
+    } catch (error) {
+      console.info("renderTextToImage failed", error);
+      return null;
+    }
   }
 
   // ---- Add (AI tool, model-gated) ----------------------------------------

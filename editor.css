@@ -630,6 +630,90 @@
   border-radius: 4px;
 }
 
+/* ---- Draw / Text ---- */
+
+.editor-draw,
+.editor-text {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.editor-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--swatch, #fff);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.editor-swatch.is-active {
+  border-color: var(--color-ink);
+  transform: scale(1.12);
+}
+
+.editor-text-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  font-size: 16px;
+}
+
+.editor-text-input::placeholder {
+  color: var(--color-mauve);
+}
+
+/* Overlay hosts for the Draw canvas and the draggable Text element. */
+.editor-paint-overlay,
+.editor-text-overlay {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+}
+
+.editor-paint-overlay {
+  cursor: crosshair;
+}
+
+.editor-paint-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+}
+
+.editor-text-draggable {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 92%;
+  padding: 2px 6px;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+  white-space: pre-wrap;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.editor-text-draggable:active {
+  cursor: grabbing;
+}
+
 /* ---- Adjust sliders ---- */
 
 .editor-adjust {
