@@ -138,6 +138,24 @@ Running on your own device needs nothing but a free Apple ID. To distribute:
    photo access is used on‑device and photos are not collected), attach a build,
    submit for **review** (typically ~1–3 days).
 
+### Required URLs for the App Store listing
+
+App Store Connect asks for a public Privacy Policy URL (required) and accepts a
+Terms/EULA URL. These are already live and served from the same Vercel deploy:
+
+- **Privacy Policy:** https://photos-chi-azure.vercel.app/privacy.html
+- **Terms of Service:** https://photos-chi-azure.vercel.app/terms.html
+
+Paste the Privacy Policy URL into **App Store Connect → App Privacy → Privacy
+Policy URL**, and the Terms URL into the app's **App Information → License
+Agreement** (or link both from your marketing page). If you move the app to a
+custom domain, update these URLs to match.
+
+> Before submitting: have counsel review both documents (especially the
+> COPPA/minors handling), and point `privacy@gems.app` / `support@gems.app` at a
+> real monitored inbox — App Review does check that the contact and policy are
+> genuine.
+
 > Note: the plugin Swift here targets Capacitor 6 / iOS 15+. It could not be
 > compiled on this machine (no Xcode), so give it a build in Xcode before your
 > first device run and fix any signing/target details Xcode surfaces.
