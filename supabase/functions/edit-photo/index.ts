@@ -28,6 +28,46 @@ const AFTER_DARK_STYLE = `
 
 STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not regenerate it. Pull overall exposure down roughly one stop so the scene reads dusk-like even if shot in daylight. Compress highlights: skies become steel-blue or navy with retained gradient detail, never white and never clipped. Deepen shadows and blacks but keep them CLEAN and keep the subject's silhouette readable — deliberate low-key, not underexposure. Desaturate globally about 25%, pushing greens toward dark emerald and blues toward navy; protect skin tones, muting them only slightly. Slightly cool color temperature. No added grain, no matte/faded lift, no vignette heavier than subtle. Preserve the subject's exact facial identity, pose, clothing, and composition. Mood: quiet, expensive, cinematic — a lone figure against light, wealth in shadow. Do not crush shadow detail into pure black. Do not add film grain. Do not blow or tint highlights orange. Do not brighten the sky.`;
 
+// Transformative "Looks" — unlike a precise edit, these reimagine the photo as a
+// polished professional shot (relight, retouch, restyle) while keeping the exact
+// person. Built for the athlete "college commitment / signing-day" use case.
+const TRANSFORM_PREAMBLE =
+  `You are a professional photo studio inside Gems. Reimagine this photo as the requested professional look. Unlike a precise edit, here you MAY relight, retouch, and restyle to reach a polished, believable, high-end result.
+CRITICAL — identity is sacred: keep the person's EXACT face, facial features, bone structure, skin tone, age, hair, and body proportions. It must unmistakably be the SAME person — never swap to a different face, never beautify them into someone else, never slim or reshape them, and never change their ethnicity or age.
+You MAY: apply flattering studio/editorial lighting, natural skin retouch that KEEPS real skin texture, clean up or tastefully replace the background, and refine wardrobe/styling to fit the look. Keep it natural and magazine-quality — never plastic, waxy, or over-processed. Do not add or remove other people. Return the edited image.`;
+
+const LOOKS: Record<string, string> = {
+  "agency headshot":
+    "A clean professional agency/modeling headshot: soft key light, seamless neutral studio background, tack-sharp focus on the face, confident natural expression — crisp and high-end.",
+  "editorial":
+    "A dramatic editorial sports portrait with magazine-cover quality: bold directional lighting, rich contrast, cinematic mood; the athlete looks powerful and iconic.",
+  "studio portrait":
+    "A polished studio portrait: soft flattering lighting, gentle shallow depth of field, clean backdrop, warm and premium.",
+  "commitment":
+    "A hero athlete portrait for a college-commitment / signing-day announcement: strong flattering light, a clean or tasteful stadium-appropriate background, confident heroic framing, sharp and celebratory — the standout image an athlete posts announcing their college commitment.",
+  "linkedin":
+    "A professional corporate headshot: business-appropriate, approachable, evenly lit, neutral office or seamless background.",
+  "model portfolio":
+    "A high-fashion model portfolio shot: editorial styling, striking lighting, elevated and aspirational while still natural and believable.",
+};
+
+const LOOK_ALIASES: Record<string, string[]> = {
+  "agency headshot": ["agency headshot", "agency photo", "agency look", "professional headshot", "professional photo"],
+  editorial: ["editorial", "magazine", "cover shot", "sports editorial"],
+  "studio portrait": ["studio portrait", "studio shot", "studio photo"],
+  commitment: ["commitment", "signing day", "committed", "college commit", "signing-day"],
+  linkedin: ["linkedin", "corporate headshot", "business headshot"],
+  "model portfolio": ["model portfolio", "modeling shot", "fashion editorial", "portfolio shot"],
+};
+
+function detectLook(instruction: string): string | null {
+  const t = instruction.toLowerCase();
+  for (const [key, aliases] of Object.entries(LOOK_ALIASES)) {
+    if (aliases.some((a) => t.includes(a))) return key;
+  }
+  return null;
+}
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
@@ -130,7 +170,13 @@ Deno.serve(async (request) => {
     // ---- The edit call (Nano Banana 2).
     // With a mask, the SECOND image scopes the edit to the painted region — the
     // manual eraser/brush. Without one, it's a whole-image instruction edit.
-    let promptText = `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
+    // A transformative "Look" (agency headshot, commitment/signing-day, editorial…)
+    // uses the permissive, identity-preserving studio prompt; everything else
+    // stays a precise single-change edit.
+    const look = detectLook(instruction);
+    let promptText = look
+      ? `${TRANSFORM_PREAMBLE}\n\nTarget look: ${LOOKS[look]}\n\nUser request: ${instruction}`
+      : `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
     if (kind === "reroll") {
       promptText += `\nThis is a re-roll: produce a noticeably different interpretation of the same instruction.`;
     }

@@ -35,8 +35,19 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc
 const MANUAL_TOOLS = Object.freeze([
   "Presets", "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance",
   "Selective", "Crop", "Rotate", "Perspective", "Draw", "Text", "Dodge & Burn",
-  "Clone", "Blur & Sharpen", "Portrait Blur", "Whiten", "Stickers", "Retouch",
-  "Erase", "Add",
+  "Clone", "Blur & Sharpen", "Portrait Blur", "Whiten", "Stickers", "Looks",
+  "Retouch", "Erase", "Add",
+]);
+
+// Transformative one-tap AI "Looks" — reimagine the photo as a professional shot
+// while keeping the exact person. Built for the athlete commitment/agency use case.
+const LOOK_OPS = Object.freeze([
+  { key: "commitment", label: "Commitment", instruction: "Turn this into a hero athlete portrait for a college commitment / signing-day announcement." },
+  { key: "agency", label: "Agency headshot", instruction: "Make this a clean professional agency headshot." },
+  { key: "editorial", label: "Editorial", instruction: "Make this a dramatic editorial sports portrait, magazine-cover quality." },
+  { key: "studio", label: "Studio portrait", instruction: "Make this a polished studio portrait." },
+  { key: "linkedin", label: "LinkedIn pro", instruction: "Make this a professional corporate LinkedIn headshot." },
+  { key: "model", label: "Model portfolio", instruction: "Make this a high-fashion model portfolio shot." },
 ]);
 
 // Representative swatch color per HSL band.
@@ -59,6 +70,7 @@ const TOOL_HELP = Object.freeze({
   Perspective: "Straighten converging lines — fix keystone on buildings.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
   Text: "Add text, drag it into place, pick a color and size.",
+  Looks: "One-tap pro restyle: commitment post, agency headshot, editorial — keeps your face.",
   "Dodge & Burn": "Brush to lighten (dodge) or darken (burn) areas by hand.",
   Clone: "Set a source spot, then brush to copy it — or heal a blemish.",
   "Blur & Sharpen": "Brush to blur or sharpen just the areas you paint.",
@@ -584,6 +596,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Clone") renderCloneTool();
     else if (toolName === "Blur & Sharpen") renderBlurTool();
     else if (toolName === "Stickers") renderStickersTool();
+    else if (toolName === "Looks") renderLooksTool();
     else if (toolName === "Retouch") renderRetouchTool();
     else if (toolName === "Erase") renderEraseTool();
     else if (toolName === "Add") renderAiTool("Add");
@@ -841,6 +854,32 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const blob = bitmap ? applyPerspective(bitmap, state) : null;
       manualBusy = false;
       commitManualVersion("Perspective", blob, "Perspective");
+    });
+  }
+
+  // ---- Looks (one-tap transformative AI restyle) -------------------------
+
+  function renderLooksTool() {
+    toolPanel.innerHTML = `
+      <div class="editor-retouch">
+        <div class="editor-retouch-grid">
+          ${LOOK_OPS.map(
+            (op) => `
+              <button type="button" class="editor-retouch-op" data-look="${esc(op.key)}">
+                ${esc(op.label)}
+              </button>`,
+          ).join("")}
+        </div>
+        <p class="editor-ai-note">Reimagines your photo as a pro shot — same face, elevated. Needs an online edit.</p>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-look]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (processing) return;
+        const op = LOOK_OPS.find((entry) => entry.key === button.dataset.look);
+        if (!op) return;
+        void requestRealEdit(op.instruction, `look:${op.key}`);
+      });
     });
   }
 
