@@ -23,24 +23,7 @@ import {
   FILTER_GRADES,
 } from "./gems-canvas.js";
 
-// Named presets (recipes) live on-device so they work offline / in demo.
-const PRESETS_KEY = "gems.presets.v1";
-function loadPresets() {
-  try {
-    const raw = localStorage.getItem(PRESETS_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-function savePresetsList(list) {
-  try {
-    localStorage.setItem(PRESETS_KEY, JSON.stringify(list));
-  } catch (error) {
-    console.info("Preset save failed", error);
-  }
-}
+import { loadPresets, savePresetsList } from "./gems-presets.js";
 
 // Deployed editing edge function. The publishable key is client-safe by
 // design — the function authorizes every call with the user's session token.

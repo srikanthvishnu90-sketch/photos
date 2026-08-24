@@ -1,6 +1,8 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { photosActions } from "./photos-actions.js";
-import { describePhoto, importPhotoFiles, listPhotos } from "./gems-photolib.js";
+import { describePhoto, getPhotoBlob, importPhotoFiles, listPhotos } from "./gems-photolib.js";
+import { loadBitmap, applyRecipe } from "./gems-canvas.js";
+import { loadPresets } from "./gems-presets.js";
 import { isRankQuery, rankPhotos } from "./gems-ranker.js";
 import { computeCollections, semanticFilter } from "./gems-collections.js";
 import { exportAll } from "./gems-export.js";
@@ -184,6 +186,12 @@ function photosMarkup() {
           </svg>
           <span>Export</span>
         </button>
+        <button id="photosSelect" class="photos-import photos-entrance" type="button">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.5 6.2 5 8.5l4.5-5"></path>
+          </svg>
+          <span>Select</span>
+        </button>
         <button id="photosImport" class="photos-import photos-entrance" type="button">
           <svg viewBox="0 0 12 12" aria-hidden="true">
             <path d="M6 1v10M1 6h10"></path>
@@ -191,6 +199,15 @@ function photosMarkup() {
           <span>Import</span>
         </button>
       </header>
+
+      <div id="photosBatchBar" class="photos-batch-bar" hidden>
+        <span id="photosBatchCount" class="photos-batch-count">0 selected</span>
+        <div class="photos-batch-actions">
+          <button id="photosBatchCancel" class="photos-batch-btn" type="button">Cancel</button>
+          <button id="photosBatchApply" class="photos-batch-btn photos-batch-btn--primary" type="button" disabled>Apply a look</button>
+        </div>
+        <div id="photosBatchPresets" class="photos-batch-presets" hidden></div>
+      </div>
 
       <div id="photosFirstRun" class="photos-firstrun" hidden>
         <div class="photos-firstrun-copy">
@@ -532,7 +549,8 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     button.append(img);
 
     if (photo.gem) button.insertAdjacentHTML("beforeend", gemBadgeMarkup());
-    button.addEventListener("click", () => openSheet(photo.id));
+    button.insertAdjacentHTML("beforeend", '<span class="photos-select-check" aria-hidden="true">✓</span>');
+    button.addEventListener("click", () => handleTileClick(photo.id, button));
     return button;
   }
 
@@ -730,6 +748,125 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
       syncMode();
       renderGrid();
     }
+  }
+
+  // ---- Batch editing: select photos, apply a saved preset to all of them ----
+  let selectMode = false;
+  const selectedIds = new Set();
+  const batchBar = mount.querySelector("#photosBatchBar");
+  const batchCount = mount.querySelector("#photosBatchCount");
+  const batchApply = mount.querySelector("#photosBatchApply");
+  const batchPresets = mount.querySelector("#photosBatchPresets");
+  let batchBusy = false;
+
+  function updateBatchBar() {
+    if (batchCount) batchCount.textContent = `${selectedIds.size} selected`;
+    if (batchApply) batchApply.disabled = selectedIds.size === 0 || batchBusy;
+    if (batchPresets && !batchPresets.hidden && selectedIds.size === 0) batchPresets.hidden = true;
+  }
+
+  // Called by every tile: open the photo normally, or toggle its selection.
+  function handleTileClick(id, btn) {
+    if (!selectMode) {
+      openSheet(id);
+      return;
+    }
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+      btn.classList.remove("is-selected");
+    } else {
+      selectedIds.add(id);
+      btn.classList.add("is-selected");
+    }
+    updateBatchBar();
+  }
+
+  function exitSelectMode() {
+    selectMode = false;
+    selectedIds.clear();
+    if (batchBar) batchBar.hidden = true;
+    if (batchPresets) batchPresets.hidden = true;
+    mount.querySelector("#photosScreen")?.classList.remove("is-selecting");
+    screen.classList.remove("is-selecting");
+    grid.querySelectorAll(".photos-grid-item.is-selected").forEach((el) => el.classList.remove("is-selected"));
+  }
+
+  mount.querySelector("#photosSelect")?.addEventListener("click", () => {
+    if (!isRealMode()) {
+      status.textContent = "Import photos first — then select some to batch-edit.";
+      return;
+    }
+    selectMode = !selectMode;
+    if (selectMode) {
+      selectedIds.clear();
+      if (batchBar) batchBar.hidden = false;
+      screen.classList.add("is-selecting");
+      updateBatchBar();
+    } else {
+      exitSelectMode();
+    }
+  });
+
+  mount.querySelector("#photosBatchCancel")?.addEventListener("click", exitSelectMode);
+
+  batchApply?.addEventListener("click", () => {
+    if (!selectedIds.size || batchBusy) return;
+    const presets = loadPresets();
+    if (!presets.length) {
+      status.textContent = "No saved looks yet — create one in the editor (Presets), then batch-apply it.";
+      return;
+    }
+    // Show the preset chooser.
+    batchPresets.innerHTML = presets
+      .map(
+        (pr) => `<button type="button" class="photos-batch-preset" data-preset="${escapeHtml(pr.id)}">${escapeHtml(pr.name)}</button>`,
+      )
+      .join("");
+    batchPresets.hidden = false;
+    batchPresets.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => void runBatch(btn.dataset.preset));
+    });
+  });
+
+  async function runBatch(presetId) {
+    const preset = loadPresets().find((x) => x.id === presetId);
+    if (!preset || batchBusy) return;
+    batchBusy = true;
+    batchPresets.hidden = true;
+    updateBatchBar();
+    const ids = [...selectedIds];
+    const editedFiles = [];
+    let done = 0;
+    for (const id of ids) {
+      status.textContent = `Applying "${preset.name}"… ${done}/${ids.length}`;
+      try {
+        const blob = await getPhotoBlob(id);
+        const bitmap = blob ? await loadBitmap(blob) : null;
+        const out = bitmap ? await applyRecipe(bitmap, preset.ops) : null;
+        if (out) editedFiles.push(new File([out], `look-${id}.jpg`, { type: "image/jpeg" }));
+      } catch (error) {
+        console.info("Batch item failed", id, error);
+      }
+      done += 1;
+    }
+    // Save the edited results as new photos in the library (non-destructive).
+    let added = [];
+    if (editedFiles.length) {
+      try {
+        added = await importPhotoFiles(editedFiles);
+      } catch (error) {
+        console.info("Batch import failed", error);
+      }
+    }
+    batchBusy = false;
+    exitSelectMode();
+    libraryPhotos = await listPhotos();
+    clearRanked();
+    syncMode();
+    renderGrid();
+    status.textContent = added.length
+      ? `Applied "${preset.name}" to ${added.length} photo${added.length === 1 ? "" : "s"} — saved as new copies.`
+      : "That look couldn't be applied — try again.";
   }
 
   mount.querySelector("#photosImport").addEventListener("click", () => {

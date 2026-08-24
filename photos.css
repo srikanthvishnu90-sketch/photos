@@ -970,3 +970,99 @@
     transition: none;
   }
 }
+
+/* ---- Batch editing (select + apply a look) ---- */
+.photos-batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px 6px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.photos-batch-count {
+  flex: 1 1 auto;
+  color: var(--color-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.photos-batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.photos-batch-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.photos-batch-btn--primary {
+  color: var(--color-white);
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+.photos-batch-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.photos-batch-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.photos-batch-preset {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1.5px solid var(--color-deep-petal, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Selection state on grid tiles. */
+.photos-select-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--color-white);
+  background: var(--color-ink);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.photos-grid-item.is-selected {
+  outline: 3px solid var(--color-ink);
+  outline-offset: -3px;
+}
+
+.photos-grid-item.is-selected .photos-select-check {
+  display: block;
+}
+
+.screen.is-selecting .photos-grid-item {
+  cursor: pointer;
+}
