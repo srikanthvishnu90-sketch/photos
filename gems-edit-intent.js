@@ -28,7 +28,9 @@ const CONTENT_RE =
 function matchGrade(text) {
   return FILTER_GRADES.find((grade) => {
     const label = grade.label.toLowerCase();
-    return text.includes(label) || (grade.key && text.includes(grade.key.toLowerCase()));
+    if (text.includes(label) || (grade.key && text.includes(grade.key.toLowerCase()))) return true;
+    // Named-style aliases, e.g. After Dark ← "moody", "batman vibe", "quiet money".
+    return Array.isArray(grade.aliases) && grade.aliases.some((a) => text.includes(a));
   });
 }
 

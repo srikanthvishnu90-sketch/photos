@@ -19,6 +19,15 @@ Rules:
 - If the instruction asks to remove something, reconstruct what is naturally behind it.
 - Return the edited image.`;
 
+// The "After Dark" style block — mirrors the canonical definition in
+// gems-canvas.js FILTER_GRADES (key "after-dark"). Appended when the user asks
+// for this vibe by name or trigger word, so AI re-grades match the filter.
+const AFTER_DARK_TRIGGERS =
+  /\b(after dark|quiet money|dark batman|batman vibe|moody luxury|dark aesthetic|moody)\b/i;
+const AFTER_DARK_STYLE = `
+
+STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not regenerate it. Pull overall exposure down roughly one stop so the scene reads dusk-like even if shot in daylight. Compress highlights: skies become steel-blue or navy with retained gradient detail, never white and never clipped. Deepen shadows and blacks but keep them CLEAN and keep the subject's silhouette readable — deliberate low-key, not underexposure. Desaturate globally about 25%, pushing greens toward dark emerald and blues toward navy; protect skin tones, muting them only slightly. Slightly cool color temperature. No added grain, no matte/faded lift, no vignette heavier than subtle. Preserve the subject's exact facial identity, pose, clothing, and composition. Mood: quiet, expensive, cinematic — a lone figure against light, wealth in shadow. Do not crush shadow detail into pure black. Do not add film grain. Do not blow or tint highlights orange. Do not brighten the sky.`;
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
@@ -71,6 +80,7 @@ Deno.serve(async (request) => {
     imageBase64?: string;
     mimeType?: string;
     maskBase64?: string; // optional: white = the region to edit (manual eraser/brush)
+    style?: string; // optional named style, e.g. "after-dark"
   };
   try {
     body = await request.json();
@@ -123,6 +133,11 @@ Deno.serve(async (request) => {
     let promptText = `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
     if (kind === "reroll") {
       promptText += `\nThis is a re-roll: produce a noticeably different interpretation of the same instruction.`;
+    }
+    // Named-style conditioning: if the ask invokes the After Dark aesthetic,
+    // append its grade block so the AI matches the one-tap filter.
+    if (AFTER_DARK_TRIGGERS.test(instruction) || body.style === "after-dark") {
+      promptText += AFTER_DARK_STYLE;
     }
     if (hasMask) {
       promptText +=

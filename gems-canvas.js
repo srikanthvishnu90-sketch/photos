@@ -625,6 +625,53 @@ export const FILTER_GRADES = Object.freeze([
     adjust: { brightness: 0, contrast: 30, saturation: 26, warmth: -4 },
     tint: null,
   },
+  // "After Dark" (internal codename "Dark Batman") — moody luxury, low-exposure.
+  // The single client-side definition of this grade; the values below are the
+  // web-prototype mapping of the founder's Lightroom recipe (exposure ~−1 stop,
+  // tamed highlights/whites, deep-but-clean blacks, global mute, navy split-tone,
+  // subtle vignette, no grain). `aliases` route described edits ("after dark",
+  // "moody", "batman vibe") here; `aiStyle` is the grade block for AI edits
+  // (mirrored into supabase/functions/edit-photo/index.ts).
+  {
+    key: "after-dark",
+    label: "After Dark",
+    aliases: ["after dark", "quiet money", "batman", "dark batman", "moody luxury", "dark aesthetic", "moody"],
+    adjust: {
+      exposure: -52,
+      brightness: -8,
+      contrast: 12,
+      highlights: -42,
+      whites: -18,
+      shadows: -14,
+      blacks: -10,
+      saturation: -25,
+      vibrance: -10,
+      warmth: -8,
+      sharpness: 6,
+      vignette: 14,
+    },
+    tint: { color: "#0d1826", alpha: 0.16 },
+    aiStyle:
+      "STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not " +
+      "regenerate it. Pull overall exposure down roughly one stop so the scene reads " +
+      "dusk-like even if shot in daylight. Compress highlights: skies become steel-blue " +
+      "or navy with retained gradient detail, never white and never clipped. Deepen " +
+      "shadows and blacks but keep them CLEAN and keep the subject's silhouette readable " +
+      "— deliberate low-key, not underexposure. Desaturate globally about 25%, pushing " +
+      "greens toward dark emerald and blues toward navy; protect skin tones, muting them " +
+      "only slightly. Slightly cool color temperature. No added grain, no matte/faded " +
+      "lift, no vignette heavier than subtle. Preserve the subject's exact facial " +
+      "identity, pose, clothing, and composition. Mood: quiet, expensive, cinematic — a " +
+      "lone figure against light, wealth in shadow. Do not crush shadow detail into pure " +
+      "black. Do not add film grain. Do not blow or tint highlights orange. Do not " +
+      "brighten the sky.",
+  },
+]);
+
+// Which adjust keys require the full per-pixel pipeline (paintFull) rather than
+// the cheap 4-key paintAdjust — so richer grades like After Dark render fully.
+const RICH_ADJUST_KEYS = Object.freeze([
+  "exposure", "highlights", "shadows", "whites", "blacks", "vibrance", "sharpness", "vignette", "grain",
 ]);
 
 /**
@@ -634,7 +681,27 @@ export const FILTER_GRADES = Object.freeze([
  * @returns {Blob|null}
  */
 export function applyGrade(bitmap, grade = {}) {
-  const canvas = paintAdjust(bitmap, grade.adjust || {}, grade.tint || null);
+  const adjust = grade.adjust || {};
+  const rich = RICH_ADJUST_KEYS.some((key) => adjust[key]);
+  let canvas;
+  if (rich) {
+    // Full pipeline (exposure, highlights/shadows, vignette…), then a tint wash.
+    canvas = paintFull(bitmap, adjust);
+    if (canvas && grade.tint?.color && grade.tint.alpha) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.globalCompositeOperation = "soft-light";
+        ctx.globalAlpha = Math.max(0, Math.min(1, Number(grade.tint.alpha) || 0));
+        ctx.fillStyle = grade.tint.color;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+  } else {
+    // The original 8 grades keep their exact tuned look via the simpler path.
+    canvas = paintAdjust(bitmap, adjust, grade.tint || null);
+  }
   if (!canvas) return null;
   return encodeCanvas(canvas, "image/jpeg", 0.92);
 }
@@ -652,8 +719,12 @@ export function cssFilterFor(adjust = {}) {
   const c = clampAdj(adjust.contrast);
   const s = clampAdj(adjust.saturation);
   const w = clampAdj(adjust.warmth);
+  const exp = clampAdj(adjust.exposure);
+  // Fold exposure into brightness (multiplicative) so grades like After Dark
+  // preview correctly on the <img> without a re-encode.
+  const brightness = (1 + b / 100) * Math.pow(2, exp / 100);
   const parts = [
-    `brightness(${(1 + b / 100).toFixed(3)})`,
+    `brightness(${brightness.toFixed(3)})`,
     `contrast(${(1 + c / 100).toFixed(3)})`,
     `saturate(${(1 + s / 100).toFixed(3)})`,
   ];
