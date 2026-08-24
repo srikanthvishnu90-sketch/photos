@@ -12,6 +12,14 @@ const STANDARD_MODEL = Deno.env.get("GEMINI_IMAGE_MODEL") ?? "gemini-3.1-flash-i
 const FREE_SCENE_UNITS_PER_MONTH = Number(Deno.env.get("FREE_SCENE_UNITS_PER_MONTH") ?? "30");
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 
+// The athlete's face must read as a real photo of a real person even inside the
+// stylized poster — the #1 thing that makes these look AI is a beautified face.
+const FACE_FIDELITY = `FACE FIDELITY — CRITICAL. The athlete's face must be the EXACT face from the first attached photo, kept photoreal, not a lookalike or a beautified version:
+- Copy their real facial geometry exactly (eyes, nose, mouth, jawline, cheekbones, brow, hairline, ears) and keep every mole, freckle, scar, facial hair and natural asymmetry.
+- KEEP REAL SKIN TEXTURE: pores, fine lines, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age or beautify the face. No beauty filter.
+- The face is a real photograph composited into the graphic — the poster's lighting and effects wrap around it, they do NOT repaint or stylize the face itself.
+BANNED (AI tells): waxy/plastic/porcelain skin, over-smoothed skin, doll or glassy eyes, over-symmetric face, airbrushed influencer look, teeth too white/even, a prettier or different face than the photo.`;
+
 const HEADLINES = new Set(["COMMITTED", "NEXT CHAPTER", "SIGNED", "COMMITTED."]);
 const ASPECTS = new Set(["4:5", "1:1", "9:16"]);
 // Never generate a specific real person other than the athlete's own photo.
@@ -142,7 +150,7 @@ Deno.serve(async (request) => {
       `SCHOOL: ${school.display} (the "${school.mascot ?? "team"}"). Use the school's official logo (the SECOND attached image) as a large emblem behind the athlete, and design the entire poster around the team colors ${color} and ${altColor}. Add the ${school.mascot ?? "team"} mascot and a packed ${sportLabel} stadium or arena in the background.\n\n` +
       `HEADLINE: a big bold 3D metallic "${headline}" across the middle in the team colors with a beveled chrome shine.` +
       (athleteName ? ` At the bottom, the athlete's name "${athleteName}" in bold block letters and "${school.display}" underneath in elegant script.` : ` At the bottom, "${school.display}" in elegant script.`) +
-      `\n\nSTYLE: hyper-detailed sports-edit / recruiting poster, dramatic stadium lighting, lightning and energy glow in the team colors, cinematic and celebratory, with sharp clean legible text. Do NOT change the athlete's face or identity. No extra people.`;
+      `\n\nSTYLE: hyper-detailed sports-edit / recruiting poster, dramatic stadium lighting, lightning and energy glow in the team colors, cinematic and celebratory, with sharp clean legible text. No extra people.\n\n${FACE_FIDELITY}`;
     parts.push({ text: prompt });
 
     // ---- Generate.

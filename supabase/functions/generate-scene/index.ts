@@ -19,6 +19,16 @@ Rendered as if shot on a recent iPhone: natural sensor behavior, believable dyna
 
 const IDENTITY_BLOCK = `The person in the first attached image must appear in the scene with their exact facial identity, skin tone, hair, and build preserved — recognizably the same person, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
 
+// The single most important block for "don't make me look AI". Appended whenever a
+// real person is in the output. Stops the model from beautifying/airbrushing the
+// face — the #1 cause of the synthetic look.
+const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. The face in the output must be the EXACT face from the user's attached photo — not a lookalike, not an "improved" version:
+- Copy their real facial geometry precisely: eye shape and spacing, nose, mouth, lips, jawline, cheekbones, brow, hairline, ears, and every mole, freckle, scar, facial hair and natural asymmetry.
+- KEEP REAL SKIN: visible pores, fine lines, natural texture, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age, or beautify. Apply NO beauty filter.
+- Match their real skin tone and complexion exactly, including any redness or unevenness.
+- Expression and gaze stay natural and candid — never posed-perfect or model-like.
+BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over-smoothed or blurred skin, doll-like or glassy eyes, perfectly symmetric face, airbrushed "influencer" look, mannequin sheen, over-sharpened HDR, teeth too white or too even, or any face that looks prettier or different than the real photo.`;
+
 // When the caller wants to recreate a specific reference photo AS themselves
 // ("put me in this exact shot" / face-swap): reproduce the reference composition
 // but the subject is the user. The FIRST attached image is the user's face; the
@@ -129,9 +139,12 @@ Deno.serve(async (request) => {
   const aspect = ASPECTS.has(body.aspect ?? "") ? (body.aspect as string) : "4:5";
   const mode = body.mode === "background" ? "background" : "me";
   const matchReference = body.mode !== "background" && body.matchReference === true;
-  // A face/identity swap that recreates a reference needs Pro's composition and
-  // identity fidelity — force it there regardless of the requested tier.
-  const quality = matchReference || body.quality === "pro" ? "pro" : "standard";
+  const hasSubjectInput =
+    mode !== "background" && typeof body.subjectBase64 === "string" && body.subjectBase64.length > 0;
+  // Anything with a REAL PERSON in it uses Pro — flash models beautify faces into
+  // the AI look, and identity/skin fidelity is the whole point here. Empty
+  // aesthetic backgrounds (no face to get wrong) stay on the cheaper standard model.
+  const quality = matchReference || hasSubjectInput || body.quality === "pro" ? "pro" : "standard";
   const model = quality === "pro" ? PRO_MODEL : STANDARD_MODEL;
   const units = quality === "pro" ? 3 : 1;
   const refIds = Array.isArray(body.referenceAssetIds)
@@ -227,6 +240,7 @@ Deno.serve(async (request) => {
       styleBlock +
       `\n\n${REALISM_LAYER}` +
       identityBlock +
+      (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       wardrobeBlock +
       `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
     parts.push({ text: promptText });
