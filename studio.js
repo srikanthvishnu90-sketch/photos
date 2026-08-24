@@ -2,6 +2,8 @@ import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { studioActions } from "./studio-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
 import { fetchMoodboardCounts } from "./gems-moodboards.js";
+import { openBoardView } from "./gems-board-view.js";
+import { boardCount } from "./gems-board.js";
 import { DUMP_STYLES, buildDumpOptions, reviseDump } from "./gems-dump.js";
 import { buildDatingProfile, buildScopedDump, SCOPED_MODES } from "./gems-modes.js";
 
@@ -269,6 +271,19 @@ function studioMarkup() {
         </button>
       </section>
 
+      <section class="studio-section" aria-label="Inspiration board">
+        <button id="studioBoardEntry" class="studio-board-entry studio-entrance" type="button">
+          <span class="studio-board-icon" aria-hidden="true">
+            <svg viewBox="0 0 22 22"><rect x="3" y="3" width="7" height="9" rx="2"></rect><rect x="12" y="3" width="7" height="5.5" rx="2"></rect><rect x="12" y="10.5" width="7" height="8.5" rx="2"></rect><rect x="3" y="14" width="7" height="5" rx="2"></rect></svg>
+          </span>
+          <span class="studio-board-copy">
+            <strong>Inspiration board</strong>
+            <small id="studioBoardCount">Pin photos and looks to take inspo from</small>
+          </span>
+          <span class="studio-board-open">Open</span>
+        </button>
+      </section>
+
       <section id="studioProjectsSection" class="studio-section" aria-labelledby="studioProjectsTitle">
         <h2 id="studioProjectsTitle" class="studio-section-title studio-entrance">Your projects</h2>
         <div id="studioProjectsGrid" class="studio-projects"></div>
@@ -356,6 +371,25 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     return projects.filter((project) => project.type === activeFilter);
   }
 
+  function openBoard() {
+    void openBoardView({
+      onOpenPhoto: (photoId) => onNavigate("Editor", { mode: "describe", photoId }),
+    });
+  }
+
+  async function refreshBoardCount() {
+    const el = mount.querySelector("#studioBoardCount");
+    if (!el) return;
+    try {
+      const n = await boardCount();
+      el.textContent = n > 0
+        ? `${n} pin${n === 1 ? "" : "s"} · your inspiration`
+        : "Pin photos and looks to take inspo from";
+    } catch {
+      /* keep the default copy */
+    }
+  }
+
   function bindProjectButtons() {
     projectsGrid.querySelectorAll("[data-studio-project]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -364,6 +398,11 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
         );
         if (!project) return;
         studioActions.openProject(project);
+        // A moodboard opens the real, browsable board; other kinds are pending.
+        if (project.type === "Moodboards" || project.kind === "moodboard") {
+          openBoard();
+          return;
+        }
         status.textContent = `${project.name} is ready to open when project storage is connected.`;
       });
     });
@@ -1104,6 +1143,11 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     status.textContent = `${project.name} is ready to open when project storage is connected.`;
   });
 
+  mount.querySelector("#studioBoardEntry")?.addEventListener("click", () => {
+    studioActions.chooseFilter("Board");
+    openBoard();
+  });
+
   mount.querySelectorAll("[data-studio-template]").forEach((button) => {
     button.addEventListener("click", () => {
       const template = TEMPLATES.find((item) => item.name === button.dataset.studioTemplate);
@@ -1131,6 +1175,7 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     activate(payload = {}) {
       syncActiveTab(mount, "Studio");
       void loadProjects();
+      void refreshBoardCount();
       if (payload.projectId) {
         const project = projects.find(
           (item) => String(item.id) === String(payload.projectId),

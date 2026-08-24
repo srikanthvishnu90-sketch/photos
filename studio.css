@@ -1271,3 +1271,257 @@
     animation-duration: 1600ms;
   }
 }
+
+/* ---- Inspiration board entry (Studio) ---- */
+.studio-board-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 120ms ease,
+    background-color 150ms ease;
+}
+
+.studio-board-entry:hover {
+  background: var(--color-surface-strong);
+}
+
+.studio-board-entry:active {
+  transform: scale(0.99);
+}
+
+.studio-board-icon {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  place-items: center;
+  color: var(--color-white);
+  background: var(--color-ink);
+}
+
+.studio-board-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.studio-board-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.studio-board-copy strong {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 560;
+}
+
+.studio-board-copy small {
+  color: var(--color-mauve);
+  font-size: 12.5px;
+}
+
+.studio-board-open {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: var(--color-white);
+  background: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ---- Inspiration board overlay (Pinterest-style masonry) ---- */
+.board-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-white);
+  animation: board-in 240ms var(--ease-gems, ease) both;
+}
+
+@keyframes board-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.board-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 18px) 20px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.board-title {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 560;
+}
+
+.board-count {
+  color: var(--color-mauve);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.board-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border-radius: 50%;
+  place-items: center;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.board-close svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.board-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+}
+
+/* Masonry via CSS columns. */
+.board-grid {
+  column-count: 2;
+  column-gap: 12px;
+}
+
+@media (min-width: 560px) {
+  .board-grid {
+    column-count: 3;
+  }
+}
+
+.board-pin {
+  position: relative;
+  margin: 0 0 12px;
+  break-inside: avoid;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.board-pin-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.board-pin-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.board-pin-scene {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: linear-gradient(150deg, var(--color-surface-strong), var(--color-border));
+}
+
+.board-pin-caption {
+  display: block;
+  padding: 8px 10px;
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.board-pin-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  place-items: center;
+  color: var(--color-white);
+  background: rgba(23, 11, 16, 0.55);
+  cursor: pointer;
+}
+
+.board-pin-remove svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.board-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.board-empty-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  color: var(--color-mauve);
+}
+
+.board-empty-mark svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.board-empty strong {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.board-empty span:not(.board-empty-mark) {
+  max-width: 280px;
+  color: var(--color-mauve);
+  font-size: 13.5px;
+  line-height: 1.45;
+}

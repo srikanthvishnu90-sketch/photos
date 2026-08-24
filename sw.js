@@ -13,7 +13,7 @@
 //
 // Every handler is wrapped so a cache miss or error can never break the page.
 
-const CACHE = "gems-shell-v2";
+const CACHE = "gems-shell-v3";
 
 const SHELL = [
   "./",
@@ -40,6 +40,8 @@ const SHELL = [
   "discover.js",
   "editor-actions.js",
   "editor.js",
+  "gems-board.js",
+  "gems-board-view.js",
   "gems-canvas.js",
   "gems-collections.js",
   "gems-daily.js",

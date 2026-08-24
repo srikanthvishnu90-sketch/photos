@@ -6,6 +6,7 @@ import { computeCollections, semanticFilter } from "./gems-collections.js";
 import { exportAll } from "./gems-export.js";
 import { getSession } from "./gems-supabase.js";
 import { importFromDevice } from "./gems-native.js";
+import { pinToBoard } from "./gems-board.js";
 
 const SEARCH_HINTS = Object.freeze([
   "best of me last summer",
@@ -97,6 +98,7 @@ const PHOTO_ACTIONS = Object.freeze([
   },
   { label: "Edit manually", sublabel: "Erase, add, crop, and adjust by hand" },
   { label: "Make it look like…", sublabel: "Match a reference or an aesthetic" },
+  { label: "Pin to board", sublabel: "Save it to your inspiration board" },
   { label: "Use in chat", sublabel: "Build a post or dump around it" },
 ]);
 
@@ -678,6 +680,18 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
         } else if (action === "Edit manually") {
           closeSheet();
           onNavigate("Editor", { mode: "manual", photoId });
+        } else if (action === "Pin to board") {
+          const record = libraryPhotos.find((entry) => entry.id === photoId);
+          void pinToBoard({
+            photoId,
+            url: record?.url ?? null,
+            scene: record?.scene ?? null,
+            title: record?.name ?? "Pinned photo",
+          }).then((result) => {
+            button.querySelector("span").textContent = result.already
+              ? "Already on your board"
+              : "Pinned to your board ✓";
+          });
         }
       });
     });

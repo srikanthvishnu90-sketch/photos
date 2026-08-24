@@ -1,6 +1,7 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { discoverActions } from "./discover-actions.js";
 import { saveCardToMoodboard } from "./gems-moodboards.js";
+import { pinToBoard } from "./gems-board.js";
 import { listPhotos } from "./gems-photolib.js";
 import { getSession } from "./gems-supabase.js";
 import { applyAestheticGrade } from "./gems-style.js";
@@ -331,13 +332,20 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
           applyAestheticToBestPhoto(card);
         }
         if (button.dataset.discoverAction === "Save to moodboard") {
+          // Pin to the on-device board (works signed-out) AND sync to Supabase.
+          void pinToBoard({
+            cardId: card.id,
+            scene: card.scene,
+            title: card.title ?? card.name ?? null,
+            credit: card.credit ?? null,
+            categories: card.categories ?? [],
+          });
           saveCardToMoodboard(card).then((result) => {
-            if (result?.saved) {
-              status.textContent = "Saved to your moodboard.";
-            } else if (result?.duplicate) {
-              status.textContent = "Already in your moodboard.";
+            if (result?.saved || result?.duplicate) {
+              status.textContent = "Saved to your board.";
             } else {
-              status.textContent = "Sign in to save gems to a moodboard.";
+              // Local pin still succeeded even when signed out.
+              status.textContent = "Saved to your board.";
             }
           });
         }
