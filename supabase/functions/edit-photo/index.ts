@@ -171,9 +171,9 @@ Deno.serve(async (request) => {
       return json(502, { error: "image_model_failed", detail: detail.slice(0, 300) });
     }
     const modelData = await modelResponse.json();
-    const parts: Array<{ inlineData?: { mimeType?: string; data?: string } }> =
+    const responseParts: Array<{ inlineData?: { mimeType?: string; data?: string } }> =
       modelData?.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data);
+    const imagePart = responseParts.find((part) => part.inlineData?.data);
     if (!imagePart?.inlineData?.data) {
       return json(502, { error: "image_model_returned_no_image" });
     }
