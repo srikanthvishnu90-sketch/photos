@@ -909,27 +909,46 @@
   display: none;
 }
 
+/* Filter chips read like a filter strip: a graded thumbnail + a name below. */
 .editor-filter-chip {
-  min-height: 42px;
+  display: flex;
   flex: 0 0 auto;
-  padding: 0 15px;
-  border: 1.5px solid var(--color-border);
-  border-radius: 999px;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
   color: var(--color-ink);
-  background: var(--color-white);
-  font-size: 12.5px;
+  background: transparent;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    color 150ms ease,
-    border-color 150ms ease,
-    background-color 150ms ease;
+  transition: color 150ms ease;
+}
+
+.editor-filter-thumb {
+  display: block;
+  width: 58px;
+  height: 58px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background-color: var(--color-surface);
+  background-size: cover;
+  background-position: center;
+  transition: border-color 150ms ease;
+}
+
+.editor-filter-chip.is-active .editor-filter-thumb {
+  border-color: var(--color-ink);
 }
 
 .editor-filter-chip.is-active {
-  border-color: var(--color-ink);
-  color: var(--color-white);
-  background: var(--color-ink);
+  color: var(--color-ink);
+}
+
+.editor-filter-name {
+  white-space: nowrap;
 }
 
 /* ---- "Make it look like…" reference picker ---- */

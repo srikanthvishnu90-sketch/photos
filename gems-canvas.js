@@ -535,6 +535,39 @@ function bandWeight(h, center, half) {
   return d >= half ? 0 : 1 - d / half;
 }
 
+function activeBandsFrom(bands) {
+  return HSL_BANDS.map((band) => ({ ...band, adj: bands[band.key] })).filter(
+    (band) => band.adj && (band.adj.h || band.adj.s || band.adj.l),
+  );
+}
+
+// Per-pixel HSL pass over an ImageData buffer (shared by applyHsl and grades
+// that carry an `hsl` block, e.g. After Dark's greens→emerald / blues→navy).
+function hslPass(data, activeBands, half = 40) {
+  for (let i = 0; i < data.length; i += 4) {
+    let [hue, sat, lum] = rgbToHsl(data[i], data[i + 1], data[i + 2]);
+    if (sat < 0.02) continue; // near-gray → no meaningful hue
+    let hShift = 0;
+    let satAcc = 0;
+    let lumAcc = 0;
+    for (const band of activeBands) {
+      const weight = bandWeight(hue, band.center, half);
+      if (weight <= 0) continue;
+      hShift += ((band.adj.h || 0) / 100) * 30 * weight;
+      satAcc += ((band.adj.s || 0) / 100) * weight;
+      lumAcc += ((band.adj.l || 0) / 100) * weight;
+    }
+    if (hShift === 0 && satAcc === 0 && lumAcc === 0) continue;
+    hue = (hue + hShift + 360) % 360;
+    sat = Math.max(0, Math.min(1, sat * (1 + satAcc)));
+    lum = Math.max(0, Math.min(1, lum + lumAcc * 0.5));
+    const [r, g, b] = hslToRgb(hue, sat, lum);
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+}
+
 /**
  * Per-color-range HSL. `bands` maps a band key (red/orange/yellow/green/aqua/
  * blue/purple/magenta) to { h, s, l } in -100..100 (hue shift, saturation,
@@ -546,8 +579,7 @@ function bandWeight(h, center, half) {
 export function applyHsl(bitmap, bands = {}) {
   try {
     if (!bitmap) return null;
-    const active = HSL_BANDS.map((band) => ({ ...band, adj: bands[band.key] }))
-      .filter((band) => band.adj && (band.adj.h || band.adj.s || band.adj.l));
+    const active = activeBandsFrom(bands);
     const w = bitmap.width || bitmap.naturalWidth || 0;
     const h = bitmap.height || bitmap.naturalHeight || 0;
     if (!w || !h) return null;
@@ -564,34 +596,53 @@ export function applyHsl(bitmap, bands = {}) {
       console.info("getImageData blocked", error);
       return encodeCanvas(canvas, "image/jpeg", 0.92);
     }
-    const d = img.data;
-    const HALF = 40; // band half-width in degrees (adjacent bands overlap ~smoothly)
-    for (let i = 0; i < d.length; i += 4) {
-      let [hue, sat, lum] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-      if (sat < 0.02) continue; // near-gray pixels have no meaningful hue
-      let hShift = 0;
-      let satAcc = 0;
-      let lumAcc = 0;
-      for (const band of active) {
-        const weight = bandWeight(hue, band.center, HALF);
-        if (weight <= 0) continue;
-        hShift += ((band.adj.h || 0) / 100) * 30 * weight;
-        satAcc += ((band.adj.s || 0) / 100) * weight;
-        lumAcc += ((band.adj.l || 0) / 100) * weight;
-      }
-      if (hShift === 0 && satAcc === 0 && lumAcc === 0) continue;
-      hue = (hue + hShift + 360) % 360;
-      sat = Math.max(0, Math.min(1, sat * (1 + satAcc)));
-      lum = Math.max(0, Math.min(1, lum + lumAcc * 0.5));
-      const [r, g, b] = hslToRgb(hue, sat, lum);
-      d[i] = r;
-      d[i + 1] = g;
-      d[i + 2] = b;
-    }
+    hslPass(img.data, active);
     ctx.putImageData(img, 0, 0);
     return encodeCanvas(canvas, "image/jpeg", 0.92);
   } catch (error) {
     console.info("applyHsl failed", error);
+    return null;
+  }
+}
+
+/**
+ * Multiply each channel by a gain — the math behind a white-balance eyedropper
+ * (scale R/G/B so a tapped neutral point becomes gray).
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {[number, number, number]} gains  per-channel multipliers
+ * @returns {Blob|null}
+ */
+export function applyChannelGains(bitmap, gains = [1, 1, 1]) {
+  try {
+    if (!bitmap) return null;
+    const rf = Number(gains[0]) || 1;
+    const gf = Number(gains[1]) || 1;
+    const bf = Number(gains[2]) || 1;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const canvas = makeCanvas(w, h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    let img;
+    try {
+      img = ctx.getImageData(0, 0, w, h);
+    } catch (error) {
+      console.info("getImageData blocked", error);
+      return encodeCanvas(canvas, "image/jpeg", 0.92);
+    }
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = d[i] * rf;
+      d[i + 1] = d[i + 1] * gf;
+      d[i + 2] = d[i + 2] * bf;
+    }
+    ctx.putImageData(img, 0, 0);
+    return encodeCanvas(canvas, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyChannelGains failed", error);
     return null;
   }
 }
@@ -772,6 +823,13 @@ export const FILTER_GRADES = Object.freeze([
       vignette: 14,
     },
     tint: { color: "#0d1826", alpha: 0.16 },
+    // Per-channel color moves from the recipe, now native (not just approximated):
+    // foliage → dark emerald, skies → navy, skin protected (muted only slightly).
+    hsl: {
+      green: { h: -6, s: -30, l: -40 },
+      blue: { s: -35, l: -25 },
+      orange: { s: -8 },
+    },
     aiStyle:
       "STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not " +
       "regenerate it. Pull overall exposure down roughly one stop so the scene reads " +
@@ -808,16 +866,27 @@ export function applyGrade(bitmap, grade = {}) {
   if (rich) {
     // Full pipeline (exposure, highlights/shadows, vignette…), then a tint wash.
     canvas = paintFull(bitmap, adjust);
-    if (canvas && grade.tint?.color && grade.tint.alpha) {
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.globalCompositeOperation = "soft-light";
-        ctx.globalAlpha = Math.max(0, Math.min(1, Number(grade.tint.alpha) || 0));
-        ctx.fillStyle = grade.tint.color;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = "source-over";
+    const ctx = canvas?.getContext("2d");
+    // Native per-channel HSL (e.g. After Dark's greens→emerald / blues→navy).
+    if (ctx && grade.hsl) {
+      const active = activeBandsFrom(grade.hsl);
+      if (active.length) {
+        try {
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          hslPass(img.data, active);
+          ctx.putImageData(img, 0, 0);
+        } catch (error) {
+          console.info("grade HSL pass skipped", error);
+        }
       }
+    }
+    if (ctx && grade.tint?.color && grade.tint.alpha) {
+      ctx.globalCompositeOperation = "soft-light";
+      ctx.globalAlpha = Math.max(0, Math.min(1, Number(grade.tint.alpha) || 0));
+      ctx.fillStyle = grade.tint.color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
     }
   } else {
     // The original 8 grades keep their exact tuned look via the simpler path.

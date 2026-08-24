@@ -12,6 +12,7 @@ import {
   applyCurve,
   applyLevels,
   applyHsl,
+  applyChannelGains,
   HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
@@ -24,7 +25,7 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Curves", "Levels", "HSL", "Crop", "Rotate",
+  "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance", "Crop", "Rotate",
   "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen", "Stickers",
   "Retouch", "Erase", "Add",
 ]);
@@ -41,6 +42,7 @@ const TOOL_HELP = Object.freeze({
   Curves: "Drag the tone curve — shape shadows, midtones, and highlights.",
   Levels: "Set the black point, white point, and midtone gamma.",
   HSL: "Tune each color's hue, saturation, and brightness on its own.",
+  "White Balance": "Tap something that should be white or gray to neutralize the color.",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
@@ -298,6 +300,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   let cropCleanup = null; // detaches the active crop overlay + listeners
   let overlayCleanup = null; // detaches the active erase-brush overlay + listeners
   let toolPreviewUrl = ""; // object URL of the current live tool preview (revoked on reset)
+  let filterThumbUrls = []; // object URLs of the graded filter-chip thumbnails
   let manualBusy = false; // guards overlapping client-side commits
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
@@ -457,6 +460,16 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   function teardownToolPanel() {
     resetPreview();
+    if (filterThumbUrls.length) {
+      filterThumbUrls.forEach((u) => {
+        try {
+          URL.revokeObjectURL(u);
+        } catch {
+          /* ignore */
+        }
+      });
+      filterThumbUrls = [];
+    }
     toolPanel.hidden = true;
     toolPanel.innerHTML = "";
   }
@@ -532,6 +545,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Curves") renderCurvesTool();
     else if (toolName === "Levels") renderLevelsTool();
     else if (toolName === "HSL") renderHslTool();
+    else if (toolName === "White Balance") renderWhiteBalanceTool();
     else if (toolName === "Draw") renderDrawTool();
     else if (toolName === "Text") renderTextTool();
     else if (toolName === "Dodge & Burn") renderDodgeBurnTool();
@@ -770,7 +784,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
               role="option"
               aria-selected="false"
               data-grade="${esc(grade.key)}"
-            >${esc(grade.label)}</button>
+            ><span class="editor-filter-thumb" data-grade-thumb></span><span class="editor-filter-name">${esc(grade.label)}</span></button>
           `,
         ).join("")}
       </div>
@@ -796,16 +810,21 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     };
 
     toolPanel.querySelectorAll("[data-grade]").forEach((chip) => {
-      chip.addEventListener("click", () => {
+      chip.addEventListener("click", async () => {
         const grade = FILTER_GRADES.find((entry) => entry.key === chip.dataset.grade);
         if (!grade) return;
         markSelected(grade.key);
+        // Cheap instant preview, then a true full-render (so HSL/tint show too).
         photoView.style.filter = cssFilterFor(grade.adjust);
+        const bitmap = await activeBitmap();
+        if (bitmap && tool === "Filters" && selected === grade.key) {
+          showToolPreview(applyGrade(bitmap, grade));
+        }
       });
     });
     toolPanel.querySelector("[data-filter-clear]")?.addEventListener("click", () => {
       markSelected(null);
-      photoView.style.filter = "";
+      resetPreview();
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !selected) return;
@@ -824,6 +843,32 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     toolPanel.querySelector("[data-style-open]")?.addEventListener("click", () => {
       void openStylePicker(toolPanel.querySelector("[data-style-picker]"));
     });
+
+    // Render each grade onto a tiny copy of the current photo so the chips read
+    // like a filter strip (each shows the actual result on THIS image).
+    async function paintFilterThumbs() {
+      const bitmap = await activeBitmap();
+      if (!bitmap || tool !== "Filters") return;
+      const bw = bitmap.width || bitmap.naturalWidth || 1;
+      const bh = bitmap.height || bitmap.naturalHeight || 1;
+      const tw = 132;
+      const th = Math.max(1, Math.round((tw * bh) / bw));
+      const thumb = document.createElement("canvas");
+      thumb.width = tw;
+      thumb.height = th;
+      thumb.getContext("2d")?.drawImage(bitmap, 0, 0, tw, th);
+      for (const grade of FILTER_GRADES) {
+        if (tool !== "Filters") return; // user switched tools mid-render
+        const blob = applyGrade(thumb, grade);
+        if (!blob) continue;
+        const url = URL.createObjectURL(blob);
+        filterThumbUrls.push(url);
+        const el = toolPanel.querySelector(`[data-grade="${grade.key}"] [data-grade-thumb]`);
+        if (el) el.style.backgroundImage = `url(${url})`;
+        await new Promise((r) => window.setTimeout(r, 0)); // yield so the UI stays smooth
+      }
+    }
+    void paintFilterThumbs();
   }
 
   async function openStylePicker(host) {
@@ -1588,6 +1633,105 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       manualBusy = false;
       commitManualVersion("Color Mix", blob, "HSL");
     });
+  }
+
+  // ---- White Balance (eyedropper) ----------------------------------------
+
+  function renderWhiteBalanceTool() {
+    const state = { gains: null, snapshot: null, scale: 1, overlayEl: null, marker: null, natW: 0, natH: 0 };
+    toolPanel.innerHTML = `
+      <div class="editor-draw">
+        <p class="editor-erase-hint">Tap something in the photo that should be white or neutral gray — Gems removes the color cast.</p>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-wb-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-wb-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    toolPanel.querySelector("[data-wb-reset]")?.addEventListener("click", () => {
+      state.gains = null;
+      if (state.marker) state.marker.hidden = true;
+      resetPreview();
+      const btn = toolPanel.querySelector("[data-wb-apply]");
+      if (btn) btn.disabled = true;
+    });
+    toolPanel.querySelector("[data-wb-apply]")?.addEventListener("click", async () => {
+      if (manualBusy || !state.gains) {
+        if (!state.gains) status.textContent = "Tap a neutral spot first, then Apply.";
+        return;
+      }
+      manualBusy = true;
+      status.textContent = "Applying white balance…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyChannelGains(bitmap, state.gains) : null;
+      manualBusy = false;
+      commitManualVersion("White balance", blob, "White Balance");
+    });
+    void setupWhiteBalance(state);
+  }
+
+  async function setupWhiteBalance(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "White Balance" || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-paint-overlay");
+    state.snapshot = makeCopyCanvas(bitmap, natW, natH);
+    state.scale = scale;
+    state.overlayEl = overlay;
+    state.natW = natW;
+    state.natH = natH;
+    const marker = document.createElement("div");
+    marker.className = "editor-clone-source";
+    marker.hidden = true;
+    overlay.appendChild(marker);
+    state.marker = marker;
+
+    const pick = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      const x = Math.round((event.clientX - rect.left) * scale);
+      const y = Math.round((event.clientY - rect.top) * scale);
+      const sctx = state.snapshot.getContext("2d");
+      if (!sctx) return;
+      let px;
+      try {
+        // Average a small patch so a single noisy pixel doesn't skew it.
+        const rr = 3;
+        const sx = Math.max(0, Math.min(natW - 1, x - rr));
+        const sy = Math.max(0, Math.min(natH - 1, y - rr));
+        const d = sctx.getImageData(sx, sy, Math.min(rr * 2, natW - sx), Math.min(rr * 2, natH - sy)).data;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        const n = d.length / 4;
+        for (let i = 0; i < d.length; i += 4) {
+          r += d[i];
+          g += d[i + 1];
+          b += d[i + 2];
+        }
+        px = { r: r / n, g: g / n, b: b / n };
+      } catch (error) {
+        console.info("WB sample failed", error);
+        return;
+      }
+      const gray = (px.r + px.g + px.b) / 3;
+      const clampGain = (v) => Math.max(0.4, Math.min(2.5, v));
+      state.gains = [
+        clampGain(gray / (px.r || 1)),
+        clampGain(gray / (px.g || 1)),
+        clampGain(gray / (px.b || 1)),
+      ];
+      marker.hidden = false;
+      marker.style.left = `${(x / natW) * 100}%`;
+      marker.style.top = `${(y / natH) * 100}%`;
+      showToolPreview(applyChannelGains(bitmap, state.gains));
+      const btn = toolPanel.querySelector("[data-wb-apply]");
+      if (btn) btn.disabled = false;
+      event.preventDefault();
+    };
+    overlay.addEventListener("pointerdown", pick);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", pick);
+      overlay.remove();
+    };
   }
 
   // ---- Curves ------------------------------------------------------------
