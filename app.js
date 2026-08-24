@@ -109,8 +109,14 @@ const profileController = createProfileScreen({
 });
 
 function syncAppHeight() {
-  const height = window.visualViewport?.height ?? window.innerHeight;
+  const vv = window.visualViewport;
+  const height = vv?.height ?? window.innerHeight;
   document.documentElement.style.setProperty("--app-height", `${Math.round(height)}px`);
+  // The body is position:fixed (styles.css), so the window itself must never
+  // hold a scroll offset — if iOS tried to scroll to reveal a focused input,
+  // undo it. This is what keeps the app from "moving down" when the keyboard
+  // opens; the app shrinks to visualViewport.height instead of sliding.
+  if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
 }
 
 function syncThemeColor(token = "--color-petal") {
@@ -624,6 +630,13 @@ window.addEventListener("resize", syncAppHeight);
 window.visualViewport?.addEventListener("resize", () => {
   syncAppHeight();
   window.setTimeout(keepEmailVisible, 50);
+});
+// The keyboard opening/closing also fires visualViewport "scroll" (its offset
+// changes); re-pin on that too so nothing drifts mid-animation.
+window.visualViewport?.addEventListener("scroll", syncAppHeight);
+// Belt-and-suspenders: if any focus attempt nudges the window, snap it back.
+window.addEventListener("scroll", () => {
+  if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
 });
 
 syncAppHeight();

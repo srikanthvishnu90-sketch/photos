@@ -1109,16 +1109,17 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     requestEdit(promptInput.value);
   });
 
-  // Keep the describe input visible above the iOS keyboard: scroll it to
-  // center within the editor's scroll region on focus and whenever the visual
-  // viewport resizes (the keyboard opening/closing).
+  // Keep the describe input visible above the iOS keyboard. The body is pinned
+  // to the visual viewport (styles.css) so the page never scrolls; we only need
+  // to nudge the editor's own scroll region if the input is actually hidden —
+  // and instantly ("nearest", no smooth animation), so it never slides/jitters.
   function keepPromptVisible() {
     if (document.activeElement !== promptInput) return;
     window.requestAnimationFrame(() =>
-      promptInput.scrollIntoView({ block: "center", behavior: "smooth" }),
+      promptInput.scrollIntoView({ block: "nearest", behavior: "auto" }),
     );
   }
-  promptInput.addEventListener("focus", () => window.setTimeout(keepPromptVisible, 180));
+  promptInput.addEventListener("focus", () => window.setTimeout(keepPromptVisible, 220));
   window.visualViewport?.addEventListener("resize", keepPromptVisible);
 
   return Object.freeze({

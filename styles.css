@@ -147,6 +147,19 @@ body {
   background: var(--color-white);
 }
 
+/* Pin the document to the visual viewport so the on-screen keyboard can NEVER
+   scroll the page. Without this, iOS Safari scrolls the whole window up to
+   reveal a focused input near the bottom (the chat box), and the app "moves
+   down" and jitters. Fixed body + an --app-height driven by visualViewport.height
+   (see app.js) means the app instead shrinks to the space above the keyboard,
+   holding every pixel of content perfectly still. */
+body {
+  position: fixed;
+  inset: 0;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+}
+
 body,
 button,
 input {

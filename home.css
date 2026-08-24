@@ -67,6 +67,73 @@
   outline: none;
 }
 
+.home-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Compact import pill — deliberately small so it reads as a quick action, not
+   a hero button. Icon + short label; collapses to just the icon on narrow
+   screens. */
+.home-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 13px 0 11px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 150ms ease,
+    opacity 150ms ease;
+  --home-delay: 100ms;
+}
+
+.home-import svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home-import:hover {
+  background: var(--color-surface-strong);
+}
+
+.home-import:active {
+  transform: scale(0.96);
+}
+
+.home-import.is-busy {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.home-import.is-busy .home-import-label {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 359px) {
+  .home-import-label {
+    display: none;
+  }
+  .home-import {
+    padding: 0 10px;
+  }
+}
+
 .home-avatar {
   display: grid;
   width: 44px;

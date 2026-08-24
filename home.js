@@ -2,7 +2,7 @@ import { homeActions } from "./home-actions.js";
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
 import { pickGemOfTheDay } from "./gems-daily.js";
-import { listPhotos } from "./gems-photolib.js";
+import { importPhotoFiles, listPhotos } from "./gems-photolib.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -141,9 +141,17 @@ function homeMarkup() {
           <p id="homeGreeting" class="home-greeting home-entrance">Good morning</p>
           <h1 id="homeGreetingName" class="home-name home-entrance" tabindex="-1">Vish</h1>
         </div>
-        <button id="homeProfile" class="home-avatar home-entrance" type="button" aria-label="Open profile">
-          <span id="homeInitial">V</span>
-        </button>
+        <div class="home-header-actions">
+          <button id="homeImport" class="home-import home-entrance" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 3v7M4.8 6.4 8 3.2l3.2 3.2M3.5 12.5h9"></path>
+            </svg>
+            <span class="home-import-label">Import</span>
+          </button>
+          <button id="homeProfile" class="home-avatar home-entrance" type="button" aria-label="Open profile">
+            <span id="homeInitial">V</span>
+          </button>
+        </div>
       </header>
 
       <section class="home-section home-gems-section" aria-labelledby="bestPhotosTitle">
@@ -357,8 +365,19 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   // An honest label for a real imported photo — the ranking category once it's
   // computed, otherwise a plain, truthful line (never a fabricated "Best cover"
   // on an unranked photo).
+  // Utility images (screenshots, documents, memes) are things people SAVE, not
+  // photos worth showing off — never "best photos".
+  const UTILITY_TYPES = new Set(["screenshot", "document", "meme"]);
+  function isUtility(record) {
+    return UTILITY_TYPES.has(record.derived?.passA?.photo_type);
+  }
+
   function gemLabelFor(record) {
-    const cat = record.derived?.passA?.best_for?.[0];
+    const passA = record.derived?.passA;
+    // A genuine smile or laughter is the truest "best photo" signal — lead with it.
+    if (passA?.smile === "laughing") return { label: "Full of life", meta: "Someone laughing" };
+    if (passA?.smile === "genuine") return { label: "A real smile", meta: "This one's alive" };
+    const cat = passA?.best_for?.[0];
     const map = {
       cover: ["Best cover", "Sharp & clean"],
       "dump-slot": ["Great in a dump", "Your vibe"],
@@ -366,6 +385,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       "profile-pic": ["Profile-worthy", "Clear & confident"],
     };
     if (cat && map[cat]) return { label: map[cat][0], meta: map[cat][1] };
+    if (passA?.appeal >= 4) return { label: "A moment", meta: "Worth sharing" };
     if (record.gem) return { label: "Ranked gem", meta: "One of your best" };
     return { label: "Just imported", meta: "Tap to do something with it" };
   }
@@ -380,8 +400,18 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         gemCount = GEMS.length;
         return; // keep the sample scenes (they carry a "Sample" tag in the markup)
       }
-      const ranked = [...all].sort(
+      // Once photos are analyzed, keep utility images (screenshots/docs) out of
+      // "best photos" — but only when at least one real photo survives, so a
+      // library that is ALL screenshots still shows something rather than empty.
+      const described = all.filter((record) => record.derived?.passA);
+      const realOnly = all.filter((record) => !isUtility(record));
+      const pool = described.length && realOnly.length ? realOnly : all;
+      // Rank by emotional appeal first (from the analyst), then the on-device
+      // gem flag, then raw quality — so a smiling candid beats a sharp screenshot.
+      const appealOf = (record) => record.derived?.passA?.appeal ?? (record.gem ? 3.5 : 0);
+      const ranked = [...pool].sort(
         (a, b) =>
+          appealOf(b) - appealOf(a) ||
           Number(b.gem) - Number(a.gem) ||
           (b.metrics?.quality ?? 0) - (a.metrics?.quality ?? 0),
       );
@@ -652,7 +682,65 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     homeActions.selectTab("Discover");
     goTo("Discover");
   });
-  mount.querySelector("#attachPhoto").addEventListener("click", homeActions.attachPhoto);
+  // Real photo import, straight from Home. A hidden multi-file picker feeds the
+  // same on-device importer the Photos tab uses; progress shows on the button
+  // itself, and the carousel refreshes to the new best photos when it finishes.
+  const importButton = mount.querySelector("#homeImport");
+  const importLabel = importButton.querySelector(".home-import-label");
+  const homeFileInput = document.createElement("input");
+  homeFileInput.type = "file";
+  homeFileInput.accept = "image/*";
+  homeFileInput.multiple = true;
+  homeFileInput.hidden = true;
+  homeFileInput.tabIndex = -1;
+  homeFileInput.setAttribute("aria-hidden", "true");
+  mount.append(homeFileInput);
+  let importing = false;
+
+  function openImportPicker() {
+    if (importing) return;
+    homeActions.attachPhoto();
+    homeFileInput.click();
+  }
+  importButton.addEventListener("click", openImportPicker);
+  // The chat dock's paperclip now imports too, rather than being a dead stub.
+  mount.querySelector("#attachPhoto").addEventListener("click", openImportPicker);
+
+  homeFileInput.addEventListener("change", async () => {
+    if (!homeFileInput.files || homeFileInput.files.length === 0) return;
+    const total = homeFileInput.files.length;
+    importing = true;
+    importButton.classList.add("is-busy");
+    importButton.disabled = true;
+    let added = [];
+    try {
+      added = await importPhotoFiles(homeFileInput.files, {
+        onProgress: ({ done, total: t }) => {
+          importLabel.textContent = `${done}/${t}`;
+        },
+      });
+    } catch (error) {
+      console.info("Home import failed", error);
+    }
+    homeFileInput.value = "";
+    importLabel.textContent = "Import";
+    importButton.classList.remove("is-busy");
+    importButton.disabled = false;
+    importing = false;
+    await refreshGemsCarousel();
+    void refreshHiddenGem();
+    if (!added || added.length === 0) {
+      showReply("Those didn't import — try photos straight from your library.");
+      return;
+    }
+    const gems = added.filter((record) => record.gem).length;
+    showReply(
+      gems > 0
+        ? `Imported ${added.length} photos — ${gems} already stand out as gems. Ask me to rank them.`
+        : `Imported ${added.length} photos. Ask me for your best ones and I'll rank them.`,
+    );
+    recordTasteEvent("home_import_completed", { added: added.length, gems });
+  });
   replyClose.addEventListener("click", () => {
     window.clearTimeout(navigateTimer);
     hideReply();
