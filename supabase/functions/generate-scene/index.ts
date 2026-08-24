@@ -19,12 +19,23 @@ Rendered as if shot on a recent iPhone: natural sensor behavior, believable dyna
 
 const IDENTITY_BLOCK = `The person in the first attached image must appear in the scene with their exact facial identity, skin tone, hair, and build preserved — recognizably the same person, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
 
+// When the caller wants to recreate a specific reference photo AS themselves
+// ("put me in this exact shot" / face-swap): reproduce the reference composition
+// but the subject is the user. The FIRST attached image is the user's face; the
+// LAST attached image is the reference to match.
+const MATCH_REFERENCE_BLOCK = `RECREATE THE ATTACHED REFERENCE PHOTO, but the person in it is the user from the first attached image. Match the reference's composition, camera angle, framing, pose, distance, setting, lighting, color grade and overall mood as closely as possible — it should look like the same photograph, simply taken of the user instead. Keep the user's exact face and identity (this is a face/identity swap, not a lookalike). Preserve realistic body proportions consistent with the user.`;
+
+// Aesthetic-background mode: no person at all — just the place/scene.
+const BACKGROUND_BLOCK = `Generate an ATMOSPHERIC SCENE with NO people in it — an empty, aspirational location photograph (an "aesthetic background"). No human figures, no faces, no silhouettes of people. Focus entirely on the environment, light, and mood.`;
+
 const NEGATIVE = "No watermark-style text, no captions, no borders.";
 
 // Named style packs mirror the canonical client definitions (gems-canvas.js).
 const STYLE_PACKS: Record<string, string> = {
   "after-dark":
     "STYLE — After Dark (moody luxury, low-exposure): dusk-like underexposure even in daylight; steel-blue/navy skies with retained detail, never blown; deep clean blacks, muted color (~-25% saturation), greens toward dark emerald and blues toward navy, protected skin tones; slightly cool temperature; no added grain, subtle vignette at most. Quiet, expensive, cinematic.",
+  "dark-luxe":
+    "STYLE — Dark Luxe (quiet-wealth, cinematic): the aesthetic of a high-floor luxury penthouse and moody five-star resort. SETTINGS (pick what fits the request): a modern penthouse with floor-to-ceiling glass over a hazy city skyline (Dubai/Gulf-tower energy — distant towers, warm dusk or bright daytime haze); a dim, expensively-furnished suite with a single warm lamp glowing against a blue-hour cityscape; a dark infinity or resort pool at dusk framed by deep-green tropical foliage and teak decking; a palm-lined boulevard shot from a car; marble, brushed metal, boucle and cream upholstery, a laptop and espresso on a low table. LIGHT: low-key and directional — deep protected shadows, one believable warm source (lamp/window), cool blue ambient; underexposed rather than bright, highlights gently rolled off, never blown. COLOR: muted and desaturated (~-20%), greens pushed dark, blues toward steel/navy, warm accents only from practical lights, clean neutral blacks. MOOD: calm, solitary, aspirational — 'a quiet morning at the top of the world', shot candidly on a phone, never staged or glossy-HDR.",
   "euro-summer":
     "STYLE — Euro Summer (men): a warm, film-like European summer travel photograph. WARDROBE: a relaxed linen button-down shirt (white, cream, olive, or terracotta/rust), loose tailored trousers or chinos in cream/stone/olive/grey, leather sandals or espadrilles, optionally a canvas tote and a simple watch — effortless old-money Mediterranean menswear, never flashy, no big logos. SETTING: a beautiful European old town — sun-warmed cobblestone alleys, honey-colored stone villages, bougainvillea and wisteria, a cathedral square, Provence / Greek-island / Italian streets, or a golden field at sunset. LIGHT: warm golden-hour or bright Mediterranean midday with long soft shadows. LOOK: shot on 35mm film (Kodak Portra warmth, gentle grain, soft highlight rolloff), candid and relaxed — walking, leaning, mid-stride, glancing off-camera — an editorial travel snapshot, never a stiff studio pose.",
 };
@@ -96,6 +107,9 @@ Deno.serve(async (request) => {
     subjectBase64?: string;
     aspect?: string;
     quality?: string;
+    mode?: string;          // "me" (default) | "background"
+    matchReference?: boolean; // recreate the reference photo AS the user (face swap)
+    wardrobe?: string;      // optional: change the user's outfit
   };
   try {
     body = await request.json();
@@ -113,7 +127,11 @@ Deno.serve(async (request) => {
     });
   }
   const aspect = ASPECTS.has(body.aspect ?? "") ? (body.aspect as string) : "4:5";
-  const quality = body.quality === "pro" ? "pro" : "standard";
+  const mode = body.mode === "background" ? "background" : "me";
+  const matchReference = body.mode !== "background" && body.matchReference === true;
+  // A face/identity swap that recreates a reference needs Pro's composition and
+  // identity fidelity — force it there regardless of the requested tier.
+  const quality = matchReference || body.quality === "pro" ? "pro" : "standard";
   const model = quality === "pro" ? PRO_MODEL : STANDARD_MODEL;
   const units = quality === "pro" ? 3 : 1;
   const refIds = Array.isArray(body.referenceAssetIds)
@@ -160,7 +178,11 @@ Deno.serve(async (request) => {
     // ---- Assemble the model parts: subject first (me-in-scene), then refs,
     // then the text prompt (references BEFORE text per the spec).
     const parts: Array<Record<string, unknown>> = [];
-    const hasSubject = typeof body.subjectBase64 === "string" && body.subjectBase64.length > 0;
+    // Background mode is an empty scene — ignore any subject photo entirely.
+    const hasSubject =
+      mode !== "background" &&
+      typeof body.subjectBase64 === "string" &&
+      body.subjectBase64.length > 0;
     if (hasSubject) {
       parts.push({ inline_data: { mime_type: "image/jpeg", data: body.subjectBase64 } });
     }
@@ -186,11 +208,26 @@ Deno.serve(async (request) => {
     const styleBlock = body.stylePackId && STYLE_PACKS[body.stylePackId]
       ? `\n\n${STYLE_PACKS[body.stylePackId]}`
       : "";
+    const wardrobe = String(body.wardrobe ?? "").trim().slice(0, 200);
+    const wardrobeBlock =
+      hasSubject && wardrobe
+        ? `\n\nWARDROBE: dress the user in ${wardrobe}. Keep their face and identity unchanged.`
+        : "";
+    // Identity handling: face-swap-a-reference > put-me-in-scene > empty scene.
+    const identityBlock =
+      mode === "background"
+        ? `\n\n${BACKGROUND_BLOCK}`
+        : matchReference && refIds.length
+          ? `\n\n${MATCH_REFERENCE_BLOCK}`
+          : hasSubject
+            ? `\n\n${IDENTITY_BLOCK}`
+            : "";
     const promptText =
       `SCENE REQUEST: ${prompt}` +
       styleBlock +
       `\n\n${REALISM_LAYER}` +
-      (hasSubject ? `\n\n${IDENTITY_BLOCK}` : "") +
+      identityBlock +
+      wardrobeBlock +
       `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
     parts.push({ text: promptText });
 
@@ -245,6 +282,8 @@ Deno.serve(async (request) => {
           refs: refIds.length,
           style_pack: body.stylePackId ?? null,
           me_in_scene: hasSubject,
+          mode,
+          match_reference: matchReference,
         },
       })
       .select("id")

@@ -103,7 +103,12 @@ Deno.serve(async (request) => {
   const userId = userIdFromAuth(request.headers.get("authorization"));
   if (!userId) return json(401, { error: "sign in required" });
 
-  let body: { message?: string; userAesthetics?: string[]; screen?: string };
+  let body: {
+    message?: string;
+    userAesthetics?: string[];
+    screen?: string;
+    history?: Array<{ role?: string; text?: string }>;
+  };
   try {
     body = await request.json();
   } catch {
@@ -112,6 +117,25 @@ Deno.serve(async (request) => {
   const message = String(body.message ?? "").trim();
   if (!message) return json(400, { error: "message required" });
   if (message.length > 2000) return json(400, { error: "message too long" });
+
+  // Prior turns → a clean alternating user/assistant transcript (most recent 8),
+  // so the model can hold a back-and-forth without re-asking. Assistant turns
+  // carry only the plain reply text; the JSON contract stays server-side.
+  const priorMessages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  if (Array.isArray(body.history)) {
+    for (const turn of body.history.slice(-8)) {
+      const role = turn?.role === "assistant" ? "assistant" : "user";
+      const text = String(turn?.text ?? "").trim().slice(0, 1000);
+      if (!text) continue;
+      // Enforce strict alternation, starting with a user turn.
+      const last = priorMessages[priorMessages.length - 1];
+      if (!last && role !== "user") continue;
+      if (last && last.role === role) { last.content = text; continue; }
+      priorMessages.push({ role, content: text });
+    }
+  }
+  // The new user message must follow an assistant turn (or start the thread).
+  if (priorMessages[priorMessages.length - 1]?.role === "user") priorMessages.pop();
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -147,6 +171,7 @@ Deno.serve(async (request) => {
       max_tokens: 1024,
       system: ORCHESTRATOR_PROMPT,
       messages: [
+        ...priorMessages,
         {
           role: "user",
           content: buildChatUserMessage({

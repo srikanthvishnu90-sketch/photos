@@ -1527,3 +1527,18 @@
   font-weight: 300;
   border: 1.5px dashed var(--color-border) !important;
 }
+
+/* Scene studio: mode toggle ("Put me in it" / "Just the scene") */
+.scene-mode { margin-bottom: 4px; }
+
+/* Scene studio: "swap my face in" checkbox line */
+.scene-swap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--color-mauve);
+  cursor: pointer;
+}
+.scene-swap input { accent-color: var(--color-ink, #111); width: 16px; height: 16px; }

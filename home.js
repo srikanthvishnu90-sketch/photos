@@ -342,6 +342,18 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   let activated = false;
   let chatInFlight = false;
   let navigateTimer = 0;
+  // Short rolling transcript so the orchestrator can hold a back-and-forth
+  // (ask a follow-up, remember the answer). Capped to the last few turns.
+  let chatHistory = [];
+  const CHAT_HISTORY_MAX = 8;
+  function pushHistory(role, text) {
+    const line = String(text ?? "").trim();
+    if (!line) return;
+    chatHistory.push({ role, text: line.slice(0, 1000) });
+    if (chatHistory.length > CHAT_HISTORY_MAX) {
+      chatHistory = chatHistory.slice(-CHAT_HISTORY_MAX);
+    }
+  }
   // The real photo currently backing the Hidden-gem card (null in demo mode),
   // plus the id we last fired a "shown" event for (so we fire it once per gem).
   let hiddenGemPhotoId = null;
@@ -645,6 +657,8 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       }
 
       const userAesthetics = await loadAesthetics();
+      const history = chatHistory.slice();
+      pushHistory("user", prompt);
       const response = await fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: {
@@ -652,7 +666,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
           apikey: SUPABASE_PUBLISHABLE_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: prompt, userAesthetics, screen: "Home" }),
+        body: JSON.stringify({ message: prompt, userAesthetics, screen: "Home", history }),
       });
       if (response.status === 402) {
         showReply("You've used all your free chats this month — Gems Plus unlocks more.");
@@ -663,6 +677,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
 
       const reply =
         typeof data?.reply === "string" && data.reply.trim() ? data.reply : "Done.";
+      pushHistory("assistant", reply);
       showReply(reply, data?.clarify);
       homeActions.chatReplyShown(typeof data?.intent === "string" ? data.intent : "chat");
 
@@ -679,6 +694,8 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
           const targetId = await editTargetPhotoId();
           if (targetId) routed.payload.photoId = targetId;
         }
+        // The ask was fulfilled and we're leaving Home — end this thread.
+        chatHistory = [];
         navigateTimer = window.setTimeout(
           () => goTo(routed.navigate, routed.payload),
           CHAT_NAVIGATE_DELAY_MS,

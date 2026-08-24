@@ -12,7 +12,14 @@ function esc(v) {
 
 const PROMPT_HINTS = {
   "euro-summer": "walking through a sunlit European old town",
+  "dark-luxe": "in a penthouse at dusk, city skyline through the glass",
   "after-dark": "on a rooftop at night, city lights behind me",
+};
+
+const BG_HINTS = {
+  "euro-summer": "a sunlit cobblestone alley in an Italian old town",
+  "dark-luxe": "a dark infinity pool at dusk framed by tropical foliage",
+  "after-dark": "a moody city skyline at blue hour from a high window",
 };
 
 export async function openSceneStudio(defaultPack = "euro-summer") {
@@ -20,6 +27,8 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
   document.querySelector(".scene-overlay")?.remove();
 
   const state = {
+    mode: "me", // "me" = put the user in it · "background" = empty aesthetic scene
+    matchReference: false, wardrobe: "",
     photoId: null, pack: defaultPack, prompt: "", aspect: "4:5",
     refs: [], inspiration: [], busy: false, resultUrl: "",
   };
@@ -58,38 +67,64 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
                    <button class="commit-btn commit-btn--primary" data-save type="button">Save to my photos</button>
                  </div>
                </div>`
-            : `
-        <label class="commit-label">1 · A photo of you</label>
+            : (() => {
+        const inMe = state.mode !== "background";
+        const canGenerate = !state.busy && (inMe ? !!state.photoId : true);
+        const oneRefSelected = state.refs.length === 1;
+        return `
+        <div class="commit-headlines scene-mode">
+          <button type="button" class="commit-chip${inMe ? " is-active" : ""}" data-mode="me">Put me in it</button>
+          <button type="button" class="commit-chip${!inMe ? " is-active" : ""}" data-mode="background">Just the scene</button>
+        </div>
+
+        ${
+          inMe
+            ? `<label class="commit-label">1 · A photo of you</label>
         ${
           photos.length
             ? `<div class="commit-photos">${photos.slice(0, 24).map((p) => `<button type="button" class="commit-photo${state.photoId === p.id ? " is-active" : ""}" data-photo="${esc(p.id)}"><img src="${esc(p.url)}" alt="" loading="lazy"></button>`).join("")}</div>`
             : `<p class="commit-hint">Import a photo of yourself first (Home → Import), then come back.</p>`
+        }`
+            : ""
         }
 
-        <label class="commit-label">2 · Vibe</label>
+        <label class="commit-label">${inMe ? "2 · Vibe" : "1 · Vibe"}</label>
         <div class="commit-headlines">
           ${STYLE_PACKS.map((s) => `<button type="button" class="commit-chip${state.pack === s.id ? " is-active" : ""}" data-pack="${s.id}">${esc(s.label)}</button>`).join("")}
         </div>
 
-        <label class="commit-label">3 · What are you doing? <span style="font-weight:400;color:var(--color-mauve)">(optional)</span></label>
-        <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc(PROMPT_HINTS[state.pack] || "describe the scene")}" value="${esc(state.prompt)}" />
+        <label class="commit-label">${inMe ? "3 · What are you doing?" : "2 · What's the scene?"} <span style="font-weight:400;color:var(--color-mauve)">(optional)</span></label>
+        <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc((inMe ? PROMPT_HINTS : BG_HINTS)[state.pack] || "describe the scene")}" value="${esc(state.prompt)}" />
 
-        <label class="commit-label">4 · Inspiration references <span style="font-weight:400;color:var(--color-mauve)">(optional · pick up to 3)</span></label>
+        <label class="commit-label">${inMe ? "4" : "3"} · ${inMe ? "Inspiration references" : "Match a look"} <span style="font-weight:400;color:var(--color-mauve)">(optional · pick up to 3)</span></label>
         <div class="commit-photos">
           <button type="button" class="commit-photo scene-insp-add" data-add-insp aria-label="Upload inspiration">＋</button>
           ${state.inspiration.map((i) => `<button type="button" class="commit-photo${state.refs.includes(i.id) ? " is-active" : ""}" data-insp="${esc(i.id)}">${i.url ? `<img src="${esc(i.url)}" alt="" loading="lazy">` : ""}</button>`).join("")}
         </div>
+        ${
+          inMe && oneRefSelected
+            ? `<label class="scene-swap"><input type="checkbox" data-match ${state.matchReference ? "checked" : ""}> Recreate this exact photo — just swap my face in</label>`
+            : ""
+        }
 
-        <label class="commit-label">5 · Shape</label>
+        ${
+          inMe
+            ? `<label class="commit-label">5 · Change my fit <span style="font-weight:400;color:var(--color-mauve)">(optional)</span></label>
+        <input class="commit-input" data-wardrobe type="text" maxlength="120" placeholder="e.g. black linen shirt & cream trousers" value="${esc(state.wardrobe)}" />`
+            : ""
+        }
+
+        <label class="commit-label">${inMe ? "6" : "4"} · Shape</label>
         <div class="commit-headlines">
           ${ASPECTS.map((a) => `<button type="button" class="commit-chip${state.aspect === a.id ? " is-active" : ""}" data-aspect="${a.id}">${esc(a.label)}</button>`).join("")}
         </div>
 
-        <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${state.photoId && !state.busy ? "" : "disabled"}>
-          ${state.busy ? "Generating…" : "Generate my scene"}
+        <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
+          ${state.busy ? "Generating…" : inMe ? "Generate my scene" : "Generate scene"}
         </button>
-        <p class="commit-note">Puts YOU in the scene · keeps your face · uses AI. Sign in required.</p>
-        <p class="commit-status" data-status></p>`
+        <p class="commit-note">${inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
+        <p class="commit-status" data-status></p>`;
+      })()
         }
       </div>
     `;
@@ -104,7 +139,16 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
     overlay.querySelectorAll("[data-pack]").forEach((b) =>
       b.addEventListener("click", () => { state.pack = b.dataset.pack; render(); }),
     );
+    overlay.querySelectorAll("[data-mode]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.mode = b.dataset.mode === "background" ? "background" : "me";
+        if (state.mode === "background") state.matchReference = false;
+        render();
+      }),
+    );
     overlay.querySelector("[data-prompt]")?.addEventListener("input", (e) => { state.prompt = e.target.value; });
+    overlay.querySelector("[data-wardrobe]")?.addEventListener("input", (e) => { state.wardrobe = e.target.value; });
+    overlay.querySelector("[data-match]")?.addEventListener("change", (e) => { state.matchReference = e.target.checked; });
     overlay.querySelectorAll("[data-aspect]").forEach((b) =>
       b.addEventListener("click", () => { state.aspect = b.dataset.aspect; render(); }),
     );
@@ -137,16 +181,24 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
   });
 
   async function generate() {
-    if (state.busy || !state.photoId) return;
+    const inMe = state.mode !== "background";
+    if (state.busy || (inMe && !state.photoId)) return;
     state.busy = true;
     render();
+    const matchReference = inMe && state.refs.length === 1 && state.matchReference;
     const result = await generateScene({
-      subjectPhotoId: state.photoId,
-      prompt: state.prompt || PROMPT_HINTS[state.pack] || "a photo of me",
+      mode: state.mode,
+      subjectPhotoId: inMe ? state.photoId : undefined,
+      prompt:
+        state.prompt ||
+        (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
       stylePackId: state.pack,
       referenceAssetIds: state.refs,
+      matchReference,
+      wardrobe: inMe ? state.wardrobe : undefined,
       aspect: state.aspect,
-      quality: "standard",
+      // Face-swap forces Pro server-side; otherwise standard is plenty.
+      quality: matchReference ? "pro" : "standard",
     });
     state.busy = false;
     if (result?.url) { state.resultUrl = result.url; render(); return; }

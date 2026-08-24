@@ -10,6 +10,7 @@ const FN_URL = `${SUPABASE_URL}/functions/v1/generate-scene`;
 
 export const STYLE_PACKS = Object.freeze([
   { id: "euro-summer", label: "Euro Summer" },
+  { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
 ]);
 
@@ -100,16 +101,23 @@ export async function deleteInspiration(id, storagePath) {
 
 /**
  * Generate a scene. opts: { subjectPhotoId?, subjectBlob?, prompt, stylePackId?,
- * referenceAssetIds?, aspect?, quality? }. Returns { url, ... } or { error }.
+ * referenceAssetIds?, aspect?, quality?, mode?, matchReference?, wardrobe? }.
+ *   mode: "me" (put the user in the scene, default) | "background" (empty scene).
+ *   matchReference: recreate the selected reference photo AS the user (face swap).
+ *   wardrobe: optional outfit to dress the user in.
+ * Returns { url, ... } or { error }.
  */
 export async function generateScene(opts) {
   try {
     const session = await getSession();
     if (!session) return { error: "signin" };
+    const mode = opts.mode === "background" ? "background" : "me";
     let subjectBase64;
-    let blob = opts.subjectBlob;
-    if (!blob && opts.subjectPhotoId) blob = await getPhotoBlob(opts.subjectPhotoId);
-    if (blob) subjectBase64 = await blobToBase64(blob);
+    if (mode !== "background") {
+      let blob = opts.subjectBlob;
+      if (!blob && opts.subjectPhotoId) blob = await getPhotoBlob(opts.subjectPhotoId);
+      if (blob) subjectBase64 = await blobToBase64(blob);
+    }
     const res = await fetch(FN_URL, {
       method: "POST",
       headers: {
@@ -124,6 +132,9 @@ export async function generateScene(opts) {
         subjectBase64: subjectBase64 ?? undefined,
         aspect: opts.aspect ?? "4:5",
         quality: opts.quality ?? "standard",
+        mode,
+        matchReference: opts.matchReference === true,
+        wardrobe: opts.wardrobe ?? undefined,
       }),
     });
     const data = await res.json().catch(() => null);
