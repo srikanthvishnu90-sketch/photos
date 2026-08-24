@@ -13,6 +13,8 @@ import {
   applyLevels,
   applyHsl,
   applyChannelGains,
+  applyMaskedAdjust,
+  applyPortraitBlur,
   HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
@@ -25,9 +27,9 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance", "Crop", "Rotate",
-  "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen", "Stickers",
-  "Retouch", "Erase", "Add",
+  "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance", "Selective",
+  "Crop", "Rotate", "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen",
+  "Portrait Blur", "Whiten", "Stickers", "Retouch", "Erase", "Add",
 ]);
 
 // Representative swatch color per HSL band.
@@ -43,6 +45,7 @@ const TOOL_HELP = Object.freeze({
   Levels: "Set the black point, white point, and midtone gamma.",
   HSL: "Tune each color's hue, saturation, and brightness on its own.",
   "White Balance": "Tap something that should be white or gray to neutralize the color.",
+  Selective: "Brush an area, then adjust only that part of the photo.",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
@@ -50,6 +53,8 @@ const TOOL_HELP = Object.freeze({
   "Dodge & Burn": "Brush to lighten (dodge) or darken (burn) areas by hand.",
   Clone: "Set a source spot, then brush to copy it — or heal a blemish.",
   "Blur & Sharpen": "Brush to blur or sharpen just the areas you paint.",
+  "Portrait Blur": "Brush the subject to keep it sharp and blur the background.",
+  Whiten: "Brush teeth or eyes to brighten and whiten them.",
   Stickers: "Tap emoji and shapes, drag them into place, then apply.",
   Retouch: "One-tap AI: remove background, enhance, restore, and more.",
   Erase: "Brush over anything to remove it — Gems fills the background.",
@@ -548,6 +553,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Levels") renderLevelsTool();
     else if (toolName === "HSL") renderHslTool();
     else if (toolName === "White Balance") renderWhiteBalanceTool();
+    else if (toolName === "Selective") renderSelectiveTool();
+    else if (toolName === "Portrait Blur") renderPortraitBlurTool();
+    else if (toolName === "Whiten") renderWhitenTool();
     else if (toolName === "Draw") renderDrawTool();
     else if (toolName === "Text") renderTextTool();
     else if (toolName === "Dodge & Burn") renderDodgeBurnTool();
@@ -2507,6 +2515,362 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       console.info("rasterizeStickers failed", error);
       return null;
     }
+  }
+
+  // ---- Selective / Portrait Blur / Whiten: shared mask-brush -------------
+
+  // Paints a FEATHERED white alpha mask (state.mask) over the photo, shows the
+  // painted region as a blue tint, and calls onPaint() after each stroke. The
+  // masked engine ops (applyMaskedAdjust / applyPortraitBlur) read state.mask.
+  async function setupMaskBrush(state, onPaint) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-paint-overlay");
+    const display = document.createElement("canvas");
+    display.width = natW;
+    display.height = natH;
+    display.className = "editor-paint-canvas";
+    overlay.appendChild(display);
+    const mask = document.createElement("canvas");
+    mask.width = natW;
+    mask.height = natH;
+    const dctx = display.getContext("2d");
+    const mctx = mask.getContext("2d");
+    state.mask = mask;
+    state.display = display;
+    state.scale = scale;
+    state.natW = natW;
+    state.natH = natH;
+    state.painted = false;
+    state.clear = () => {
+      dctx?.clearRect(0, 0, natW, natH);
+      mctx?.clearRect(0, 0, natW, natH);
+      state.painted = false;
+    };
+
+    const at = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+    };
+    const dab = (p) => {
+      const rad = (state.size * scale) / 2;
+      if (dctx) {
+        const gd = dctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+        gd.addColorStop(0, "rgba(74,134,255,0.5)");
+        gd.addColorStop(1, "rgba(74,134,255,0)");
+        dctx.fillStyle = gd;
+        dctx.beginPath();
+        dctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+        dctx.fill();
+      }
+      if (mctx) {
+        const gm = mctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+        gm.addColorStop(0, "rgba(255,255,255,1)");
+        gm.addColorStop(0.55, "rgba(255,255,255,1)");
+        gm.addColorStop(1, "rgba(255,255,255,0)");
+        mctx.fillStyle = gm;
+        mctx.beginPath();
+        mctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+        mctx.fill();
+      }
+    };
+    let drawing = false;
+    let last = null;
+    const down = (event) => {
+      drawing = true;
+      last = at(event);
+      dab(last);
+      state.painted = true;
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!drawing) return;
+      const p = at(event);
+      const dist = Math.hypot(p.x - last.x, p.y - last.y);
+      const step = Math.max(1, (state.size * scale) / 5);
+      const n = Math.ceil(dist / step);
+      for (let i = 1; i <= n; i += 1) {
+        dab({ x: last.x + ((p.x - last.x) * i) / n, y: last.y + ((p.y - last.y) * i) / n });
+      }
+      last = p;
+      event.preventDefault();
+    };
+    const up = () => {
+      if (!drawing) return;
+      drawing = false;
+      last = null;
+      onPaint?.();
+    };
+    overlay.addEventListener("pointerdown", down);
+    overlay.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", down);
+      overlay.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
+  }
+
+  // ---- Selective (local adjustment within a brushed mask) ----------------
+
+  function renderSelectiveTool() {
+    const state = { size: 60, invert: false, mask: null, painted: false, scale: 1, clear: null };
+    const values = { exposure: 0, contrast: 0, saturation: 0, warmth: 0 };
+    const fields = [
+      { key: "exposure", label: "Exposure" },
+      { key: "contrast", label: "Contrast" },
+      { key: "saturation", label: "Saturation" },
+      { key: "warmth", label: "Warmth" },
+    ];
+    let timer = 0;
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <p class="editor-erase-hint">Brush the part of the photo you want to change, then move the sliders.</p>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="16" max="140" value="60" step="1" data-sel-size aria-label="Brush size" />
+        </label>
+        ${fields
+          .map(
+            (f) => `
+              <label class="editor-slider">
+                <span class="editor-slider-label">${f.label}</span>
+                <input type="range" min="-100" max="100" value="0" step="1" data-sel="${f.key}" aria-label="${f.label}" />
+                <output data-sel-out="${f.key}">0</output>
+              </label>`,
+          )
+          .join("")}
+        <button type="button" class="editor-db-mode" data-sel-invert>Affect outside the brush instead</button>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-sel-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-sel-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const applyBtn = toolPanel.querySelector("[data-sel-apply]");
+    const preview = () => {
+      window.clearTimeout(timer);
+      if (state.painted && applyBtn) applyBtn.disabled = false; // usable the instant a stroke lands
+      timer = window.setTimeout(async () => {
+        if (!state.mask || !state.painted || tool !== "Selective") return;
+        const bitmap = await activeBitmap();
+        if (!bitmap) return;
+        showToolPreview(applyMaskedAdjust(bitmap, values, state.mask, state.invert));
+        if (applyBtn) applyBtn.disabled = false;
+      }, 140);
+    };
+    toolPanel.querySelector("[data-sel-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 60;
+    });
+    toolPanel.querySelectorAll("[data-sel]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const k = input.dataset.sel;
+        values[k] = Number(input.value) || 0;
+        const out = toolPanel.querySelector(`[data-sel-out="${k}"]`);
+        if (out) out.textContent = String(values[k]);
+      });
+      input.addEventListener("change", preview);
+    });
+    toolPanel.querySelector("[data-sel-invert]")?.addEventListener("click", (e) => {
+      state.invert = !state.invert;
+      e.target.classList.toggle("is-active", state.invert);
+      e.target.textContent = state.invert ? "Affecting outside the brush" : "Affect outside the brush instead";
+      preview();
+    });
+    toolPanel.querySelector("[data-sel-clear]")?.addEventListener("click", () => {
+      state.clear?.();
+      window.clearTimeout(timer);
+      resetPreview();
+      if (applyBtn) applyBtn.disabled = true;
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy || !state.mask || !state.painted) {
+        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        return;
+      }
+      const changed = fields.some((f) => values[f.key] !== 0);
+      if (!changed) {
+        status.textContent = "Move a slider first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying local edit…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyMaskedAdjust(bitmap, values, state.mask, state.invert) : null;
+      manualBusy = false;
+      commitManualVersion("Selective", blob, "Selective");
+    });
+    void setupMaskBrush(state, preview);
+  }
+
+  // ---- Portrait Blur (keep subject sharp, blur the rest) -----------------
+
+  function renderPortraitBlurTool() {
+    const state = { size: 70, mode: "focus", amount: 10, mask: null, painted: false, scale: 1, clear: null };
+    let timer = 0;
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <div class="editor-db-modes" role="group" aria-label="Focus or blur">
+          <button type="button" class="editor-db-mode is-active" data-pb="focus">◉ Keep sharp</button>
+          <button type="button" class="editor-db-mode" data-pb="blur">◌ Blur this</button>
+        </div>
+        <p class="editor-erase-hint" data-pb-hint>Brush the subject to keep it sharp — everything else blurs.</p>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="20" max="160" value="70" step="1" data-pb-size aria-label="Brush size" />
+        </label>
+        <label class="editor-slider">
+          <span class="editor-slider-label">Blur</span>
+          <input type="range" min="2" max="40" value="10" step="1" data-pb-amount aria-label="Blur amount" />
+          <output data-pb-out>10</output>
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-pb-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-pb-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const applyBtn = toolPanel.querySelector("[data-pb-apply]");
+    const scaledRadius = async () => {
+      const bitmap = await activeBitmap();
+      const natW = bitmap?.width || bitmap?.naturalWidth || 1000;
+      // amount is display-ish; scale to image pixels so blur looks the same on big images.
+      return (state.amount / 1000) * natW;
+    };
+    const preview = () => {
+      window.clearTimeout(timer);
+      if (state.painted && applyBtn) applyBtn.disabled = false;
+      timer = window.setTimeout(async () => {
+        if (!state.mask || !state.painted || tool !== "Portrait Blur") return;
+        const bitmap = await activeBitmap();
+        if (!bitmap) return;
+        const r = await scaledRadius();
+        showToolPreview(applyPortraitBlur(bitmap, state.mask, r, state.mode === "blur"));
+        if (applyBtn) applyBtn.disabled = false;
+      }, 160);
+    };
+    toolPanel.querySelectorAll("[data-pb]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.mode = btn.dataset.pb;
+        toolPanel.querySelectorAll("[data-pb]").forEach((b) => b.classList.toggle("is-active", b === btn));
+        const hint = toolPanel.querySelector("[data-pb-hint]");
+        if (hint) {
+          hint.textContent = state.mode === "focus"
+            ? "Brush the subject to keep it sharp — everything else blurs."
+            : "Brush the area you want blurred.";
+        }
+        preview();
+      });
+    });
+    toolPanel.querySelector("[data-pb-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 70;
+    });
+    toolPanel.querySelector("[data-pb-amount]")?.addEventListener("input", (e) => {
+      state.amount = Number(e.target.value) || 10;
+      const out = toolPanel.querySelector("[data-pb-out]");
+      if (out) out.textContent = String(state.amount);
+    });
+    toolPanel.querySelector("[data-pb-amount]")?.addEventListener("change", preview);
+    toolPanel.querySelector("[data-pb-clear]")?.addEventListener("click", () => {
+      state.clear?.();
+      window.clearTimeout(timer);
+      resetPreview();
+      if (applyBtn) applyBtn.disabled = true;
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy || !state.mask || !state.painted) {
+        if (!state.painted) status.textContent = "Brush the subject first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying blur…";
+      const bitmap = await activeBitmap();
+      const r = await scaledRadius();
+      const blob = bitmap ? applyPortraitBlur(bitmap, state.mask, r, state.mode === "blur") : null;
+      manualBusy = false;
+      commitManualVersion("Portrait blur", blob, "Portrait Blur");
+    });
+    void setupMaskBrush(state, preview);
+  }
+
+  // ---- Whiten (teeth / eyes brush) ---------------------------------------
+
+  function renderWhitenTool() {
+    const state = { size: 40, intensity: 60, mask: null, painted: false, scale: 1, clear: null };
+    let timer = 0;
+    const adjustFor = () => {
+      const k = state.intensity / 100;
+      return { brightness: 18 * k, saturation: -34 * k, warmth: -14 * k };
+    };
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <p class="editor-erase-hint">Brush over teeth or the whites of the eyes to brighten and whiten them.</p>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="8" max="70" value="40" step="1" data-wh-size aria-label="Brush size" />
+        </label>
+        <label class="editor-slider">
+          <span class="editor-slider-label">Strength</span>
+          <input type="range" min="10" max="100" value="60" step="1" data-wh-amount aria-label="Strength" />
+          <output data-wh-out>60</output>
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-wh-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-wh-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const applyBtn = toolPanel.querySelector("[data-wh-apply]");
+    const preview = () => {
+      window.clearTimeout(timer);
+      if (state.painted && applyBtn) applyBtn.disabled = false;
+      timer = window.setTimeout(async () => {
+        if (!state.mask || !state.painted || tool !== "Whiten") return;
+        const bitmap = await activeBitmap();
+        if (!bitmap) return;
+        showToolPreview(applyMaskedAdjust(bitmap, adjustFor(), state.mask, false));
+        if (applyBtn) applyBtn.disabled = false;
+      }, 140);
+    };
+    toolPanel.querySelector("[data-wh-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 40;
+    });
+    toolPanel.querySelector("[data-wh-amount]")?.addEventListener("input", (e) => {
+      state.intensity = Number(e.target.value) || 60;
+      const out = toolPanel.querySelector("[data-wh-out]");
+      if (out) out.textContent = String(state.intensity);
+    });
+    toolPanel.querySelector("[data-wh-amount]")?.addEventListener("change", preview);
+    toolPanel.querySelector("[data-wh-clear]")?.addEventListener("click", () => {
+      state.clear?.();
+      window.clearTimeout(timer);
+      resetPreview();
+      if (applyBtn) applyBtn.disabled = true;
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy || !state.mask || !state.painted) {
+        if (!state.painted) status.textContent = "Brush the teeth or eyes first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Whitening…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyMaskedAdjust(bitmap, adjustFor(), state.mask, false) : null;
+      manualBusy = false;
+      commitManualVersion("Whiten", blob, "Whiten");
+    });
+    void setupMaskBrush(state, preview);
   }
 
   // ---- Add (AI tool, model-gated) ----------------------------------------

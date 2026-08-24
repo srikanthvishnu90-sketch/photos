@@ -442,6 +442,85 @@ export function applyOverlay(bitmap, overlay, blendMode = "source-over") {
   }
 }
 
+// Keep `layer`'s pixels only inside (or, if invert, outside) a white alpha mask.
+function maskLayer(layer, mask, invert) {
+  const lctx = layer.getContext("2d");
+  if (!lctx) return;
+  lctx.globalCompositeOperation = invert ? "destination-out" : "destination-in";
+  lctx.drawImage(mask, 0, 0, layer.width, layer.height);
+  lctx.globalCompositeOperation = "source-over";
+}
+
+/**
+ * Local adjustment: apply the full adjust pipeline, then composite the result
+ * over the original ONLY where the mask is painted (feathered). `invert` applies
+ * it everywhere EXCEPT the mask. The mask is a canvas with white = affected.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {object} adjust
+ * @param {HTMLCanvasElement} mask
+ * @param {boolean} [invert]
+ * @returns {Blob|null}
+ */
+export function applyMaskedAdjust(bitmap, adjust, mask, invert = false) {
+  try {
+    if (!bitmap || !mask) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const layer = paintFull(bitmap, adjust); // adjusted full image (a canvas)
+    if (!layer) return null;
+    maskLayer(layer, mask, invert);
+    const out = makeCanvas(w, h);
+    const octx = out?.getContext("2d");
+    if (!octx) return null;
+    octx.drawImage(bitmap, 0, 0, w, h);
+    octx.drawImage(layer, 0, 0);
+    return encodeCanvas(out, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyMaskedAdjust failed", error);
+    return null;
+  }
+}
+
+/**
+ * Portrait / lens blur: keep the focus mask sharp and blur everything else
+ * (or the reverse if invert). `radiusPx` is the blur radius in image pixels.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {HTMLCanvasElement} mask  white = the in-focus subject
+ * @param {number} radiusPx
+ * @param {boolean} [invert]  blur INSIDE the mask instead
+ * @returns {Blob|null}
+ */
+export function applyPortraitBlur(bitmap, mask, radiusPx = 8, invert = false) {
+  try {
+    if (!bitmap || !mask) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const blurred = makeCanvas(w, h);
+    const bctx = blurred?.getContext("2d");
+    if (!bctx) return null;
+    bctx.filter = `blur(${Math.max(0.5, radiusPx)}px)`;
+    bctx.drawImage(bitmap, 0, 0, w, h);
+    bctx.filter = "none";
+    // Sharp original, kept only in the focus region, laid over the blurred base.
+    const sharp = makeCanvas(w, h);
+    const sctx = sharp?.getContext("2d");
+    if (!sctx) return null;
+    sctx.drawImage(bitmap, 0, 0, w, h);
+    maskLayer(sharp, mask, invert); // keep sharp inside focus (invert → outside)
+    const out = makeCanvas(w, h);
+    const octx = out?.getContext("2d");
+    if (!octx) return null;
+    octx.drawImage(blurred, 0, 0);
+    octx.drawImage(sharp, 0, 0);
+    return encodeCanvas(out, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyPortraitBlur failed", error);
+    return null;
+  }
+}
+
 // Run a 256-entry lookup table over R/G/B (used by Curves and Levels).
 function applyLut(bitmap, lut) {
   try {
