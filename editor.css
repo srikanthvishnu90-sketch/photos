@@ -107,10 +107,10 @@
   position: relative;
   flex-shrink: 0;
   width: 100%;
-  /* Shrinks on short viewports (and when the keyboard opens) instead of
-     forcing overlap. Never a fixed pixel height. */
+  /* Sized off the live app height (visualViewport-driven), so it shrinks when
+     the keyboard opens and the describe composer never gets pushed under it. */
   aspect-ratio: 4 / 5;
-  max-height: 44dvh;
+  max-height: calc(var(--app-height, 100dvh) * 0.42);
   margin-inline: auto;
   overflow: hidden;
   border-radius: 22px;

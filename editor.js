@@ -1555,18 +1555,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     requestEdit(promptInput.value);
   });
 
-  // Keep the describe input visible above the iOS keyboard. The body is pinned
-  // to the visual viewport (styles.css) so the page never scrolls; we only need
-  // to nudge the editor's own scroll region if the input is actually hidden —
-  // and instantly ("nearest", no smooth animation), so it never slides/jitters.
-  function keepPromptVisible() {
-    if (document.activeElement !== promptInput) return;
-    window.requestAnimationFrame(() =>
-      promptInput.scrollIntoView({ block: "nearest", behavior: "auto" }),
-    );
-  }
-  promptInput.addEventListener("focus", () => window.setTimeout(keepPromptVisible, 220));
-  window.visualViewport?.addEventListener("resize", keepPromptVisible);
+  // The app resizes to the visual viewport (styles.css + app.js), so the
+  // describe composer already sits flush above the keyboard — no scrollIntoView,
+  // which is what used to make the editor "jump" when the box was tapped.
 
   return Object.freeze({
     activate(options = {}) {

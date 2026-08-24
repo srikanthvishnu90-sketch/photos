@@ -156,15 +156,9 @@ export function createOnboardingFlow(options) {
     screen.classList.toggle("is-aesthetic", step === 3);
   }
 
-  function keepControlVisible(control) {
-    window.setTimeout(() => {
-      if (document.activeElement !== control) return;
-      control.scrollIntoView({
-        block: "center",
-        behavior: reducedMotion.matches ? "auto" : "smooth",
-      });
-    }, 180);
-  }
+  // No-op: the app resizes to the visual viewport, so a focused field is already
+  // above the keyboard. Scrolling it into view is what made the step "jump".
+  function keepControlVisible() {}
 
   function focusStep() {
     window.requestAnimationFrame(() => {

@@ -111,11 +111,14 @@ const profileController = createProfileScreen({
 function syncAppHeight() {
   const vv = window.visualViewport;
   const height = vv?.height ?? window.innerHeight;
-  document.documentElement.style.setProperty("--app-height", `${Math.round(height)}px`);
-  // The body is position:fixed (styles.css), so the window itself must never
-  // hold a scroll offset — if iOS tried to scroll to reveal a focused input,
-  // undo it. This is what keeps the app from "moving down" when the keyboard
-  // opens; the app shrinks to visualViewport.height instead of sliding.
+  const offset = vv?.offsetTop ?? 0;
+  const root = document.documentElement.style;
+  // The app (.gems-app) is sized to visualViewport.height and shifted by
+  // visualViewport.offsetTop, so it always equals the visible area above the
+  // keyboard — the composer docks on the keyboard and nothing else moves.
+  root.setProperty("--app-height", `${Math.round(height)}px`);
+  root.setProperty("--app-offset", `${Math.round(offset)}px`);
+  // Belt-and-suspenders: the window itself must never hold a scroll offset.
   if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
 }
 
@@ -310,13 +313,10 @@ function syncEmailState() {
   emailInput.setAttribute("aria-invalid", valid || value.length === 0 ? "false" : "true");
 }
 
-function keepEmailVisible() {
-  if (document.activeElement !== emailInput) return;
-  emailInput.scrollIntoView({
-    block: "center",
-    behavior: reducedMotion.matches ? "auto" : "smooth",
-  });
-}
+// No-op by design: the app now resizes to the visual viewport, so a focused
+// input is already in view above the keyboard. Scrolling it into view here is
+// exactly what made the screen "jump" — so we don't. Kept as a stable hook.
+function keepEmailVisible() {}
 
 function showOnboarding() {
   if (onboardingStarted) return;

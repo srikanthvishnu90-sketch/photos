@@ -175,10 +175,18 @@ button {
   touch-action: manipulation;
 }
 
+/* The app is pinned to the VISUAL viewport, not the layout viewport: its height
+   is visualViewport.height and it's nudged by visualViewport.offsetTop (see
+   app.js). So when the on-screen keyboard opens, the app becomes exactly the
+   still-visible rectangle above the keyboard — a bottom-docked composer sits
+   flush on top of the keyboard and NOTHING else moves (GPT/Claude behavior). */
 .gems-app {
-  position: relative;
+  position: fixed;
+  top: 0;
+  left: 50%;
   width: 100%;
   height: var(--app-height, 100dvh);
+  transform: translateX(-50%) translateY(var(--app-offset, 0px));
   overflow: hidden;
   isolation: isolate;
   background: var(--color-white);
@@ -187,16 +195,16 @@ button {
 /* On larger screens the website becomes a device stage, not a stretched page. */
 @media (min-width: 700px) and (min-height: 650px) {
   body {
-    display: grid;
-    padding: 32px;
-    place-items: center;
     background: var(--color-stage);
   }
 
   .gems-app {
+    top: 50%;
     width: 390px;
     height: min(820px, calc(var(--app-height, 100dvh) - 64px));
     min-height: 586px;
+    /* Desktop has no soft keyboard — center the device frame and ignore offset. */
+    transform: translate(-50%, -50%);
     border-radius: 44px;
     box-shadow:
       0 0 0 9px var(--color-device-frame),

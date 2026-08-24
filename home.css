@@ -1057,6 +1057,16 @@
   background: var(--color-white);
 }
 
+/* GPT/Claude behavior: while the composer is focused (keyboard open) the tab bar
+   drops away so the input sits flush above the keyboard — nothing else moves. */
+.home-bottom-chrome:has(.home-chat-form:focus-within) .home-tabs {
+  display: none;
+}
+
+.home-bottom-chrome:has(.home-chat-form:focus-within) .home-chat-dock {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
 .home-chat-form {
   display: flex;
   align-items: center;
