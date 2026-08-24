@@ -846,6 +846,67 @@ export function applyLevels(bitmap, levels = {}) {
   }
 }
 
+// One keystone pass: scale each strip along `axis` by a factor that ramps across
+// the perpendicular axis (strip-based approximation of a projective warp).
+function keystonePass(source, w, h, amount, vertical) {
+  const canvas = makeCanvas(w, h);
+  const ctx = canvas?.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, w, h); // fill gaps with the un-warped image
+  const k = (amount / 100) * 0.3;
+  const strips = 220;
+  if (vertical) {
+    for (let s = 0; s < strips; s += 1) {
+      const y0 = (s / strips) * h;
+      const sh = h / strips + 1;
+      const t = (s + 0.5) / strips;
+      const scale = 1 + k * (t - 0.5) * 2; // top narrower/wider than bottom
+      const sw = w * scale;
+      ctx.drawImage(source, 0, y0, w, sh, (w - sw) / 2, y0, sw, sh);
+    }
+  } else {
+    for (let s = 0; s < strips; s += 1) {
+      const x0 = (s / strips) * w;
+      const sw = w / strips + 1;
+      const t = (s + 0.5) / strips;
+      const scale = 1 + k * (t - 0.5) * 2;
+      const sh = h * scale;
+      ctx.drawImage(source, x0, 0, sw, h, x0, (h - sh) / 2, sw, sh);
+    }
+  }
+  return canvas;
+}
+
+/**
+ * Perspective / keystone correction. `vertical` fixes converging verticals
+ * (tilted-up buildings), `horizontal` fixes converging horizontals. Both -100..100.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {{vertical?:number, horizontal?:number}} ops
+ * @returns {Blob|null}
+ */
+export function applyPerspective(bitmap, ops = {}) {
+  try {
+    if (!bitmap) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const v = clampAdj(ops.vertical);
+    const hz = clampAdj(ops.horizontal);
+    let current = bitmap;
+    if (v) current = keystonePass(current, w, h, v, true) || current;
+    if (hz) current = keystonePass(current, w, h, hz, false) || current;
+    if (current === bitmap) {
+      const c = makeCanvas(w, h);
+      c?.getContext("2d")?.drawImage(bitmap, 0, 0, w, h);
+      return c ? encodeCanvas(c, "image/jpeg", 0.92) : null;
+    }
+    return encodeCanvas(current, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyPerspective failed", error);
+    return null;
+  }
+}
+
 /**
  * Geometry: rotate in 90° steps and/or flip. `rotate` is degrees (any multiple
  * of 90; other values are snapped). Returns a JPEG Blob.

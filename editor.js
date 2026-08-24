@@ -8,6 +8,7 @@ import {
   applyCrop,
   applyGrade,
   applyGeometry,
+  applyPerspective,
   applyOverlay,
   applyCurve,
   applyLevels,
@@ -49,8 +50,9 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc
 
 const MANUAL_TOOLS = Object.freeze([
   "Presets", "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance",
-  "Selective", "Crop", "Rotate", "Draw", "Text", "Dodge & Burn", "Clone",
-  "Blur & Sharpen", "Portrait Blur", "Whiten", "Stickers", "Retouch", "Erase", "Add",
+  "Selective", "Crop", "Rotate", "Perspective", "Draw", "Text", "Dodge & Burn",
+  "Clone", "Blur & Sharpen", "Portrait Blur", "Whiten", "Stickers", "Retouch",
+  "Erase", "Add",
 ]);
 
 // Representative swatch color per HSL band.
@@ -70,6 +72,7 @@ const TOOL_HELP = Object.freeze({
   Selective: "Brush an area, then adjust only that part of the photo.",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
+  Perspective: "Straighten converging lines — fix keystone on buildings.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
   Text: "Add text, drag it into place, pick a color and size.",
   "Dodge & Burn": "Brush to lighten (dodge) or darken (burn) areas by hand.",
@@ -581,6 +584,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     if (toolName === "Presets") renderPresetsTool();
     else if (toolName === "Crop") renderCropTool();
     else if (toolName === "Rotate") renderRotateTool();
+    else if (toolName === "Perspective") renderPerspectiveTool();
     else if (toolName === "Adjust") renderAdjustTool();
     else if (toolName === "Filters") renderFiltersTool();
     else if (toolName === "Curves") renderCurvesTool();
@@ -785,6 +789,74 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       photoView.style.transform = "";
       manualBusy = false;
       commitManualVersion("Rotate", blob, "Rotate");
+    });
+  }
+
+  // ---- Perspective / Keystone --------------------------------------------
+
+  function renderPerspectiveTool() {
+    const state = { vertical: 0, horizontal: 0 };
+    let timer = 0;
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <label class="editor-slider">
+          <span class="editor-slider-label">Vertical</span>
+          <input type="range" min="-100" max="100" value="0" step="1" data-persp="vertical" aria-label="Vertical keystone" />
+          <output data-persp-out="vertical">0</output>
+        </label>
+        <label class="editor-slider">
+          <span class="editor-slider-label">Horizontal</span>
+          <input type="range" min="-100" max="100" value="0" step="1" data-persp="horizontal" aria-label="Horizontal keystone" />
+          <output data-persp-out="horizontal">0</output>
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-persp-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-persp-apply>Apply</button>
+        </div>
+      </div>
+    `;
+    const preview = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || tool !== "Perspective") return;
+        showToolPreview(applyPerspective(bitmap, state));
+      }, 140);
+    };
+    toolPanel.querySelectorAll("[data-persp]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const k = input.dataset.persp;
+        state[k] = Number(input.value) || 0;
+        const out = toolPanel.querySelector(`[data-persp-out="${k}"]`);
+        if (out) out.textContent = String(state[k]);
+      });
+      input.addEventListener("change", preview);
+    });
+    toolPanel.querySelector("[data-persp-reset]")?.addEventListener("click", () => {
+      state.vertical = 0;
+      state.horizontal = 0;
+      toolPanel.querySelectorAll("[data-persp]").forEach((i) => {
+        i.value = "0";
+      });
+      toolPanel.querySelectorAll("[data-persp-out]").forEach((o) => {
+        o.textContent = "0";
+      });
+      window.clearTimeout(timer);
+      resetPreview();
+    });
+    toolPanel.querySelector("[data-persp-apply]")?.addEventListener("click", async () => {
+      if (manualBusy) return;
+      if (!state.vertical && !state.horizontal) {
+        status.textContent = "Move a slider first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying perspective…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyPerspective(bitmap, state) : null;
+      manualBusy = false;
+      commitManualVersion("Perspective", blob, "Perspective");
     });
   }
 
