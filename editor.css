@@ -714,6 +714,52 @@
   cursor: grabbing;
 }
 
+/* ---- Curves ---- */
+.editor-curves {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.editor-curve-pad {
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 1;
+  border: 1.5px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  touch-action: none;
+}
+
+.editor-curves .editor-manual-actions {
+  width: 100%;
+}
+
+/* ---- Dodge & Burn modes ---- */
+.editor-db-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.editor-db-mode {
+  min-height: 44px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.editor-db-mode.is-active {
+  border-color: var(--color-ink);
+  background: var(--color-surface);
+}
+
 /* ---- Adjust sliders ---- */
 
 .editor-adjust {

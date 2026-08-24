@@ -9,6 +9,8 @@ import {
   applyGrade,
   applyGeometry,
   applyOverlay,
+  applyCurve,
+  applyLevels,
   cssFilterFor,
   FILTER_GRADES,
 } from "./gems-canvas.js";
@@ -20,16 +22,20 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Crop", "Rotate", "Draw", "Text", "Retouch", "Erase", "Add",
+  "Adjust", "Filters", "Curves", "Levels", "Crop", "Rotate",
+  "Draw", "Text", "Dodge & Burn", "Retouch", "Erase", "Add",
 ]);
 
 const TOOL_HELP = Object.freeze({
   Adjust: "Exposure, contrast, highlights, shadows, color, sharpness — by hand.",
   Filters: "Your aesthetics as one-tap grades: Euro Summer, Dark Gym…",
+  Curves: "Drag the tone curve — shape shadows, midtones, and highlights.",
+  Levels: "Set the black point, white point, and midtone gamma.",
   Crop: "Drag the corners. Gems suggests the strongest crop.",
   Rotate: "Rotate, flip, and mirror the frame.",
   Draw: "Draw on the photo freehand — pick a color and brush size.",
   Text: "Add text, drag it into place, pick a color and size.",
+  "Dodge & Burn": "Brush to lighten (dodge) or darken (burn) areas by hand.",
   Retouch: "One-tap AI: remove background, enhance, restore, and more.",
   Erase: "Brush over anything to remove it — Gems fills the background.",
   Add: "Describe something to add to the photo.",
@@ -268,6 +274,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const createdUrls = []; // object URLs to revoke on teardown
   let cropCleanup = null; // detaches the active crop overlay + listeners
   let overlayCleanup = null; // detaches the active erase-brush overlay + listeners
+  let toolPreviewUrl = ""; // object URL of the current live tool preview (revoked on reset)
   let manualBusy = false; // guards overlapping client-side commits
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
@@ -374,10 +381,35 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   // Drop any live preview: clears the <img> CSS filter and removes the crop
   // overlay + its listeners. Safe to call anytime.
+  // Swap the photo view to a rendered blob for a true-to-result live preview,
+  // revoking the previous one. resetPreview() restores the canonical version.
+  function showToolPreview(blob) {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    photoView.style.filter = "";
+    photoView.src = url;
+    if (toolPreviewUrl) {
+      try {
+        URL.revokeObjectURL(toolPreviewUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+    toolPreviewUrl = url;
+  }
+
   function resetPreview() {
     // Undo any live-preview mutation (adjust filter/src swap, rotate transform).
     photoView.style.filter = "";
     photoView.style.transform = "";
+    if (toolPreviewUrl) {
+      try {
+        URL.revokeObjectURL(toolPreviewUrl);
+      } catch {
+        /* ignore */
+      }
+      toolPreviewUrl = "";
+    }
     const version = currentVersion();
     if (photo && version?.url && photoView.getAttribute("src") !== version.url) {
       photoView.src = version.url;
@@ -474,8 +506,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Rotate") renderRotateTool();
     else if (toolName === "Adjust") renderAdjustTool();
     else if (toolName === "Filters") renderFiltersTool();
+    else if (toolName === "Curves") renderCurvesTool();
+    else if (toolName === "Levels") renderLevelsTool();
     else if (toolName === "Draw") renderDrawTool();
     else if (toolName === "Text") renderTextTool();
+    else if (toolName === "Dodge & Burn") renderDodgeBurnTool();
     else if (toolName === "Retouch") renderRetouchTool();
     else if (toolName === "Erase") renderEraseTool();
     else if (toolName === "Add") renderAiTool("Add");
@@ -1355,6 +1390,342 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       console.info("renderTextToImage failed", error);
       return null;
     }
+  }
+
+  // ---- Levels ------------------------------------------------------------
+
+  function renderLevelsTool() {
+    const state = { black: 0, white: 255, gamma: 1 };
+    let timer = 0;
+    toolPanel.innerHTML = `
+      <div class="editor-adjust">
+        <label class="editor-slider">
+          <span class="editor-slider-label">Black</span>
+          <input type="range" min="0" max="254" value="0" step="1" data-lv="black" aria-label="Black point" />
+          <output data-lv-out="black">0</output>
+        </label>
+        <label class="editor-slider">
+          <span class="editor-slider-label">White</span>
+          <input type="range" min="1" max="255" value="255" step="1" data-lv="white" aria-label="White point" />
+          <output data-lv-out="white">255</output>
+        </label>
+        <label class="editor-slider">
+          <span class="editor-slider-label">Gamma</span>
+          <input type="range" min="30" max="300" value="100" step="1" data-lv="gamma" aria-label="Gamma" />
+          <output data-lv-out="gamma">1.00</output>
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-lv-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-lv-apply>Apply</button>
+        </div>
+      </div>
+    `;
+    const preview = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || tool !== "Levels") return;
+        showToolPreview(applyLevels(bitmap, state));
+      }, 130);
+    };
+    toolPanel.querySelectorAll("[data-lv]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const key = input.dataset.lv;
+        const raw = Number(input.value);
+        state[key] = key === "gamma" ? raw / 100 : raw;
+        const out = toolPanel.querySelector(`[data-lv-out="${key}"]`);
+        if (out) out.textContent = key === "gamma" ? state[key].toFixed(2) : String(state[key]);
+      });
+      input.addEventListener("change", preview);
+    });
+    toolPanel.querySelector("[data-lv-reset]")?.addEventListener("click", () => {
+      state.black = 0;
+      state.white = 255;
+      state.gamma = 1;
+      toolPanel.querySelector('[data-lv="black"]').value = "0";
+      toolPanel.querySelector('[data-lv="white"]').value = "255";
+      toolPanel.querySelector('[data-lv="gamma"]').value = "100";
+      toolPanel.querySelector('[data-lv-out="black"]').textContent = "0";
+      toolPanel.querySelector('[data-lv-out="white"]').textContent = "255";
+      toolPanel.querySelector('[data-lv-out="gamma"]').textContent = "1.00";
+      window.clearTimeout(timer);
+      resetPreview();
+    });
+    toolPanel.querySelector("[data-lv-apply]")?.addEventListener("click", async () => {
+      if (manualBusy) return;
+      if (state.black === 0 && state.white === 255 && state.gamma === 1) {
+        status.textContent = "Move a slider first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying levels…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyLevels(bitmap, state) : null;
+      manualBusy = false;
+      commitManualVersion("Levels", blob, "Levels");
+    });
+  }
+
+  // ---- Curves ------------------------------------------------------------
+
+  function renderCurvesTool() {
+    // Five control points along the input axis; y is draggable (output tone).
+    const points = [
+      [0, 0],
+      [64, 64],
+      [128, 128],
+      [192, 192],
+      [255, 255],
+    ];
+    let timer = 0;
+    const SIZE = 240;
+    toolPanel.innerHTML = `
+      <div class="editor-curves">
+        <canvas class="editor-curve-pad" width="${SIZE}" height="${SIZE}"
+          aria-label="Tone curve — drag the points"></canvas>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-curve-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-curve-apply>Apply</button>
+        </div>
+      </div>
+    `;
+    const pad = toolPanel.querySelector(".editor-curve-pad");
+    const ctx = pad.getContext("2d");
+    const toPad = (x, y) => ({ px: (x / 255) * SIZE, py: SIZE - (y / 255) * SIZE });
+    const draw = () => {
+      if (!ctx) return;
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      // grid
+      ctx.strokeStyle = "rgba(120,109,112,0.25)";
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 4; i += 1) {
+        const g = (i / 4) * SIZE;
+        ctx.beginPath();
+        ctx.moveTo(g, 0);
+        ctx.lineTo(g, SIZE);
+        ctx.moveTo(0, g);
+        ctx.lineTo(SIZE, g);
+        ctx.stroke();
+      }
+      // curve (piecewise linear through the points)
+      ctx.strokeStyle = "#170b10";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      points.forEach((pt, i) => {
+        const { px, py } = toPad(pt[0], pt[1]);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      // handles
+      points.forEach((pt) => {
+        const { px, py } = toPad(pt[0], pt[1]);
+        ctx.fillStyle = "#ff3b6b";
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    };
+    const preview = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || tool !== "Curves") return;
+        showToolPreview(applyCurve(bitmap, points));
+      }, 130);
+    };
+    draw();
+
+    let active = -1;
+    const at = (event) => {
+      const rect = pad.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * 255;
+      const y = 255 - ((event.clientY - rect.top) / rect.height) * 255;
+      return { x: Math.max(0, Math.min(255, x)), y: Math.max(0, Math.min(255, y)) };
+    };
+    pad.addEventListener("pointerdown", (event) => {
+      const { x } = at(event);
+      // nearest point by input position
+      let best = 0;
+      let bestD = Infinity;
+      points.forEach((pt, i) => {
+        const d = Math.abs(pt[0] - x);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      });
+      active = best;
+      try {
+        pad.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+    });
+    pad.addEventListener("pointermove", (event) => {
+      if (active < 0) return;
+      const { y } = at(event);
+      points[active][1] = Math.round(y); // x stays fixed; drag output tone
+      draw();
+      event.preventDefault();
+    });
+    const end = () => {
+      if (active < 0) return;
+      active = -1;
+      preview();
+    };
+    pad.addEventListener("pointerup", end);
+    pad.addEventListener("pointercancel", end);
+
+    toolPanel.querySelector("[data-curve-reset]")?.addEventListener("click", () => {
+      points.forEach((pt) => {
+        pt[1] = pt[0];
+      });
+      draw();
+      window.clearTimeout(timer);
+      resetPreview();
+    });
+    toolPanel.querySelector("[data-curve-apply]")?.addEventListener("click", async () => {
+      if (manualBusy) return;
+      const changed = points.some((pt) => pt[1] !== pt[0]);
+      if (!changed) {
+        status.textContent = "Drag the curve first, then Apply.";
+        return;
+      }
+      window.clearTimeout(timer);
+      manualBusy = true;
+      status.textContent = "Applying curve…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyCurve(bitmap, points) : null;
+      manualBusy = false;
+      commitManualVersion("Curves", blob, "Curves");
+    });
+  }
+
+  // ---- Dodge & Burn (brush lighten / darken) -----------------------------
+
+  function renderDodgeBurnTool() {
+    const state = { mode: "dodge", size: 40, painted: false, surface: null, scale: 1 };
+    toolPanel.innerHTML = `
+      <div class="editor-draw">
+        <div class="editor-db-modes" role="group" aria-label="Dodge or burn">
+          <button type="button" class="editor-db-mode is-active" data-db="dodge">☀ Dodge (lighten)</button>
+          <button type="button" class="editor-db-mode" data-db="burn">◐ Burn (darken)</button>
+        </div>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="10" max="120" value="40" step="1" data-db-size aria-label="Brush size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-db-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-db-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-db]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.mode = btn.dataset.db;
+        toolPanel.querySelectorAll("[data-db]").forEach((b) => b.classList.toggle("is-active", b === btn));
+      });
+    });
+    toolPanel.querySelector("[data-db-size]")?.addEventListener("input", (event) => {
+      state.size = Number(event.target.value) || 40;
+    });
+    toolPanel.querySelector("[data-db-clear]")?.addEventListener("click", () => {
+      state.surface?.getContext("2d")?.clearRect(0, 0, state.surface.width, state.surface.height);
+      state.painted = false;
+      const btn = toolPanel.querySelector("[data-db-apply]");
+      if (btn) btn.disabled = true;
+    });
+    toolPanel.querySelector("[data-db-apply]")?.addEventListener("click", async () => {
+      if (manualBusy || !state.surface || !state.painted) {
+        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        return;
+      }
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const bitmap = await activeBitmap();
+      // soft-light with a white layer lightens (dodge); black darkens (burn).
+      const blob = bitmap ? applyOverlay(bitmap, state.surface, "soft-light") : null;
+      manualBusy = false;
+      commitManualVersion(state.mode === "dodge" ? "Dodge" : "Burn", blob, "Dodge & Burn");
+    });
+    void setupDodgeBurnSurface(state);
+  }
+
+  async function setupDodgeBurnSurface(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Dodge & Burn" || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-paint-overlay");
+    const surface = document.createElement("canvas");
+    surface.width = natW;
+    surface.height = natH;
+    surface.className = "editor-paint-canvas";
+    overlay.appendChild(surface);
+    state.surface = surface;
+    state.scale = scale;
+    const ctx = surface.getContext("2d");
+    let drawing = false;
+    let last = null;
+    const at = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+    };
+    // Low-alpha accumulation so repeated strokes deepen the effect gradually.
+    const dab = (p) => {
+      if (!ctx) return;
+      const r = (state.size * scale) / 2;
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      const tone = state.mode === "dodge" ? "255,255,255" : "0,0,0";
+      g.addColorStop(0, `rgba(${tone},0.5)`);
+      g.addColorStop(1, `rgba(${tone},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    const down = (event) => {
+      drawing = true;
+      last = at(event);
+      dab(last);
+      state.painted = true;
+      const btn = toolPanel.querySelector("[data-db-apply]");
+      if (btn) btn.disabled = false;
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!drawing) return;
+      const p = at(event);
+      const dist = Math.hypot(p.x - last.x, p.y - last.y);
+      const step = Math.max(1, (state.size * scale) / 6);
+      const n = Math.ceil(dist / step);
+      for (let i = 1; i <= n; i += 1) {
+        dab({ x: last.x + ((p.x - last.x) * i) / n, y: last.y + ((p.y - last.y) * i) / n });
+      }
+      last = p;
+      event.preventDefault();
+    };
+    const up = () => {
+      drawing = false;
+      last = null;
+    };
+    overlay.addEventListener("pointerdown", down);
+    overlay.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", down);
+      overlay.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
   }
 
   // ---- Add (AI tool, model-gated) ----------------------------------------

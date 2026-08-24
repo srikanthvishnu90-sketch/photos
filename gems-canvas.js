@@ -387,7 +387,7 @@ export function applyAdjust(bitmap, adjust = {}) {
  * @param {HTMLCanvasElement} overlay
  * @returns {Blob|null}
  */
-export function applyOverlay(bitmap, overlay) {
+export function applyOverlay(bitmap, overlay, blendMode = "source-over") {
   try {
     if (!bitmap) return null;
     const w = bitmap.width || bitmap.naturalWidth || 0;
@@ -398,10 +398,106 @@ export function applyOverlay(bitmap, overlay) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(bitmap, 0, 0, w, h);
-    if (overlay) ctx.drawImage(overlay, 0, 0, w, h);
+    if (overlay) {
+      // A blend mode (e.g. "soft-light" for Dodge & Burn) composites the painted
+      // layer tonally instead of just pasting it on top.
+      ctx.globalCompositeOperation = blendMode;
+      ctx.drawImage(overlay, 0, 0, w, h);
+      ctx.globalCompositeOperation = "source-over";
+    }
     return encodeCanvas(canvas, "image/jpeg", 0.92);
   } catch (error) {
     console.info("applyOverlay failed", error);
+    return null;
+  }
+}
+
+// Run a 256-entry lookup table over R/G/B (used by Curves and Levels).
+function applyLut(bitmap, lut) {
+  try {
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const canvas = makeCanvas(w, h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    let img;
+    try {
+      img = ctx.getImageData(0, 0, w, h);
+    } catch (error) {
+      console.info("getImageData blocked", error);
+      return null;
+    }
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = lut[d[i]];
+      d[i + 1] = lut[d[i + 1]];
+      d[i + 2] = lut[d[i + 2]];
+    }
+    ctx.putImageData(img, 0, 0);
+    return encodeCanvas(canvas, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyLut failed", error);
+    return null;
+  }
+}
+
+/**
+ * Tone curve. `points` is an array of [x, y] control points in 0..255 (sorted by
+ * x, endpoints included), remapping input tone x → output tone y. Piecewise-
+ * linear between points. Returns a JPEG Blob.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {Array<[number, number]>} points
+ * @returns {Blob|null}
+ */
+export function applyCurve(bitmap, points) {
+  try {
+    if (!bitmap) return null;
+    const pts =
+      Array.isArray(points) && points.length >= 2
+        ? [...points].sort((a, b) => a[0] - b[0])
+        : [[0, 0], [255, 255]];
+    const lut = new Uint8ClampedArray(256);
+    let j = 0;
+    for (let i = 0; i < 256; i += 1) {
+      while (j < pts.length - 2 && i > pts[j + 1][0]) j += 1;
+      const [x0, y0] = pts[j];
+      const [x1, y1] = pts[j + 1];
+      const t = x1 === x0 ? 0 : (i - x0) / (x1 - x0);
+      lut[i] = y0 + (y1 - y0) * Math.max(0, Math.min(1, t));
+    }
+    return applyLut(bitmap, lut);
+  } catch (error) {
+    console.info("applyCurve failed", error);
+    return null;
+  }
+}
+
+/**
+ * Levels: remap tones between a black point and white point with a midtone gamma.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {{black?:number, white?:number, gamma?:number}} levels  black/white 0..255, gamma 0.1..3
+ * @returns {Blob|null}
+ */
+export function applyLevels(bitmap, levels = {}) {
+  try {
+    if (!bitmap) return null;
+    let black = Math.max(0, Math.min(254, Number(levels.black) || 0));
+    let white = Math.max(black + 1, Math.min(255, Number(levels.white) ?? 255));
+    const gamma = Math.max(0.1, Math.min(3, Number(levels.gamma) || 1));
+    const inv = 1 / gamma;
+    const lut = new Uint8ClampedArray(256);
+    const span = white - black;
+    for (let i = 0; i < 256; i += 1) {
+      let v = (i - black) / span;
+      v = Math.max(0, Math.min(1, v));
+      lut[i] = Math.pow(v, inv) * 255;
+    }
+    return applyLut(bitmap, lut);
+  } catch (error) {
+    console.info("applyLevels failed", error);
     return null;
   }
 }
