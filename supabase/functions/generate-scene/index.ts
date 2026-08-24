@@ -25,6 +25,8 @@ const NEGATIVE = "No watermark-style text, no captions, no borders.";
 const STYLE_PACKS: Record<string, string> = {
   "after-dark":
     "STYLE — After Dark (moody luxury, low-exposure): dusk-like underexposure even in daylight; steel-blue/navy skies with retained detail, never blown; deep clean blacks, muted color (~-25% saturation), greens toward dark emerald and blues toward navy, protected skin tones; slightly cool temperature; no added grain, subtle vignette at most. Quiet, expensive, cinematic.",
+  "euro-summer":
+    "STYLE — Euro Summer (men): a warm, film-like European summer travel photograph. WARDROBE: a relaxed linen button-down shirt (white, cream, olive, or terracotta/rust), loose tailored trousers or chinos in cream/stone/olive/grey, leather sandals or espadrilles, optionally a canvas tote and a simple watch — effortless old-money Mediterranean menswear, never flashy, no big logos. SETTING: a beautiful European old town — sun-warmed cobblestone alleys, honey-colored stone villages, bougainvillea and wisteria, a cathedral square, Provence / Greek-island / Italian streets, or a golden field at sunset. LIGHT: warm golden-hour or bright Mediterranean midday with long soft shadows. LOOK: shot on 35mm film (Kodak Portra warmth, gentle grain, soft highlight rolloff), candid and relaxed — walking, leaning, mid-stride, glancing off-camera — an editorial travel snapshot, never a stiff studio pose.",
 };
 
 // Light refusal guard: never generate a specific real person other than the user,

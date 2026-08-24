@@ -35,7 +35,7 @@ const GEMS = Object.freeze([
 
 const ACTIONS = Object.freeze([
   { label: "Commitment post", icon: "spark" },
-  { label: "Make a photo dump", icon: "stack" },
+  { label: "Euro Summer", icon: "spark" },
   { label: "Edit a photo", icon: "edit" },
   { label: "Find my best photos", icon: "search" },
 ]);
@@ -854,6 +854,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       homeActions.startAction(action);
       if (action === "Commitment post") {
         void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+        return;
+      }
+      if (action === "Euro Summer") {
+        void import("./gems-scene-view.js").then((m) => m.openSceneStudio("euro-summer"));
         return;
       }
       setChatPrompt(action);
