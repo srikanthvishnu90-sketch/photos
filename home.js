@@ -575,6 +575,37 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     return { navigate: action.navigate, payload };
   }
 
+  // Does this chat message read as a direct edit instruction (vs. find/build/
+  // chat)? Conservative on purpose — ambiguous asks fall through to the server
+  // orchestrator. Leads with an edit verb, or clearly names an edit operation.
+  const EDIT_LEAD_RE =
+    /^(make (?:it|this|the photo|my photo)\b|edit\b|remove\b|erase\b|delete\b|crop\b|rotate\b|flip\b|mirror\b|brighten\b|darken\b|enhance\b|retouch\b|blur\b|sharpen\b|colou?rize\b|restore\b|straighten\b)/i;
+  const EDIT_WORD_RE =
+    /\b(brighter|darker|more contrast|less contrast|warmer|cooler|saturat\w*|vibran\w*|black and white|b&w|grayscale|greyscale|sharpen|vignette|add grain|blur the background|remove the background|remove background|erase|crop it|crop this|rotate|retouch|auto[- ]?enhance|colou?rize)\b/i;
+  function looksLikeEdit(text) {
+    const t = String(text || "").toLowerCase();
+    // Don't hijack find/build requests that happen to contain an edit-ish word.
+    if (/\b(best|find|show me|rank|dump|carousel|collage|template|which)\b/.test(t)) {
+      return false;
+    }
+    return EDIT_LEAD_RE.test(t) || EDIT_WORD_RE.test(t);
+  }
+
+  // Which photo should a Home-chat edit act on? Prefer today's hidden gem (the
+  // one already surfaced on screen), else the most recent import. Null when the
+  // library is empty — the editor then just prefills the instruction.
+  async function editTargetPhotoId() {
+    if (hiddenGemPhotoId) return hiddenGemPhotoId;
+    try {
+      const all = await listPhotos();
+      if (!Array.isArray(all) || !all.length) return null;
+      // listPhotos already returns newest-first (sorted by addedAt).
+      return all[0]?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // The real Gems orchestrator call. Every failure path degrades to a gentle
   // strip message — this function never throws and always re-enables send.
   async function sendChatMessage(message) {
@@ -583,6 +614,23 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
 
     window.clearTimeout(navigateTimer);
     hideReply();
+
+    // Fast path: an obvious edit instruction ("make it brighter", "remove the
+    // background", "crop this") opens the editor on the user's photo and applies
+    // it right away — no server round-trip, so it works offline and in demo too.
+    if (looksLikeEdit(prompt)) {
+      const targetId = await editTargetPhotoId();
+      if (targetId) {
+        void homeActions.sendPrompt(prompt);
+        chatInput.value = "";
+        syncChat();
+        showReply("Opening the editor to make that change…");
+        goTo("Editor", { mode: "describe", instruction: prompt, photoId: targetId });
+        return;
+      }
+      // No photos yet — fall through so the user gets a helpful reply.
+    }
+
     chatInFlight = true;
     chatSend.disabled = true;
     void homeActions.sendPrompt(prompt);
@@ -616,6 +664,17 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
 
       const routed = chatActionPayload(data);
       if (routed) {
+        // An edit routed to the Editor needs a photo to act on. If the server
+        // didn't name one, target the photo the user is most likely to mean:
+        // today's hidden gem, else their most recent import.
+        if (
+          routed.navigate === "Editor" &&
+          routed.payload?.instruction &&
+          routed.payload.photoId == null
+        ) {
+          const targetId = await editTargetPhotoId();
+          if (targetId) routed.payload.photoId = targetId;
+        }
         navigateTimer = window.setTimeout(
           () => goTo(routed.navigate, routed.payload),
           CHAT_NAVIGATE_DELAY_MS,

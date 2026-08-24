@@ -70,6 +70,7 @@ Deno.serve(async (request) => {
     photoId?: string;
     imageBase64?: string;
     mimeType?: string;
+    maskBase64?: string; // optional: white = the region to edit (manual eraser/brush)
   };
   try {
     body = await request.json();
@@ -80,9 +81,8 @@ Deno.serve(async (request) => {
   if (!instruction) return json(400, { error: "instruction required" });
   if (instruction.length > 600) return json(400, { error: "instruction too long (600 max)" });
   if (!body.imageBase64) return json(400, { error: "imageBase64 required" });
-  const kind = ["describe", "reroll", "style_match"].includes(body.kind ?? "")
-    ? (body.kind as string)
-    : "describe";
+  const kind = String(body.kind ?? "describe").slice(0, 40) || "describe";
+  const hasMask = typeof body.maskBase64 === "string" && body.maskBase64.length > 0;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -118,29 +118,33 @@ Deno.serve(async (request) => {
     }
 
     // ---- The edit call (Nano Banana 2).
-    const promptText =
-      kind === "reroll"
-        ? `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}\nThis is a re-roll: produce a noticeably different interpretation of the same instruction.`
-        : `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
+    // With a mask, the SECOND image scopes the edit to the painted region — the
+    // manual eraser/brush. Without one, it's a whole-image instruction edit.
+    let promptText = `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
+    if (kind === "reroll") {
+      promptText += `\nThis is a re-roll: produce a noticeably different interpretation of the same instruction.`;
+    }
+    if (hasMask) {
+      promptText +=
+        `\n\nA second image is provided as a MASK. The bright/white areas of the mask mark the ONLY region of the first image you may change. ` +
+        `Apply the instruction strictly inside that region and reconstruct what is naturally behind it; every pixel outside the white region must remain byte-for-byte identical. Return the full edited image at the same dimensions.`;
+    }
+
+    const parts: Array<Record<string, unknown>> = [
+      { text: promptText },
+      { inline_data: { mime_type: body.mimeType || "image/jpeg", data: body.imageBase64 } },
+    ];
+    if (hasMask) {
+      parts.push({ inline_data: { mime_type: "image/png", data: body.maskBase64 } });
+    }
+
     const modelResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                {
-                  inline_data: {
-                    mime_type: body.mimeType || "image/jpeg",
-                    data: body.imageBase64,
-                  },
-                },
-              ],
-            },
-          ],
+          contents: [{ parts }],
         }),
       },
     );

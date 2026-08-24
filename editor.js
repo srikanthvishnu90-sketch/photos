@@ -7,6 +7,7 @@ import {
   applyAdjust,
   applyCrop,
   applyGrade,
+  applyGeometry,
   cssFilterFor,
   FILTER_GRADES,
 } from "./gems-canvas.js";
@@ -17,15 +18,68 @@ const EDIT_FUNCTION_URL =
   "https://hkwkxacvcgorhthwyslx.supabase.co/functions/v1/edit-photo";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
-const MANUAL_TOOLS = Object.freeze(["Erase", "Add", "Crop", "Adjust", "Filters"]);
+const MANUAL_TOOLS = Object.freeze([
+  "Adjust", "Filters", "Crop", "Rotate", "Retouch", "Erase", "Add",
+]);
 
 const TOOL_HELP = Object.freeze({
-  Erase: "Brush over anything to remove it — Gems fills the background.",
-  Add: "Tap where you want something added, then describe it.",
-  Crop: "Drag the corners. Gems suggests the strongest crop.",
-  Adjust: "Light, contrast, warmth, and sharpness — by hand.",
+  Adjust: "Exposure, contrast, highlights, shadows, color, sharpness — by hand.",
   Filters: "Your aesthetics as one-tap grades: Euro Summer, Dark Gym…",
+  Crop: "Drag the corners. Gems suggests the strongest crop.",
+  Rotate: "Rotate, flip, and mirror the frame.",
+  Retouch: "One-tap AI: remove background, enhance, restore, and more.",
+  Erase: "Brush over anything to remove it — Gems fills the background.",
+  Add: "Describe something to add to the photo.",
 });
+
+// The full camera-app / Photoshop adjustment set, grouped like a real editor.
+// Every key maps to gems-canvas.applyAdjust (all -100..100, 0 = neutral).
+const ADJUST_GROUPS = Object.freeze([
+  {
+    name: "Light",
+    fields: [
+      { key: "exposure", label: "Exposure" },
+      { key: "brightness", label: "Brightness" },
+      { key: "contrast", label: "Contrast" },
+      { key: "highlights", label: "Highlights" },
+      { key: "shadows", label: "Shadows" },
+      { key: "whites", label: "Whites" },
+      { key: "blacks", label: "Blacks" },
+    ],
+  },
+  {
+    name: "Color",
+    fields: [
+      { key: "saturation", label: "Saturation" },
+      { key: "vibrance", label: "Vibrance" },
+      { key: "warmth", label: "Warmth" },
+      { key: "tint", label: "Tint" },
+    ],
+  },
+  {
+    name: "Effects",
+    fields: [
+      { key: "sharpness", label: "Sharpness" },
+      { key: "vignette", label: "Vignette" },
+      { key: "grain", label: "Grain" },
+    ],
+  },
+]);
+
+const ADJUST_FIELDS = Object.freeze(ADJUST_GROUPS.flatMap((group) => group.fields));
+
+// One-tap AI retouch operations. Each is a plain-language instruction sent to
+// the edit-photo model (the same generative path as descriptive edits).
+const RETOUCH_OPS = Object.freeze([
+  { key: "remove-bg", label: "Remove background", instruction: "Remove the background completely, keeping only the main subject on a clean transparent-looking white background. Keep the subject's edges clean and natural." },
+  { key: "blur-bg", label: "Blur background", instruction: "Keep the main subject perfectly sharp and apply a smooth, natural depth-of-field blur to the background only." },
+  { key: "enhance", label: "Auto-enhance", instruction: "Enhance this photo: balance the exposure, recover highlight and shadow detail, improve color and white balance, and add gentle sharpness — while keeping it natural and realistic." },
+  { key: "restore", label: "Restore & sharpen", instruction: "Restore this photo: reduce noise and blur, repair compression artifacts, and sharpen detail so it looks clean and high quality, without changing the content." },
+  { key: "colorize", label: "Colorize", instruction: "Add realistic, natural color to this photo if it is black and white or faded, keeping skin tones and materials believable." },
+  { key: "portrait", label: "Portrait cleanup", instruction: "Gently retouch the person: even out skin and reduce blemishes and under-eye shadows naturally, keep skin texture, and do not change their identity or features." },
+  { key: "declutter", label: "Remove distractions", instruction: "Remove small distracting objects and clutter from the background, reconstructing what is naturally behind them, while keeping the main subject untouched." },
+  { key: "brighten-face", label: "Brighten subject", instruction: "Brighten and add flattering light to the main subject so they stand out from the background, keeping it natural." },
+]);
 
 const SUGGESTIONS = Object.freeze([
   "Make it darker",
@@ -204,6 +258,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const bitmapCache = new Map(); // versionId -> decoded bitmap
   const createdUrls = []; // object URLs to revoke on teardown
   let cropCleanup = null; // detaches the active crop overlay + listeners
+  let eraseCleanup = null; // detaches the active erase-brush overlay + listeners
   let manualBusy = false; // guards overlapping client-side commits
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
@@ -311,7 +366,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // Drop any live preview: clears the <img> CSS filter and removes the crop
   // overlay + its listeners. Safe to call anytime.
   function resetPreview() {
+    // Undo any live-preview mutation (adjust filter/src swap, rotate transform).
     photoView.style.filter = "";
+    photoView.style.transform = "";
+    const version = currentVersion();
+    if (photo && version?.url && photoView.getAttribute("src") !== version.url) {
+      photoView.src = version.url;
+    }
     if (cropCleanup) {
       try {
         cropCleanup();
@@ -319,6 +380,14 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         console.info("Crop cleanup failed", error);
       }
       cropCleanup = null;
+    }
+    if (eraseCleanup) {
+      try {
+        eraseCleanup();
+      } catch (error) {
+        console.info("Erase cleanup failed", error);
+      }
+      eraseCleanup = null;
     }
   }
 
@@ -393,9 +462,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
     toolPanel.hidden = false;
     if (toolName === "Crop") renderCropTool();
+    else if (toolName === "Rotate") renderRotateTool();
     else if (toolName === "Adjust") renderAdjustTool();
     else if (toolName === "Filters") renderFiltersTool();
-    else if (toolName === "Erase") renderAiTool("Erase");
+    else if (toolName === "Retouch") renderRetouchTool();
+    else if (toolName === "Erase") renderEraseTool();
     else if (toolName === "Add") renderAiTool("Add");
     else {
       toolPanel.hidden = true;
@@ -406,34 +477,41 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // ---- Adjust ------------------------------------------------------------
 
   function renderAdjustTool() {
-    const fields = [
-      { key: "brightness", label: "Brightness" },
-      { key: "contrast", label: "Contrast" },
-      { key: "saturation", label: "Saturation" },
-      { key: "warmth", label: "Warmth" },
-    ];
-    const values = { brightness: 0, contrast: 0, saturation: 0, warmth: 0 };
+    const values = {};
+    ADJUST_FIELDS.forEach((field) => {
+      values[field.key] = 0;
+    });
+    let previewUrl = "";
+    let previewTimer = 0;
+
     toolPanel.innerHTML = `
       <div class="editor-adjust">
-        ${fields
-          .map(
-            (field) => `
-              <label class="editor-slider">
-                <span class="editor-slider-label">${esc(field.label)}</span>
-                <input
-                  type="range"
-                  min="-100"
-                  max="100"
-                  value="0"
-                  step="1"
-                  data-adjust="${esc(field.key)}"
-                  aria-label="${esc(field.label)}"
-                />
-                <output data-adjust-out="${esc(field.key)}">0</output>
-              </label>
-            `,
-          )
-          .join("")}
+        ${ADJUST_GROUPS.map(
+          (group) => `
+            <div class="editor-adjust-group">
+              <span class="editor-adjust-group-name">${esc(group.name)}</span>
+              ${group.fields
+                .map(
+                  (field) => `
+                    <label class="editor-slider">
+                      <span class="editor-slider-label">${esc(field.label)}</span>
+                      <input
+                        type="range"
+                        min="-100"
+                        max="100"
+                        value="0"
+                        step="1"
+                        data-adjust="${esc(field.key)}"
+                        aria-label="${esc(field.label)}"
+                      />
+                      <output data-adjust-out="${esc(field.key)}">0</output>
+                    </label>
+                  `,
+                )
+                .join("")}
+            </div>
+          `,
+        ).join("")}
         <div class="editor-manual-actions">
           <button type="button" class="editor-manual-reset" data-adjust-reset>Reset</button>
           <button type="button" class="editor-manual-apply" data-adjust-apply>Apply</button>
@@ -441,41 +519,167 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       </div>
     `;
 
-    const preview = () => {
+    const clearPreviewUrl = () => {
+      if (previewUrl) {
+        try {
+          URL.revokeObjectURL(previewUrl);
+        } catch {
+          /* ignore */
+        }
+        previewUrl = "";
+      }
+    };
+
+    // Cheap, instant preview via the compositor filter for the values CSS can
+    // express (light/contrast/saturation/warmth); the full render below then
+    // layers in highlights/shadows/vibrance/sharpen/vignette/grain.
+    const cheapPreview = () => {
       photoView.style.filter = cssFilterFor(values);
     };
+
+    // Debounced true-to-result preview: render the complete pipeline to a blob
+    // and show it, so every slider — not just the CSS-expressible ones — is
+    // visible before Apply.
+    const fullPreview = () => {
+      window.clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(async () => {
+        const bitmap = await activeBitmap();
+        if (!bitmap || tool !== "Adjust") return;
+        const blob = applyAdjust(bitmap, values);
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        photoView.style.filter = "";
+        photoView.src = url;
+        clearPreviewUrl();
+        previewUrl = url;
+      }, 140);
+    };
+
     toolPanel.querySelectorAll("[data-adjust]").forEach((input) => {
       input.addEventListener("input", () => {
         const key = input.dataset.adjust;
         values[key] = Number(input.value) || 0;
         const out = toolPanel.querySelector(`[data-adjust-out="${key}"]`);
         if (out) out.textContent = String(values[key]);
-        preview();
+        cheapPreview();
       });
+      input.addEventListener("change", fullPreview);
     });
+
     toolPanel.querySelector("[data-adjust-reset]")?.addEventListener("click", () => {
-      fields.forEach((field) => {
+      ADJUST_FIELDS.forEach((field) => {
         values[field.key] = 0;
         const input = toolPanel.querySelector(`[data-adjust="${field.key}"]`);
         const out = toolPanel.querySelector(`[data-adjust-out="${field.key}"]`);
         if (input) input.value = "0";
         if (out) out.textContent = "0";
       });
-      photoView.style.filter = "";
+      window.clearTimeout(previewTimer);
+      clearPreviewUrl();
+      resetPreview();
     });
+
     toolPanel.querySelector("[data-adjust-apply]")?.addEventListener("click", async () => {
       if (manualBusy) return;
-      const noChange = fields.every((field) => values[field.key] === 0);
+      const noChange = ADJUST_FIELDS.every((field) => values[field.key] === 0);
       if (noChange) {
         status.textContent = "Move a slider first, then Apply.";
         return;
       }
+      window.clearTimeout(previewTimer);
       manualBusy = true;
       status.textContent = "Applying adjustments…";
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyAdjust(bitmap, values) : null;
+      clearPreviewUrl();
       manualBusy = false;
       commitManualVersion("Adjust", blob, "Adjust");
+    });
+  }
+
+  // ---- Rotate / Flip -----------------------------------------------------
+
+  function renderRotateTool() {
+    // Rotation/flip accumulate so repeated taps compose, then Apply commits.
+    const geo = { rotate: 0, flipH: false, flipV: false };
+    toolPanel.innerHTML = `
+      <div class="editor-rotate">
+        <div class="editor-rotate-row">
+          <button type="button" class="editor-rotate-btn" data-geo="rot-left">⟲ Left</button>
+          <button type="button" class="editor-rotate-btn" data-geo="rot-right">⟳ Right</button>
+          <button type="button" class="editor-rotate-btn" data-geo="flip-h">⇋ Flip</button>
+          <button type="button" class="editor-rotate-btn" data-geo="flip-v">⇅ Mirror</button>
+        </div>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-geo-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-geo-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const applyBtn = toolPanel.querySelector("[data-geo-apply]");
+    const touched = () => {
+      if (applyBtn) applyBtn.disabled = geo.rotate === 0 && !geo.flipH && !geo.flipV;
+    };
+    // Live CSS preview of the pending transform (no re-encode until Apply).
+    const preview = () => {
+      const sx = geo.flipH ? -1 : 1;
+      const sy = geo.flipV ? -1 : 1;
+      photoView.style.transform = `rotate(${geo.rotate}deg) scale(${sx}, ${sy})`;
+    };
+    toolPanel.querySelectorAll("[data-geo]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const op = button.dataset.geo;
+        if (op === "rot-left") geo.rotate -= 90;
+        else if (op === "rot-right") geo.rotate += 90;
+        else if (op === "flip-h") geo.flipH = !geo.flipH;
+        else if (op === "flip-v") geo.flipV = !geo.flipV;
+        preview();
+        touched();
+      });
+    });
+    toolPanel.querySelector("[data-geo-reset]")?.addEventListener("click", () => {
+      geo.rotate = 0;
+      geo.flipH = false;
+      geo.flipV = false;
+      photoView.style.transform = "";
+      touched();
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy) return;
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? applyGeometry(bitmap, geo) : null;
+      photoView.style.transform = "";
+      manualBusy = false;
+      commitManualVersion("Rotate", blob, "Rotate");
+    });
+  }
+
+  // ---- Retouch (one-tap AI operations) -----------------------------------
+
+  function renderRetouchTool() {
+    toolPanel.innerHTML = `
+      <div class="editor-retouch">
+        <div class="editor-retouch-grid">
+          ${RETOUCH_OPS.map(
+            (op) => `
+              <button type="button" class="editor-retouch-op" data-retouch="${esc(op.key)}">
+                ${esc(op.label)}
+              </button>
+            `,
+          ).join("")}
+        </div>
+        <p class="editor-ai-note">One-tap AI edits. Each creates a new version — this needs an online edit.</p>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-retouch]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (processing) return;
+        const op = RETOUCH_OPS.find((entry) => entry.key === button.dataset.retouch);
+        if (!op) return;
+        void requestRealEdit(op.instruction, op.key);
+      });
     });
   }
 
@@ -615,7 +819,239 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
-  // ---- Erase / Add (AI tools, model-gated) -------------------------------
+  // ---- Erase (manual brush → mask → AI inpaint) --------------------------
+
+  function renderEraseTool() {
+    toolPanel.innerHTML = `
+      <div class="editor-erase">
+        <p class="editor-erase-hint">Brush over anything you want gone — Gems fills in what's behind it.</p>
+        <label class="editor-slider editor-erase-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="8" max="80" value="34" step="1" data-brush-size aria-label="Brush size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-erase-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-erase-apply disabled>Erase</button>
+        </div>
+        <form class="editor-ai-form editor-erase-describe" data-ai-form>
+          <input type="text" autocomplete="off" enterkeyhint="send"
+            placeholder="…or describe what to remove" data-ai-input />
+          <button type="submit" class="editor-manual-apply" data-ai-apply disabled>Remove</button>
+        </form>
+      </div>
+    `;
+    // Descriptive fallback: type what to remove.
+    const input = toolPanel.querySelector("[data-ai-input]");
+    const aiApply = toolPanel.querySelector("[data-ai-apply]");
+    input?.addEventListener("input", () => {
+      if (aiApply) aiApply.disabled = input.value.trim().length === 0;
+    });
+    toolPanel.querySelector("[data-ai-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = (input?.value || "").trim();
+      if (!text || processing) return;
+      input.value = "";
+      if (aiApply) aiApply.disabled = true;
+      void requestRealEdit(
+        `Erase the ${text}, reconstructing what's naturally behind it.`,
+        "erase",
+      );
+    });
+
+    // The brush: paint a mask over the image, then inpaint the marked region.
+    void setupEraseOverlay(Number(toolPanel.querySelector("[data-brush-size]")?.value) || 34);
+    toolPanel.querySelector("[data-brush-size]")?.addEventListener("input", (event) => {
+      eraseState.brush = Number(event.target.value) || 34;
+    });
+    toolPanel.querySelector("[data-erase-clear]")?.addEventListener("click", () => {
+      clearEraseStrokes();
+    });
+    toolPanel.querySelector("[data-erase-apply]")?.addEventListener("click", () => {
+      void applyEraseBrush();
+    });
+  }
+
+  // Erase-brush state: two canvases at the source's natural resolution — a
+  // visible tinted overlay for the user, and a black/white mask for the model.
+  const eraseState = {
+    overlay: null,
+    display: null, // visible canvas (tinted strokes)
+    mask: null, // export canvas (white strokes on black)
+    natW: 0,
+    natH: 0,
+    brush: 34, // brush diameter in display px
+    painted: false,
+    scale: 1, // natural px per display px
+  };
+
+  async function setupEraseOverlay(initialBrush) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Erase" || mode !== "manual") return;
+    eraseState.natW = bitmap.width || bitmap.naturalWidth || 0;
+    eraseState.natH = bitmap.height || bitmap.naturalHeight || 0;
+    eraseState.brush = initialBrush;
+    eraseState.painted = false;
+
+    const box = canvas.getBoundingClientRect();
+    const fit = containRect(box.width, box.height, eraseState.natW, eraseState.natH);
+    eraseState.scale = eraseState.natW / fit.width;
+
+    const overlay = document.createElement("div");
+    overlay.className = "editor-erase-overlay";
+    overlay.style.left = `${fit.left}px`;
+    overlay.style.top = `${fit.top}px`;
+    overlay.style.width = `${fit.width}px`;
+    overlay.style.height = `${fit.height}px`;
+
+    const display = document.createElement("canvas");
+    display.width = eraseState.natW;
+    display.height = eraseState.natH;
+    display.className = "editor-erase-canvas";
+    overlay.appendChild(display);
+    canvas.appendChild(overlay);
+
+    const mask = makeMaskCanvas(eraseState.natW, eraseState.natH);
+
+    eraseState.overlay = overlay;
+    eraseState.display = display;
+    eraseState.mask = mask;
+
+    const cleanup = attachErasePointer(overlay, display);
+    eraseCleanup = () => {
+      cleanup();
+      overlay.remove();
+      eraseState.overlay = null;
+      eraseState.display = null;
+      eraseState.mask = null;
+    };
+  }
+
+  function makeMaskCanvas(w, h) {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+    }
+    return c;
+  }
+
+  function clearEraseStrokes() {
+    if (eraseState.display) {
+      eraseState.display.getContext("2d")?.clearRect(0, 0, eraseState.natW, eraseState.natH);
+    }
+    if (eraseState.mask) {
+      const ctx = eraseState.mask.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, eraseState.natW, eraseState.natH);
+      }
+    }
+    eraseState.painted = false;
+    const applyBtn = toolPanel.querySelector("[data-erase-apply]");
+    if (applyBtn) applyBtn.disabled = true;
+  }
+
+  function attachErasePointer(overlay, display) {
+    const dctx = display.getContext("2d");
+    const mctx = eraseState.mask?.getContext("2d");
+    let drawing = false;
+    let last = null;
+
+    const toNatural = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * eraseState.scale;
+      const y = (event.clientY - rect.top) * eraseState.scale;
+      return { x, y };
+    };
+    const dab = (p) => {
+      const radius = (eraseState.brush * eraseState.scale) / 2;
+      if (dctx) {
+        dctx.fillStyle = "rgba(255,64,120,0.5)";
+        dctx.beginPath();
+        dctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        dctx.fill();
+      }
+      if (mctx) {
+        mctx.fillStyle = "#fff";
+        mctx.beginPath();
+        mctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        mctx.fill();
+      }
+    };
+    const stroke = (a, b) => {
+      // Connect dabs so fast drags stay continuous.
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const step = Math.max(1, (eraseState.brush * eraseState.scale) / 4);
+      const n = Math.ceil(dist / step);
+      for (let i = 1; i <= n; i += 1) {
+        dab({ x: a.x + ((b.x - a.x) * i) / n, y: a.y + ((b.y - a.y) * i) / n });
+      }
+    };
+
+    const onDown = (event) => {
+      drawing = true;
+      last = toNatural(event);
+      dab(last);
+      eraseState.painted = true;
+      const applyBtn = toolPanel.querySelector("[data-erase-apply]");
+      if (applyBtn) applyBtn.disabled = false;
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const onMove = (event) => {
+      if (!drawing) return;
+      const p = toNatural(event);
+      if (last) stroke(last, p);
+      last = p;
+      event.preventDefault();
+    };
+    const onUp = () => {
+      drawing = false;
+      last = null;
+    };
+
+    overlay.addEventListener("pointerdown", onDown);
+    overlay.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      overlay.removeEventListener("pointerdown", onDown);
+      overlay.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }
+
+  async function applyEraseBrush() {
+    if (processing || !eraseState.mask) return;
+    if (!eraseState.painted) {
+      status.textContent = "Brush over something first, then Erase.";
+      return;
+    }
+    let maskBase64 = "";
+    try {
+      const dataUrl = eraseState.mask.toDataURL("image/png");
+      maskBase64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    } catch (error) {
+      console.info("Mask export failed", error);
+      status.textContent = "That erase couldn't be sent — try again.";
+      return;
+    }
+    void requestRealEdit(
+      "Remove the object(s) covered by the white mask region and realistically reconstruct what is naturally behind them.",
+      "erase-brush",
+      maskBase64,
+    );
+  }
+
+  // ---- Add (AI tool, model-gated) ----------------------------------------
 
   function renderAiTool(kind) {
     const isErase = kind === "Erase";
@@ -894,7 +1330,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // Try to swap the canvas from the simulated scene to the real library photo.
   // Anything missing — no record, no session, storage failure — leaves the
   // demo flow untouched.
-  async function loadRealPhoto(photoId, token) {
+  async function loadRealPhoto(photoId, token, autoInstruction = "") {
     try {
       // Load the real photo whenever it exists — crop/adjust/filters are pure
       // on-device work and need no session. The AI tools (describe/erase/add/
@@ -914,6 +1350,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       // If Manual mode was opened first, its tools were empty in demo mode —
       // now that a real photo is present, bring the live controls up.
       if (mode === "manual") renderToolControls(tool);
+      // An instruction handed over from the Home chat box: prefill it and run
+      // the edit now that the photo is here (tonal edits apply instantly on
+      // device; content edits go to the model).
+      const instruction = String(autoInstruction || "").trim();
+      if (instruction && !processing) {
+        promptInput.value = instruction;
+        syncPrompt();
+        requestEdit(instruction);
+      }
     } catch (error) {
       console.info("Real photo load skipped, staying in demo mode", error);
     }
@@ -933,7 +1378,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   // Real edit: sends the instruction and the original photo to the deployed
   // edge function, then appends the signed result URL as a new version.
-  async function requestRealEdit(instruction, kind) {
+  async function requestRealEdit(instruction, kind, maskBase64 = null) {
     if (!instruction || processing) return;
     const token = activationToken;
     const sourceVersion = currentVersion();
@@ -973,6 +1418,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
           photoId: photo.id,
           imageBase64,
           mimeType: blob.type || photo.type || "image/jpeg",
+          ...(maskBase64 ? { maskBase64 } : {}),
         }),
       });
       const data = await response.json().catch(() => null);
@@ -1146,7 +1592,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       setTool("Erase");
       setMode(options.mode === "manual" ? "manual" : "describe");
       status.textContent = "Original photo loaded.";
-      if (options.photoId) void loadRealPhoto(options.photoId, activationToken);
+      const instruction =
+        typeof options.instruction === "string" ? options.instruction.trim() : "";
+      if (options.photoId) {
+        void loadRealPhoto(options.photoId, activationToken, instruction);
+      } else if (instruction) {
+        // No photo to target — at least surface the instruction in the box.
+        promptInput.value = instruction;
+        syncPrompt();
+      }
     },
 
     focusHeading() {

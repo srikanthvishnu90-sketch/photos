@@ -193,16 +193,221 @@ export async function loadBitmap(blob) {
   });
 }
 
+// The full camera-app / Photoshop-style adjustment set. Cheap tonal moves
+// (brightness/contrast/saturation) run through the compositor filter; the rest —
+// exposure, highlights, shadows, whites, blacks, temperature, tint, vibrance —
+// run as a single per-pixel pass; sharpen/blur is a convolution/blur pass; and
+// vignette + grain are overlays. Everything is optional: a zero value is skipped.
+const ADJUST_KEYS = Object.freeze([
+  "exposure", "brightness", "contrast", "highlights", "shadows",
+  "whites", "blacks", "saturation", "vibrance", "warmth", "tint",
+  "sharpness", "clarity", "vignette", "grain",
+]);
+
+function anyPixelWork(a) {
+  return (
+    a.exposure || a.highlights || a.shadows || a.whites || a.blacks ||
+    a.vibrance || a.warmth || a.tint
+  );
+}
+
+// Smooth 0..1 ramp so highlight/shadow lifts don't band.
+function smooth(t) {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+// One per-pixel tone + color pass over ImageData (mutates in place).
+function pixelPass(data, a) {
+  const exp = Math.pow(2, clampAdj(a.exposure) / 100); // ±1 stop at ±100
+  const hi = clampAdj(a.highlights) / 100;
+  const sh = clampAdj(a.shadows) / 100;
+  const wh = clampAdj(a.whites) / 100;
+  const bl = clampAdj(a.blacks) / 100;
+  const temp = (clampAdj(a.warmth) / 100) * 46; // ± red/blue shift
+  const tnt = (clampAdj(a.tint) / 100) * 40; // ± green/magenta
+  const vib = clampAdj(a.vibrance) / 100;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i] * exp;
+    let g = data[i + 1] * exp;
+    let b = data[i + 2] * exp;
+    // Luma drives the tonal-zone weights.
+    const L = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (hi) { const w = smooth((L - 0.5) / 0.5) * hi * 90; r += w; g += w; b += w; }
+    if (sh) { const w = smooth((0.5 - L) / 0.5) * sh * 90; r += w; g += w; b += w; }
+    if (wh) { const w = smooth((L - 0.7) / 0.3) * wh * 70; r += w; g += w; b += w; }
+    if (bl) { const w = smooth((0.3 - L) / 0.3) * bl * 70; r += w; g += w; b += w; }
+    if (temp) { r += temp; b -= temp; }
+    if (tnt) { r += tnt * 0.5; b += tnt * 0.5; g -= tnt * 0.5; }
+    if (vib) {
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      const sat = (mx - mn) / 255;
+      const amt = vib * (1 - sat); // push muted pixels more than already-vivid ones
+      const avg = (r + g + b) / 3;
+      r = avg + (r - avg) * (1 + amt);
+      g = avg + (g - avg) * (1 + amt);
+      b = avg + (b - avg) * (1 + amt);
+    }
+    data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
+    data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+    data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+  }
+}
+
+// 3x3 sharpen (unsharp) convolution. amount 0..1. Returns new Uint8ClampedArray.
+function sharpen(src, w, h, amount) {
+  const out = new Uint8ClampedArray(src.length);
+  const k = amount * 0.8;
+  const center = 1 + 4 * k;
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const o = (y * w + x) * 4;
+      for (let c = 0; c < 3; c += 1) {
+        const up = y > 0 ? src[o - w * 4 + c] : src[o + c];
+        const dn = y < h - 1 ? src[o + w * 4 + c] : src[o + c];
+        const lf = x > 0 ? src[o - 4 + c] : src[o + c];
+        const rt = x < w - 1 ? src[o + 4 + c] : src[o + c];
+        out[o + c] = center * src[o + c] - k * (up + dn + lf + rt);
+      }
+      out[o + 3] = src[o + 3];
+    }
+  }
+  return out;
+}
+
+function paintFull(bitmap, adjust = {}) {
+  try {
+    const a = {};
+    for (const key of ADJUST_KEYS) a[key] = clampAdj(adjust[key]);
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    const canvas = makeCanvas(w, h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    // Pass 1 — brightness/contrast/saturation via the compositor filter, plus a
+    // negative-sharpness blur (CSS blur only softens; positive sharpen is below).
+    const blurPx = a.sharpness < 0 ? (Math.abs(a.sharpness) / 100) * 4 : 0;
+    ctx.filter =
+      baseFilter({ brightness: a.brightness, contrast: a.contrast, saturation: a.saturation }) +
+      (blurPx ? ` blur(${blurPx.toFixed(2)}px)` : "");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.filter = "none";
+
+    // Pass 2 — per-pixel tone + color, and positive sharpen.
+    const needsPixels = anyPixelWork(a) || a.sharpness > 0;
+    if (needsPixels) {
+      let img;
+      try {
+        img = ctx.getImageData(0, 0, w, h);
+      } catch (error) {
+        console.info("getImageData blocked (tainted canvas?)", error);
+        img = null;
+      }
+      if (img) {
+        if (anyPixelWork(a)) pixelPass(img.data, a);
+        if (a.sharpness > 0) {
+          const sharper = sharpen(img.data, w, h, a.sharpness / 100);
+          img.data.set(sharper);
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+    }
+
+    // Pass 3 — vignette (darken or lighten the corners).
+    if (a.vignette) {
+      const cx = w / 2, cy = h / 2;
+      const outer = Math.hypot(cx, cy);
+      const grad = ctx.createRadialGradient(cx, cy, outer * 0.55, cx, cy, outer);
+      const strength = Math.min(0.85, Math.abs(a.vignette) / 100 * 0.85);
+      if (a.vignette > 0) {
+        grad.addColorStop(0, "rgba(0,0,0,0)");
+        grad.addColorStop(1, `rgba(0,0,0,${strength})`);
+      } else {
+        grad.addColorStop(0, "rgba(255,255,255,0)");
+        grad.addColorStop(1, `rgba(255,255,255,${strength})`);
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Pass 4 — film grain (monochrome noise, soft-light).
+    if (a.grain > 0) {
+      const amt = (a.grain / 100) * 40;
+      const noise = ctx.createImageData(w, h);
+      const nd = noise.data;
+      // Deterministic pseudo-noise (no Math.random — keeps re-encodes stable).
+      let seed = 0x9e3779b9;
+      for (let i = 0; i < nd.length; i += 4) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        const v = 128 + (((seed >>> 24) / 255) * 2 - 1) * amt;
+        nd[i] = nd[i + 1] = nd[i + 2] = v;
+        nd[i + 3] = 255;
+      }
+      const grainCanvas = makeCanvas(w, h);
+      grainCanvas?.getContext("2d")?.putImageData(noise, 0, 0);
+      if (grainCanvas) {
+        ctx.globalCompositeOperation = "soft-light";
+        ctx.globalAlpha = 0.6;
+        ctx.drawImage(grainCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+    return canvas;
+  } catch (error) {
+    console.info("paintFull failed", error);
+    return null;
+  }
+}
+
 /**
- * Apply tonal adjustments and return a JPEG Blob (quality 0.92). Deterministic.
+ * Apply the full tonal + color + detail adjustment set and return a JPEG Blob
+ * (quality 0.92). Accepts the camera-app keys (all -100..100, 0 = neutral):
+ * exposure, brightness, contrast, highlights, shadows, whites, blacks,
+ * saturation, vibrance, warmth, tint, sharpness (negative = blur), vignette,
+ * grain. Deterministic; runs fully on-device.
  * @param {ImageBitmap|HTMLImageElement} bitmap
- * @param {{brightness?:number, contrast?:number, saturation?:number, warmth?:number}} adjust
+ * @param {object} adjust
  * @returns {Blob|null}
  */
 export function applyAdjust(bitmap, adjust = {}) {
-  const canvas = paintAdjust(bitmap, adjust, null);
+  const canvas = paintFull(bitmap, adjust);
   if (!canvas) return null;
   return encodeCanvas(canvas, "image/jpeg", 0.92);
+}
+
+/**
+ * Geometry: rotate in 90° steps and/or flip. `rotate` is degrees (any multiple
+ * of 90; other values are snapped). Returns a JPEG Blob.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {{rotate?:number, flipH?:boolean, flipV?:boolean}} ops
+ * @returns {Blob|null}
+ */
+export function applyGeometry(bitmap, ops = {}) {
+  try {
+    if (!bitmap) return null;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return null;
+    let deg = Math.round((Number(ops.rotate) || 0) / 90) * 90;
+    deg = ((deg % 360) + 360) % 360;
+    const swap = deg === 90 || deg === 270;
+    const canvas = makeCanvas(swap ? h : w, swap ? w : h);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((deg * Math.PI) / 180);
+    ctx.scale(ops.flipH ? -1 : 1, ops.flipV ? -1 : 1);
+    ctx.drawImage(bitmap, -w / 2, -h / 2, w, h);
+    return encodeCanvas(canvas, "image/jpeg", 0.92);
+  } catch (error) {
+    console.info("applyGeometry failed", error);
+    return null;
+  }
 }
 
 /**
