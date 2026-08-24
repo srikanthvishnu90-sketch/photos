@@ -34,10 +34,10 @@ const GEMS = Object.freeze([
 ]);
 
 const ACTIONS = Object.freeze([
+  { label: "Commitment post", icon: "spark" },
   { label: "Make a photo dump", icon: "stack" },
   { label: "Edit a photo", icon: "edit" },
   { label: "Find my best photos", icon: "search" },
-  { label: "Get inspiration", icon: "spark" },
 ]);
 
 const TRENDS = Object.freeze([
@@ -852,6 +852,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => {
       const action = button.dataset.homeAction;
       homeActions.startAction(action);
+      if (action === "Commitment post") {
+        void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+        return;
+      }
       setChatPrompt(action);
     });
   });
