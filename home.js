@@ -654,6 +654,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         },
         body: JSON.stringify({ message: prompt, userAesthetics, screen: "Home" }),
       });
+      if (response.status === 402) {
+        showReply("You've used all your free chats this month — Gems Plus unlocks more.");
+        return;
+      }
       if (!response.ok) throw new Error(`gems-chat ${response.status}`);
       const data = await response.json();
 

@@ -2,9 +2,12 @@
 // Claude behind a strict JSON contract that drives the UI: find / build /
 // edit / inspire, max two clarifying chips, edit asks rewritten to precision.
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { ORCHESTRATOR_PROMPT, buildChatUserMessage } from "./orchestrator-prompt.js";
 
 const CHAT_MODEL = Deno.env.get("GEMS_CHAT_MODEL") ?? "claude-opus-5";
+// Per-user monthly cap (free tier) so Claude spend can't run away at scale.
+const FREE_CHATS_PER_MONTH = Number(Deno.env.get("FREE_CHATS_PER_MONTH") ?? "250");
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +100,8 @@ Deno.serve(async (request) => {
   if (!Deno.env.get("ANTHROPIC_API_KEY")) {
     return json(503, { error: "ANTHROPIC_API_KEY is not configured" });
   }
-  if (!userIdFromAuth(request.headers.get("authorization"))) return json(401, { error: "sign in required" });
+  const userId = userIdFromAuth(request.headers.get("authorization"));
+  if (!userId) return json(401, { error: "sign in required" });
 
   let body: { message?: string; userAesthetics?: string[]; screen?: string };
   try {
@@ -109,7 +113,34 @@ Deno.serve(async (request) => {
   if (!message) return json(400, { error: "message required" });
   if (message.length > 2000) return json(400, { error: "message too long" });
 
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
   try {
+    // ---- Free-tier guardrail BEFORE the model call (fails open on DB error).
+    try {
+      const { data: profile } = await supabase
+        .from("profiles").select("plan").eq("id", userId).maybeSingle();
+      if ((profile?.plan ?? "free") === "free") {
+        const monthStart = new Date();
+        monthStart.setUTCDate(1);
+        monthStart.setUTCHours(0, 0, 0, 0);
+        const { count } = await supabase
+          .from("taste_events")
+          .select("id", { count: "exact", head: true })
+          .eq("profile_id", userId)
+          .eq("event_type", "chat_message")
+          .gte("created_at", monthStart.toISOString());
+        if ((count ?? 0) >= FREE_CHATS_PER_MONTH) {
+          return json(402, { error: "chat_cap_reached", paywall: true, cap: FREE_CHATS_PER_MONTH });
+        }
+      }
+    } catch (error) {
+      console.error("chat cap check failed (allowing)", error);
+    }
+
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
@@ -126,6 +157,16 @@ Deno.serve(async (request) => {
         },
       ],
     });
+    // Meter the model call (counts toward the monthly cap; ignore insert errors).
+    try {
+      await supabase.from("taste_events").insert({
+        profile_id: userId,
+        event_type: "chat_message",
+        subject: { model: CHAT_MODEL, screen: body.screen ?? null },
+      });
+    } catch (error) {
+      console.error("chat meter insert failed", error);
+    }
     if (response.stop_reason === "refusal") {
       return json(200, sanitizeContract({ intent: "chat", reply: "Let's keep it about your photos — what would you like to make?" }));
     }

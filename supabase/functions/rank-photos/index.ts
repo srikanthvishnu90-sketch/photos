@@ -2,11 +2,16 @@
 // Pass A ("describe"): vision call, once per photo, caller caches forever.
 // Pass B ("rank"): text-only call on cached descriptions, cheap, per request.
 // Requires a signed-in Supabase user (verify_jwt) — model calls cost money.
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { PASS_A_PROMPT, buildPassBPrompt, PURPOSES } from "./prompts.js";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.6-flash";
 const MAX_BATCH = 16;
+// Per-user monthly caps (free tier) so model spend can't run away at scale.
+// A describe call analyzes up to 16 photos; a rank call is a cheap text pass.
+const FREE_ANALYSES_PER_MONTH = Number(Deno.env.get("FREE_ANALYSES_PER_MONTH") ?? "150");
+const FREE_RANKS_PER_MONTH = Number(Deno.env.get("FREE_RANKS_PER_MONTH") ?? "400");
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -84,7 +89,8 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (request.method !== "POST") return json(405, { error: "POST only" });
   if (!GEMINI_API_KEY) return json(503, { error: "GEMINI_API_KEY is not configured" });
-  if (!userIdFromAuth(request.headers.get("authorization"))) return json(401, { error: "sign in required" });
+  const userId = userIdFromAuth(request.headers.get("authorization"));
+  if (!userId) return json(401, { error: "sign in required" });
 
   let body: Record<string, unknown>;
   try {
@@ -93,8 +99,48 @@ Deno.serve(async (request) => {
     return json(400, { error: "invalid JSON body" });
   }
 
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  // Free-tier guardrail: this calendar month's count of `eventType` for the user,
+  // compared to `cap`. Paid plans are unlimited. Fails OPEN on a DB error so a
+  // transient outage never blocks a legit user.
+  async function overCap(eventType: string, cap: number): Promise<boolean> {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles").select("plan").eq("id", userId).maybeSingle();
+      if ((profile?.plan ?? "free") !== "free") return false;
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from("taste_events")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", userId)
+        .eq("event_type", eventType)
+        .gte("created_at", monthStart.toISOString());
+      return (count ?? 0) >= cap;
+    } catch (error) {
+      console.error("overCap check failed (allowing)", error);
+      return false;
+    }
+  }
+
+  async function meter(eventType: string, subject: Record<string, unknown>) {
+    try {
+      await supabase.from("taste_events").insert({ profile_id: userId, event_type: eventType, subject });
+    } catch (error) {
+      console.error("meter insert failed", error);
+    }
+  }
+
   try {
     if (body.action === "describe") {
+      if (await overCap("photo_analysis", FREE_ANALYSES_PER_MONTH)) {
+        return json(402, { error: "analysis_cap_reached", paywall: true, cap: FREE_ANALYSES_PER_MONTH });
+      }
       // photos: [{ id, mimeType, base64 }] — thumbnails, 512px max edge.
       const photos = Array.isArray(body.photos) ? body.photos : [];
       if (!photos.length) return json(400, { error: "photos[] required" });
@@ -129,12 +175,16 @@ Deno.serve(async (request) => {
         const id = (photos[item.index ?? -1] as { id?: string } | undefined)?.id ?? null;
         return { id, ...(entry as Record<string, unknown>) };
       });
+      await meter("photo_analysis", { photos: photos.length, model: GEMINI_MODEL });
       return json(200, { photos: described, model: GEMINI_MODEL });
     }
 
     if (body.action === "rank") {
       const descriptions = Array.isArray(body.descriptions) ? body.descriptions : [];
       if (!descriptions.length) return json(400, { error: "descriptions[] required" });
+      if (await overCap("rank_run", FREE_RANKS_PER_MONTH)) {
+        return json(402, { error: "rank_cap_reached", paywall: true, cap: FREE_RANKS_PER_MONTH });
+      }
       const purpose = PURPOSES.includes(body.purpose as string)
         ? (body.purpose as string)
         : "general";
@@ -151,6 +201,7 @@ Deno.serve(async (request) => {
       ]);
       const parsed = parseModelJson(raw) as { ranking?: unknown[] };
       if (!Array.isArray(parsed.ranking)) throw new Error("model output missing ranking[]");
+      await meter("rank_run", { purpose, model: GEMINI_MODEL });
       return json(200, { ranking: parsed.ranking, purpose, model: GEMINI_MODEL });
     }
 
