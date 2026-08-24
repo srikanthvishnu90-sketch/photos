@@ -1,0 +1,8 @@
+{
+  "appId": "app.sporve.gems",
+  "appName": "Gems",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always"
+  }
+}

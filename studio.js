@@ -381,11 +381,13 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
         .neq("status", "archived")
         .order("updated_at", { ascending: false })
         .limit(40);
-      if (error || !data?.length) return;
-      projects = data.map(projectFromRow);
+      if (error) return; // real error → keep the signed-out demo preview
+      // Signed in: switch to the user's REAL projects, even when there are none
+      // (an empty studio is honest; fabricated mock projects are not).
+      projects = (data ?? []).map(projectFromRow);
       try {
         const counts = await fetchMoodboardCounts();
-        data.forEach((row, index) => {
+        (data ?? []).forEach((row, index) => {
           if (row.kind !== "moodboard") return;
           const count =
             (counts instanceof Map ? counts.get(row.id) : counts?.[row.id]) ?? 0;
@@ -442,7 +444,21 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
           : "Your projects";
     projectsGrid.innerHTML = projects.map(projectMarkup).join("");
     projectsGrid.hidden = projects.length === 0;
-    empty.hidden = !moodboards || projects.length > 0;
+    // Honest empty state: for signed-in users (usingLive) with no real projects,
+    // or the moodboards tab, invite them to start one — never show mock rows.
+    const showEmpty = projects.length === 0 && !templateOnly && (moodboards || usingLive);
+    if (showEmpty) {
+      const emptyStrong = empty.querySelector("strong");
+      const emptySpan = empty.querySelector("span:last-of-type");
+      if (moodboards) {
+        if (emptyStrong) emptyStrong.textContent = "No moodboards yet";
+        if (emptySpan) emptySpan.textContent = "Save inspiration from Discover to start one.";
+      } else {
+        if (emptyStrong) emptyStrong.textContent = "No projects yet";
+        if (emptySpan) emptySpan.textContent = "Import your photos, then create a dump, edit, or moodboard.";
+      }
+    }
+    empty.hidden = !showEmpty;
     bindProjectButtons();
 
     const resultLabel = templateOnly

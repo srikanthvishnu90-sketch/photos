@@ -3,6 +3,7 @@ import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
 import { pickGemOfTheDay } from "./gems-daily.js";
 import { importPhotoFiles, listPhotos } from "./gems-photolib.js";
+import { importFromDevice, hasNativeLibrary } from "./gems-native.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -206,7 +207,7 @@ function homeMarkup() {
         </div>
       </section>
 
-      <section class="home-section home-draft-section" aria-labelledby="draftTitle">
+      <section class="home-section home-draft-section" aria-labelledby="draftTitle" hidden>
         <h2 id="draftTitle" class="home-section-title home-entrance">Pick up where you left off</h2>
         <button id="openDraft" class="home-draft home-entrance" type="button">
           <span class="draft-stack" aria-hidden="true">
@@ -221,7 +222,7 @@ function homeMarkup() {
         </button>
       </section>
 
-      <section class="home-section home-hidden-section" aria-labelledby="hiddenGemTitle">
+      <section class="home-section home-hidden-section" aria-labelledby="hiddenGemTitle" hidden>
         <div class="home-section-heading">
           <h2 id="hiddenGemTitle" class="home-section-title home-entrance">Hidden gem of the day</h2>
           <span class="home-section-meta home-entrance">New every day</span>
@@ -396,10 +397,28 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     try {
       const all = await listPhotos();
       if (!Array.isArray(all) || all.length === 0) {
+        // Honest first-run state: no invented "best photos", just an invitation
+        // to import. (No more Sample cards masquerading as the user's library.)
         realGems = false;
-        gemCount = GEMS.length;
-        return; // keep the sample scenes (they carry a "Sample" tag in the markup)
+        gemCount = 0;
+        carousel.innerHTML = `
+          <button class="home-gem-empty" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 7v10M7 12h10"></path>
+              <rect x="3.5" y="3.5" width="17" height="17" rx="5"></rect>
+            </svg>
+            <span class="home-gem-empty-title">Import your photos</span>
+            <span class="home-gem-empty-sub">Gems finds your best ones automatically</span>
+          </button>`;
+        dotsWrap.hidden = true;
+        if (seeAllLink) seeAllLink.hidden = true;
+        carouselStatus.textContent = "No photos imported yet";
+        carousel
+          .querySelector(".home-gem-empty")
+          ?.addEventListener("click", () => importButton.click());
+        return;
       }
+      if (seeAllLink) seeAllLink.hidden = false;
       // Once photos are analyzed, keep utility images (screenshots/docs) out of
       // "best photos" — but only when at least one real photo survives, so a
       // library that is ALL screenshots still shows something rather than empty.
@@ -626,9 +645,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   // Text lands via textContent, so nothing here can inject markup. Never throws.
   async function refreshHiddenGem() {
     if (!hiddenGemBtn) return;
+    const hiddenSection = hiddenGemBtn.closest(".home-hidden-section");
     try {
       const result = await pickGemOfTheDay();
-      if (!result?.record?.url) return; // keep the demo scene untouched
+      if (!result?.record?.url) {
+        // No real gem yet → hide the section rather than show an invented one.
+        if (hiddenSection) hiddenSection.hidden = true;
+        hiddenGemPhotoId = null;
+        return;
+      }
+      if (hiddenSection) hiddenSection.hidden = false;
       const { record, reason } = result;
       hiddenGemPhotoId = record.id;
 
@@ -682,51 +708,47 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     homeActions.selectTab("Discover");
     goTo("Discover");
   });
-  // Real photo import, straight from Home. A hidden multi-file picker feeds the
-  // same on-device importer the Photos tab uses; progress shows on the button
-  // itself, and the carousel refreshes to the new best photos when it finishes.
+  // Real photo import, straight from Home. Goes through the device boundary:
+  // the native iOS shell scans the whole camera roll; the web opens the
+  // multi-file picker. Progress shows on the button, then the carousel and the
+  // hidden gem refresh to reflect the new library.
   const importButton = mount.querySelector("#homeImport");
   const importLabel = importButton.querySelector(".home-import-label");
-  const homeFileInput = document.createElement("input");
-  homeFileInput.type = "file";
-  homeFileInput.accept = "image/*";
-  homeFileInput.multiple = true;
-  homeFileInput.hidden = true;
-  homeFileInput.tabIndex = -1;
-  homeFileInput.setAttribute("aria-hidden", "true");
-  mount.append(homeFileInput);
   let importing = false;
 
-  function openImportPicker() {
+  async function runImport() {
     if (importing) return;
-    homeActions.attachPhoto();
-    homeFileInput.click();
-  }
-  importButton.addEventListener("click", openImportPicker);
-  // The chat dock's paperclip now imports too, rather than being a dead stub.
-  mount.querySelector("#attachPhoto").addEventListener("click", openImportPicker);
-
-  homeFileInput.addEventListener("change", async () => {
-    if (!homeFileInput.files || homeFileInput.files.length === 0) return;
-    const total = homeFileInput.files.length;
     importing = true;
+    homeActions.attachPhoto();
     importButton.classList.add("is-busy");
     importButton.disabled = true;
     let added = [];
+    let files = [];
     try {
-      added = await importPhotoFiles(homeFileInput.files, {
-        onProgress: ({ done, total: t }) => {
-          importLabel.textContent = `${done}/${t}`;
+      files = await importFromDevice({
+        // Native enumeration reports scan progress before the on-device analysis.
+        onProgress: ({ done, total }) => {
+          importLabel.textContent = total ? `${done}/${total}` : "Scanning…";
         },
       });
+      if (files.length) {
+        added = await importPhotoFiles(files, {
+          onProgress: ({ done, total }) => {
+            importLabel.textContent = `${done}/${total}`;
+          },
+        });
+      }
     } catch (error) {
       console.info("Home import failed", error);
+      if (error?.code === "denied") {
+        showReply("Gems needs photo access to find your best shots — enable it in Settings.");
+      }
     }
-    homeFileInput.value = "";
     importLabel.textContent = "Import";
     importButton.classList.remove("is-busy");
     importButton.disabled = false;
     importing = false;
+    if (!files.length) return; // user cancelled the picker — say nothing
     await refreshGemsCarousel();
     void refreshHiddenGem();
     if (!added || added.length === 0) {
@@ -739,8 +761,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         ? `Imported ${added.length} photos — ${gems} already stand out as gems. Ask me to rank them.`
         : `Imported ${added.length} photos. Ask me for your best ones and I'll rank them.`,
     );
-    recordTasteEvent("home_import_completed", { added: added.length, gems });
-  });
+    recordTasteEvent("home_import_completed", {
+      added: added.length,
+      gems,
+      source: hasNativeLibrary() ? "native" : "web",
+    });
+  }
+
+  importButton.addEventListener("click", runImport);
+  // The chat dock's paperclip now imports too, rather than being a dead stub.
+  mount.querySelector("#attachPhoto").addEventListener("click", runImport);
   replyClose.addEventListener("click", () => {
     window.clearTimeout(navigateTimer);
     hideReply();

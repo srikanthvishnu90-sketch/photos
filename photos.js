@@ -5,6 +5,7 @@ import { isRankQuery, rankPhotos } from "./gems-ranker.js";
 import { computeCollections, semanticFilter } from "./gems-collections.js";
 import { exportAll } from "./gems-export.js";
 import { getSession } from "./gems-supabase.js";
+import { importFromDevice } from "./gems-native.js";
 
 const SEARCH_HINTS = Object.freeze([
   "best of me last summer",
@@ -341,15 +342,6 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
       console.info("Ranked search skipped", error);
     }
   }
-
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.accept = "image/*";
-  fileInput.multiple = true;
-  fileInput.hidden = true;
-  fileInput.tabIndex = -1;
-  fileInput.setAttribute("aria-hidden", "true");
-  mount.append(fileInput);
 
   function isRealMode() {
     return libraryPhotos.length > 0;
@@ -728,12 +720,12 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
 
   mount.querySelector("#photosImport").addEventListener("click", () => {
     photosActions.importPhotos();
-    fileInput.click();
+    void runPhotosImport();
   });
 
   mount.querySelector("#photosFirstRunImport").addEventListener("click", () => {
     photosActions.importPhotos();
-    fileInput.click();
+    void runPhotosImport();
   });
 
   mount.querySelector("#photosExport").addEventListener("click", async () => {
@@ -778,28 +770,44 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     if (progressFill) progressFill.style.width = "0%";
   }
 
-  fileInput.addEventListener("change", async () => {
-    if (!fileInput.files || fileInput.files.length === 0) return;
-    const total = fileInput.files.length;
+  let photosImporting = false;
+  async function runPhotosImport() {
+    if (photosImporting) return;
+    photosImporting = true;
     setImportBusy(true);
-    showProgress(0, total, 0);
+    let files = [];
     let added = [];
     try {
-      // Analyze the whole selection on-device with live progress — this is the
-      // "import everything, watch it pick the best, fast" moment.
-      added = await importPhotoFiles(fileInput.files, {
+      // The device boundary: native scans the whole camera roll; web opens the
+      // multi-file picker. Show scan progress before the analysis begins.
+      files = await importFromDevice({
+        onProgress: ({ done, total }) => showProgress(done, total || done, 0),
+      });
+      if (!files.length) {
+        hideProgress();
+        setImportBusy(false);
+        photosImporting = false;
+        return; // cancelled — leave the grid as it was
+      }
+      showProgress(0, files.length, 0);
+      // Analyze everything on-device with live progress — the "import
+      // everything, watch it pick the best, fast" moment.
+      added = await importPhotoFiles(files, {
         onProgress: ({ done, total: t, gems }) => showProgress(done, t, gems),
       });
     } catch (error) {
       console.info("Import failed", error);
+      if (error?.code === "denied") {
+        status.textContent = "Gems needs photo access — enable it in Settings to import.";
+      }
     }
-    fileInput.value = "";
     libraryPhotos = await listPhotos();
     clearRanked();
     syncMode();
     renderGrid();
     hideProgress();
     setImportBusy(false);
+    photosImporting = false;
     if (!added || added.length === 0) {
       status.textContent = "Those didn't import — try photos from your library.";
       return;
@@ -811,7 +819,7 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     status.textContent = `Added ${added.length} photos. ${gemCount} ranked as gems.`;
     photosActions.importCompleted(added.length, gemCount);
     void refreshRealCollections();
-  });
+  }
 
   search.addEventListener("input", () => {
     query = search.value;

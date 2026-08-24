@@ -224,7 +224,7 @@ function discoverMarkup() {
     <div id="discoverContent" class="discover-content home-scroll">
       <header class="discover-header">
         <h1 id="discoverTitle" class="discover-title discover-entrance" tabindex="-1">Discover</h1>
-        <p class="discover-subtitle discover-entrance">All real. Shared by real people.</p>
+        <p class="discover-subtitle discover-entrance">Looks to recreate with your own photos.</p>
 
         <label class="discover-search discover-entrance" for="discoverSearch">
           <svg viewBox="0 0 16 16" aria-hidden="true">

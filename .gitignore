@@ -12,3 +12,8 @@ secrets/
 eval/photos/
 eval/.pass-a-cache.json
 eval/expected.json
+
+# Native iOS (Capacitor) — generated, not tracked
+node_modules/
+www/
+ios/
