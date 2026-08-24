@@ -16,10 +16,30 @@ import {
   applyMaskedAdjust,
   applyPortraitBlur,
   buildAutoMask,
+  applyRecipe,
   HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
 } from "./gems-canvas.js";
+
+// Named presets (recipes) live on-device so they work offline / in demo.
+const PRESETS_KEY = "gems.presets.v1";
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+function savePresetsList(list) {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(list));
+  } catch (error) {
+    console.info("Preset save failed", error);
+  }
+}
 
 // Deployed editing edge function. The publishable key is client-safe by
 // design — the function authorizes every call with the user's session token.
@@ -28,9 +48,9 @@ const EDIT_FUNCTION_URL =
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc";
 
 const MANUAL_TOOLS = Object.freeze([
-  "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance", "Selective",
-  "Crop", "Rotate", "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen",
-  "Portrait Blur", "Whiten", "Stickers", "Retouch", "Erase", "Add",
+  "Presets", "Adjust", "Filters", "Curves", "Levels", "HSL", "White Balance",
+  "Selective", "Crop", "Rotate", "Draw", "Text", "Dodge & Burn", "Clone",
+  "Blur & Sharpen", "Portrait Blur", "Whiten", "Stickers", "Retouch", "Erase", "Add",
 ]);
 
 // Representative swatch color per HSL band.
@@ -40,6 +60,7 @@ const HSL_SWATCH = Object.freeze({
 });
 
 const TOOL_HELP = Object.freeze({
+  Presets: "Save your edits as a reusable look, or apply a saved one.",
   Adjust: "Exposure, contrast, highlights, shadows, color, sharpness — by hand.",
   Filters: "Your aesthetics as one-tap grades: Euro Summer, Dark Gym…",
   Curves: "Drag the tone curve — shape shadows, midtones, and highlights.",
@@ -309,6 +330,17 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   let overlayCleanup = null; // detaches the active erase-brush overlay + listeners
   let toolPreviewUrl = ""; // object URL of the current live tool preview (revoked on reset)
   let filterThumbUrls = []; // object URLs of the graded filter-chip thumbnails
+  // The parametric edits applied this session, in order — the recipe a preset
+  // saves. Only look-transferable ops (adjust/grade/curve/levels/hsl/gains),
+  // never brush/position ops.
+  let recipeOps = [];
+  function recordOp(op, params) {
+    try {
+      recipeOps.push({ op, params: JSON.parse(JSON.stringify(params)) });
+    } catch {
+      /* ignore un-serializable params */
+    }
+  }
   let manualBusy = false; // guards overlapping client-side commits
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
@@ -546,7 +578,8 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       return;
     }
     toolPanel.hidden = false;
-    if (toolName === "Crop") renderCropTool();
+    if (toolName === "Presets") renderPresetsTool();
+    else if (toolName === "Crop") renderCropTool();
     else if (toolName === "Rotate") renderRotateTool();
     else if (toolName === "Adjust") renderAdjustTool();
     else if (toolName === "Filters") renderFiltersTool();
@@ -691,6 +724,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const blob = bitmap ? applyAdjust(bitmap, values) : null;
       clearPreviewUrl();
       manualBusy = false;
+      if (blob) recordOp("adjust", values);
       commitManualVersion("Adjust", blob, "Adjust");
     });
   }
@@ -846,6 +880,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyGrade(bitmap, grade) : null;
       manualBusy = false;
+      if (blob) recordOp("grade", { key: grade.key });
       commitManualVersion(grade.label, blob, "Filters");
     });
 
@@ -1546,6 +1581,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyLevels(bitmap, state) : null;
       manualBusy = false;
+      if (blob) recordOp("levels", { black: state.black, white: state.white, gamma: state.gamma });
       commitManualVersion("Levels", blob, "Levels");
     });
   }
@@ -1642,6 +1678,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyHsl(bitmap, bands) : null;
       manualBusy = false;
+      if (blob) recordOp("hsl", bands);
       commitManualVersion("Color Mix", blob, "HSL");
     });
   }
@@ -1676,6 +1713,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyChannelGains(bitmap, state.gains) : null;
       manualBusy = false;
+      if (blob) recordOp("gains", state.gains);
       commitManualVersion("White balance", blob, "White Balance");
     });
     void setupWhiteBalance(state);
@@ -1877,6 +1915,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyCurve(bitmap, points) : null;
       manualBusy = false;
+      if (blob) recordOp("curve", points.map((pt) => [pt[0], pt[1]]));
       commitManualVersion("Curves", blob, "Curves");
     });
   }
@@ -2618,6 +2657,73 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       window.removeEventListener("pointercancel", up);
       overlay.remove();
     };
+  }
+
+  // ---- Presets / Recipes -------------------------------------------------
+
+  function renderPresetsTool() {
+    const presets = loadPresets();
+    const canSave = recipeOps.length > 0;
+    toolPanel.innerHTML = `
+      <div class="editor-presets">
+        <div class="editor-presets-save">
+          <input type="text" class="editor-text-input" data-preset-name maxlength="40"
+            placeholder="Name this look…" ${canSave ? "" : "disabled"} />
+          <button type="button" class="editor-manual-apply" data-preset-save ${canSave ? "" : "disabled"}>Save</button>
+        </div>
+        <p class="editor-erase-hint">${
+          canSave
+            ? `Save the ${recipeOps.length} tonal/color edit${recipeOps.length === 1 ? "" : "s"} you've made as a reusable look.`
+            : "Make some tonal or color edits (Adjust, Filters, Curves, Levels, HSL, White Balance), then come back to save them as a preset."
+        }</p>
+        <div class="editor-presets-list">
+          ${
+            presets.length
+              ? presets
+                  .map(
+                    (pr) => `
+                      <div class="editor-preset-row" data-preset-id="${esc(pr.id)}">
+                        <button type="button" class="editor-preset-apply">${esc(pr.name)} <small>${pr.ops.length} step${pr.ops.length === 1 ? "" : "s"}</small></button>
+                        <button type="button" class="editor-preset-del" aria-label="Delete preset">✕</button>
+                      </div>`,
+                  )
+                  .join("")
+              : `<p class="editor-erase-hint">No saved presets yet.</p>`
+          }
+        </div>
+      </div>
+    `;
+    const nameInput = toolPanel.querySelector("[data-preset-name]");
+    toolPanel.querySelector("[data-preset-save]")?.addEventListener("click", () => {
+      if (!recipeOps.length) return;
+      const list = loadPresets();
+      const name = (nameInput?.value || "").trim() || `Look ${list.length + 1}`;
+      list.unshift({ id: `p${Date.now().toString(36)}`, name, ops: recipeOps.map((o) => ({ ...o })) });
+      savePresetsList(list.slice(0, 40));
+      status.textContent = `Saved "${name}".`;
+      renderPresetsTool();
+    });
+    toolPanel.querySelectorAll(".editor-preset-apply").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (manualBusy) return;
+        const id = btn.closest("[data-preset-id]")?.dataset.presetId;
+        const pr = loadPresets().find((x) => x.id === id);
+        if (!pr) return;
+        manualBusy = true;
+        status.textContent = `Applying "${pr.name}"…`;
+        const bitmap = await activeBitmap();
+        const blob = bitmap ? await applyRecipe(bitmap, pr.ops) : null;
+        manualBusy = false;
+        commitManualVersion(pr.name, blob, "Presets");
+      });
+    });
+    toolPanel.querySelectorAll(".editor-preset-del").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("[data-preset-id]")?.dataset.presetId;
+        savePresetsList(loadPresets().filter((x) => x.id !== id));
+        renderPresetsTool();
+      });
+    });
   }
 
   // ---- Selective (local adjustment within a brushed mask) ----------------
@@ -3430,6 +3536,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       manualBusy = false;
       photo = null;
       lastInstruction = "";
+      recipeOps = [];
       versions = [{ id: 0, label: "Original", ship: true }];
       activeVersionId = 0;
       processing = false;

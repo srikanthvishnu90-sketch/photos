@@ -760,6 +760,91 @@
   background: var(--color-surface);
 }
 
+/* Auto-select buttons (Sky/Subject/Bright/Dark) — 4 across. */
+.editor-automask {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.editor-automask .editor-db-mode {
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+/* ---- Presets / Recipes ---- */
+.editor-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-presets-save {
+  display: flex;
+  gap: 8px;
+}
+
+.editor-presets-save .editor-text-input {
+  flex: 1 1 auto;
+}
+
+.editor-presets-save .editor-manual-apply {
+  flex: 0 0 auto;
+  min-width: 80px;
+}
+
+.editor-presets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-preset-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.editor-preset-apply {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-ink);
+  background: var(--color-white);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.editor-preset-apply:hover {
+  background: var(--color-surface);
+}
+
+.editor-preset-apply small {
+  color: var(--color-mauve);
+  font-weight: 500;
+}
+
+.editor-preset-del {
+  flex: 0 0 46px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-mauve);
+  background: var(--color-white);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.editor-preset-del:hover {
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
 /* ---- Clone source marker ---- */
 .editor-clone-source {
   position: absolute;

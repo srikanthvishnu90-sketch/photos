@@ -1076,6 +1076,60 @@ export function applyGrade(bitmap, grade = {}) {
  * @param {{brightness?:number, contrast?:number, saturation?:number, warmth?:number}} adjust
  * @returns {string}
  */
+/**
+ * Replay a "recipe" — an ordered list of parametric ops — onto a photo. Each op
+ * is { op, params }: "adjust", "grade" ({key}), "curve", "levels", "hsl",
+ * "gains". Brush/position ops aren't in recipes (they can't transfer between
+ * photos). Returns the final JPEG Blob, or null if nothing applied.
+ * @param {ImageBitmap|HTMLImageElement} bitmap
+ * @param {Array<{op:string, params:any}>} ops
+ * @returns {Promise<Blob|null>}
+ */
+export async function applyRecipe(bitmap, ops) {
+  try {
+    if (!bitmap || !Array.isArray(ops) || !ops.length) return null;
+    let current = bitmap;
+    let lastBlob = null;
+    for (const entry of ops) {
+      let blob = null;
+      const p = entry?.params;
+      switch (entry?.op) {
+        case "adjust":
+          blob = applyAdjust(current, p || {});
+          break;
+        case "grade": {
+          const grade = FILTER_GRADES.find((g) => g.key === p?.key);
+          if (grade) blob = applyGrade(current, grade);
+          break;
+        }
+        case "curve":
+          blob = applyCurve(current, p);
+          break;
+        case "levels":
+          blob = applyLevels(current, p || {});
+          break;
+        case "hsl":
+          blob = applyHsl(current, p || {});
+          break;
+        case "gains":
+          blob = applyChannelGains(current, p || [1, 1, 1]);
+          break;
+        default:
+          blob = null;
+      }
+      if (blob) {
+        lastBlob = blob;
+        const next = await loadBitmap(blob);
+        if (next) current = next;
+      }
+    }
+    return lastBlob;
+  } catch (error) {
+    console.info("applyRecipe failed", error);
+    return null;
+  }
+}
+
 export function cssFilterFor(adjust = {}) {
   const b = clampAdj(adjust.brightness);
   const c = clampAdj(adjust.contrast);
