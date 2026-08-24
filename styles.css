@@ -364,10 +364,10 @@ button {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: clamp(31px, calc(9.6vw - 2px), 34px);
+  font-size: clamp(26px, 7.8vw, 32px);
   font-weight: 560;
   letter-spacing: -0.015em;
-  line-height: 1.14;
+  line-height: 1.16;
 }
 
 .login-headline:focus {

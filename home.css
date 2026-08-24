@@ -169,8 +169,11 @@
 .home-gem-card {
   position: relative;
   flex: 0 0 auto;
-  width: min(342px, calc(100vw - 48px));
+  width: min(320px, calc(100vw - 64px));
   aspect-ratio: 342 / 426;
+  /* Cap the hero card by viewport height so it never fills a small phone —
+     it should read as a card in a carousel, not a full-bleed image. */
+  max-height: 46vh;
   padding: 0;
   overflow: hidden;
   border: 0;
