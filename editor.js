@@ -24,6 +24,7 @@ import {
 } from "./gems-canvas.js";
 
 import { loadPresets, savePresetsList } from "./gems-presets.js";
+import { segmentPerson } from "./gems-segment.js";
 
 // Deployed editing edge function. The publishable key is client-safe by
 // design — the function authorizes every call with the user's session token.
@@ -2797,6 +2798,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       <div class="editor-adjust">
         <p class="editor-erase-hint">Auto-select a region, or brush one — then move the sliders.</p>
         <div class="editor-db-modes editor-automask" role="group" aria-label="Auto select">
+          <button type="button" class="editor-db-mode" data-auto="person">Person</button>
           <button type="button" class="editor-db-mode" data-auto="sky">Sky</button>
           <button type="button" class="editor-db-mode" data-auto="foreground">Subject</button>
           <button type="button" class="editor-db-mode" data-auto="bright">Bright</button>
@@ -2840,7 +2842,22 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       btn.addEventListener("click", async () => {
         const bitmap = await activeBitmap();
         if (!bitmap || !state.mask || !state.display) return;
-        const auto = buildAutoMask(bitmap, btn.dataset.auto);
+        const type = btn.dataset.auto;
+        let auto;
+        if (type === "person") {
+          // True on-device segmentation, with a graceful fall back to the
+          // heuristic subject mask if the model can't load.
+          status.textContent = "Selecting the person…";
+          auto = await segmentPerson(bitmap);
+          if (tool !== "Selective") return;
+          if (auto) status.textContent = "Person selected.";
+          else {
+            auto = buildAutoMask(bitmap, "foreground");
+            status.textContent = "Selected the subject (approximate).";
+          }
+        } else {
+          auto = buildAutoMask(bitmap, type);
+        }
         if (!auto) return;
         const mctx = state.mask.getContext("2d");
         const dctx = state.display.getContext("2d");

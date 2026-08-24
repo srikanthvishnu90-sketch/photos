@@ -760,12 +760,13 @@
   background: var(--color-surface);
 }
 
-/* Auto-select buttons (Sky/Subject/Bright/Dark) — 4 across. */
+/* Auto-select buttons (Person/Sky/Subject/Bright/Dark). */
 .editor-automask {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .editor-automask .editor-db-mode {
+  min-height: 40px;
   padding: 0 4px;
   font-size: 12px;
 }
