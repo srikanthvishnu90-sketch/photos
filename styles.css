@@ -1453,3 +1453,27 @@ button {
   font-weight: 500;
   text-align: center;
 }
+
+.auth-signup-row {
+  margin: 4px 0 0;
+  text-align: center;
+  color: var(--color-mauve);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auth-signup-link {
+  padding: 6px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--color-deep-petal);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-signup-link:focus-visible {
+  outline: 2px solid var(--color-deep-petal);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

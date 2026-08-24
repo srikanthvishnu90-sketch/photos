@@ -187,9 +187,14 @@ async function checkExistingSession() {
       session.user?.user_metadata?.name ||
       "";
     if (data?.age_range) {
+      // A fully-onboarded account — the only case that skips the login screen
+      // (straight to Home).
       restoredProfile = { name: data.display_name };
-    } else {
-      // Signed in but not onboarded — route to signup, prefilling their name.
+    } else if (oauthReturn) {
+      // Just authenticated via Google/email but not onboarded yet — continue
+      // straight into signup. A leftover incomplete session on a NORMAL boot
+      // does NOT auto-jump into onboarding: the app always opens on the login
+      // screen unless you're a fully-onboarded returning user.
       pendingOnboarding = { name: (data?.display_name || oauthName || "").trim() };
     }
   } catch (error) {
@@ -584,6 +589,12 @@ appleButton.addEventListener("click", () => {
 
 googleButton.addEventListener("click", () => {
   void startOAuth(googleButton, () => authActions.signInWithGoogle());
+});
+
+// Explicit "Sign up" entry — starts a new user straight through the account-
+// creation journey (name → gender → age → aesthetics).
+document.querySelector("#signupButton").addEventListener("click", () => {
+  showOnboarding();
 });
 
 splashScreen.addEventListener("click", showLogin);
