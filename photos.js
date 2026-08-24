@@ -192,7 +192,7 @@ function photosMarkup() {
       <div id="photosFirstRun" class="photos-firstrun" hidden>
         <div class="photos-firstrun-copy">
           <strong>Bring in your camera roll</strong>
-          <span>Tap Import, choose <b>Select All</b> — Gems finds your best photos in seconds, right on your device.</span>
+          <span>Tap Import, then <b>select as many photos as you like</b> — Gems finds your best in seconds, right on your device.</span>
         </div>
         <button id="photosFirstRunImport" class="photos-firstrun-btn" type="button">Import your photos</button>
       </div>
