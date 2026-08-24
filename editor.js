@@ -23,7 +23,8 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc
 
 const MANUAL_TOOLS = Object.freeze([
   "Adjust", "Filters", "Curves", "Levels", "Crop", "Rotate",
-  "Draw", "Text", "Dodge & Burn", "Retouch", "Erase", "Add",
+  "Draw", "Text", "Dodge & Burn", "Clone", "Blur & Sharpen", "Stickers",
+  "Retouch", "Erase", "Add",
 ]);
 
 const TOOL_HELP = Object.freeze({
@@ -36,10 +37,23 @@ const TOOL_HELP = Object.freeze({
   Draw: "Draw on the photo freehand — pick a color and brush size.",
   Text: "Add text, drag it into place, pick a color and size.",
   "Dodge & Burn": "Brush to lighten (dodge) or darken (burn) areas by hand.",
+  Clone: "Set a source spot, then brush to copy it — or heal a blemish.",
+  "Blur & Sharpen": "Brush to blur or sharpen just the areas you paint.",
+  Stickers: "Tap emoji and shapes, drag them into place, then apply.",
   Retouch: "One-tap AI: remove background, enhance, restore, and more.",
   Erase: "Brush over anything to remove it — Gems fills the background.",
   Add: "Describe something to add to the photo.",
 });
+
+// Sticker/shape palette.
+const STICKER_EMOJI = Object.freeze([
+  "😀", "😍", "🔥", "💯", "✨", "❤️", "😎", "🎉", "👀", "💀", "🌟", "📍",
+]);
+const STICKER_SHAPES = Object.freeze([
+  { key: "box", glyph: "▭" },
+  { key: "circle", glyph: "◯" },
+  { key: "arrow", glyph: "➤" },
+]);
 
 // Shared palette for the Draw and Text tools.
 const PAINT_COLORS = Object.freeze([
@@ -511,6 +525,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     else if (toolName === "Draw") renderDrawTool();
     else if (toolName === "Text") renderTextTool();
     else if (toolName === "Dodge & Burn") renderDodgeBurnTool();
+    else if (toolName === "Clone") renderCloneTool();
+    else if (toolName === "Blur & Sharpen") renderBlurTool();
+    else if (toolName === "Stickers") renderStickersTool();
     else if (toolName === "Retouch") renderRetouchTool();
     else if (toolName === "Erase") renderEraseTool();
     else if (toolName === "Add") renderAiTool("Add");
@@ -1726,6 +1743,518 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       window.removeEventListener("pointercancel", up);
       overlay.remove();
     };
+  }
+
+  // ---- Clone / Blur / Stickers: shared work-canvas plumbing --------------
+
+  function canvasToBlob(cnv) {
+    return new Promise((resolve) => {
+      try {
+        if (cnv.toBlob) cnv.toBlob((b) => resolve(b), "image/jpeg", 0.92);
+        else resolve(null);
+      } catch (error) {
+        console.info("canvasToBlob failed", error);
+        resolve(null);
+      }
+    });
+  }
+
+  // An overlay whose canvas starts as an OPAQUE copy of the photo (the work
+  // surface). Clone and Blur paint onto it directly; on Apply we encode it.
+  function buildWorkOverlay(bitmap, className) {
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, className);
+    const work = document.createElement("canvas");
+    work.width = natW;
+    work.height = natH;
+    work.className = "editor-paint-canvas";
+    work.getContext("2d")?.drawImage(bitmap, 0, 0, natW, natH);
+    overlay.appendChild(work);
+    return { overlay, work, natW, natH, scale };
+  }
+
+  function makeCopyCanvas(bitmap, w, h) {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    c.getContext("2d")?.drawImage(bitmap, 0, 0, w, h);
+    return c;
+  }
+
+  // ---- Clone / Heal (copy from a source spot, on-device) -----------------
+
+  function renderCloneTool() {
+    const state = {
+      mode: "clone", size: 44, source: null, offset: null, painted: false,
+      work: null, wctx: null, snapshot: null, scale: 1, overlayEl: null, marker: null, natW: 0, natH: 0,
+    };
+    toolPanel.innerHTML = `
+      <div class="editor-draw">
+        <div class="editor-db-modes" role="group" aria-label="Clone or heal">
+          <button type="button" class="editor-db-mode is-active" data-cl="clone">⎘ Clone</button>
+          <button type="button" class="editor-db-mode" data-cl="heal">✦ Heal</button>
+        </div>
+        <p class="editor-erase-hint" data-cl-hint>Tap the photo to set a source spot, then brush where you want it copied.</p>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="12" max="120" value="44" step="1" data-cl-size aria-label="Brush size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-cl-source>New source</button>
+          <button type="button" class="editor-manual-apply" data-cl-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-cl]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.mode = btn.dataset.cl;
+        toolPanel.querySelectorAll("[data-cl]").forEach((b) => b.classList.toggle("is-active", b === btn));
+      });
+    });
+    toolPanel.querySelector("[data-cl-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 44;
+    });
+    toolPanel.querySelector("[data-cl-source]")?.addEventListener("click", () => {
+      state.source = null;
+      state.offset = null;
+      if (state.marker) state.marker.hidden = true;
+      const hint = toolPanel.querySelector("[data-cl-hint]");
+      if (hint) hint.textContent = "Tap the photo to set a new source spot.";
+    });
+    toolPanel.querySelector("[data-cl-apply]")?.addEventListener("click", async () => {
+      if (manualBusy || !state.work || !state.painted) {
+        if (!state.painted) status.textContent = "Set a source and brush first, then Apply.";
+        return;
+      }
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const blob = await canvasToBlob(state.work);
+      manualBusy = false;
+      commitManualVersion(state.mode === "heal" ? "Heal" : "Clone", blob, "Clone");
+    });
+    void setupCloneSurface(state);
+  }
+
+  async function setupCloneSurface(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Clone" || mode !== "manual") return;
+    const { overlay, work, natW, natH, scale } = buildWorkOverlay(bitmap, "editor-paint-overlay");
+    state.work = work;
+    state.wctx = work.getContext("2d");
+    state.snapshot = makeCopyCanvas(bitmap, natW, natH);
+    state.scale = scale;
+    state.overlayEl = overlay;
+    state.natW = natW;
+    state.natH = natH;
+    const marker = document.createElement("div");
+    marker.className = "editor-clone-source";
+    marker.hidden = true;
+    overlay.appendChild(marker);
+    state.marker = marker;
+
+    const at = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+    };
+    const showMarker = (p) => {
+      if (!state.marker) return;
+      state.marker.hidden = false;
+      state.marker.style.left = `${(p.x / natW) * 100}%`;
+      state.marker.style.top = `${(p.y / natH) * 100}%`;
+    };
+    const stamp = (p) => {
+      const wctx = state.wctx;
+      const snap = state.snapshot;
+      if (!wctx || !snap || !state.offset) return;
+      const r = (state.size * scale) / 2;
+      if (state.mode === "heal") {
+        // Feathered patch so the copy blends into its surroundings.
+        const d = Math.max(2, Math.round(r * 2));
+        const patch = document.createElement("canvas");
+        patch.width = d;
+        patch.height = d;
+        const pctx = patch.getContext("2d");
+        if (!pctx) return;
+        pctx.drawImage(snap, p.x - state.offset.x - r, p.y - state.offset.y - r, d, d, 0, 0, d, d);
+        pctx.globalCompositeOperation = "destination-in";
+        const g = pctx.createRadialGradient(r, r, 0, r, r, r);
+        g.addColorStop(0, "rgba(0,0,0,1)");
+        g.addColorStop(0.65, "rgba(0,0,0,1)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        pctx.fillStyle = g;
+        pctx.fillRect(0, 0, d, d);
+        wctx.drawImage(patch, p.x - r, p.y - r);
+      } else {
+        wctx.save();
+        wctx.beginPath();
+        wctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        wctx.clip();
+        // snapshot shifted by offset so snapshot[P-offset] lands at P.
+        wctx.drawImage(snap, state.offset.x, state.offset.y);
+        wctx.restore();
+      }
+      state.painted = true;
+      const btn = toolPanel.querySelector("[data-cl-apply]");
+      if (btn) btn.disabled = false;
+    };
+
+    let drawing = false;
+    let last = null;
+    const down = (event) => {
+      const p = at(event);
+      if (!state.source) {
+        state.source = p;
+        state.offset = null;
+        showMarker(p);
+        const hint = toolPanel.querySelector("[data-cl-hint]");
+        if (hint) hint.textContent = "Now brush where you want the source copied.";
+        event.preventDefault();
+        return;
+      }
+      drawing = true;
+      if (!state.offset) state.offset = { x: p.x - state.source.x, y: p.y - state.source.y };
+      last = p;
+      stamp(p);
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!drawing) return;
+      const p = at(event);
+      const dist = Math.hypot(p.x - last.x, p.y - last.y);
+      const step = Math.max(1, (state.size * scale) / 5);
+      const n = Math.ceil(dist / step);
+      for (let i = 1; i <= n; i += 1) {
+        stamp({ x: last.x + ((p.x - last.x) * i) / n, y: last.y + ((p.y - last.y) * i) / n });
+      }
+      last = p;
+      event.preventDefault();
+    };
+    const up = () => {
+      drawing = false;
+      last = null;
+    };
+    overlay.addEventListener("pointerdown", down);
+    overlay.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", down);
+      overlay.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
+  }
+
+  // ---- Blur & Sharpen (local, on-device) ---------------------------------
+
+  function renderBlurTool() {
+    const state = { mode: "blur", size: 60, painted: false, work: null, wctx: null, processed: {}, scale: 1 };
+    toolPanel.innerHTML = `
+      <div class="editor-draw">
+        <div class="editor-db-modes" role="group" aria-label="Blur or sharpen">
+          <button type="button" class="editor-db-mode is-active" data-bs="blur">◍ Blur</button>
+          <button type="button" class="editor-db-mode" data-bs="sharpen">◆ Sharpen</button>
+        </div>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Brush</span>
+          <input type="range" min="20" max="140" value="60" step="1" data-bs-size aria-label="Brush size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-bs-reset>Reset</button>
+          <button type="button" class="editor-manual-apply" data-bs-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    toolPanel.querySelectorAll("[data-bs]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.mode = btn.dataset.bs;
+        toolPanel.querySelectorAll("[data-bs]").forEach((b) => b.classList.toggle("is-active", b === btn));
+      });
+    });
+    toolPanel.querySelector("[data-bs-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 60;
+    });
+    toolPanel.querySelector("[data-bs-reset]")?.addEventListener("click", async () => {
+      const bitmap = await activeBitmap();
+      if (bitmap && state.wctx) {
+        state.wctx.clearRect(0, 0, state.work.width, state.work.height);
+        state.wctx.drawImage(bitmap, 0, 0, state.work.width, state.work.height);
+      }
+      state.painted = false;
+      const btn = toolPanel.querySelector("[data-bs-apply]");
+      if (btn) btn.disabled = true;
+    });
+    toolPanel.querySelector("[data-bs-apply]")?.addEventListener("click", async () => {
+      if (manualBusy || !state.work || !state.painted) {
+        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        return;
+      }
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const blob = await canvasToBlob(state.work);
+      manualBusy = false;
+      commitManualVersion(state.mode === "sharpen" ? "Sharpen" : "Blur", blob, "Blur & Sharpen");
+    });
+    void setupBlurSurface(state);
+  }
+
+  async function setupBlurSurface(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Blur & Sharpen" || mode !== "manual") return;
+    const { overlay, work, natW, natH, scale } = buildWorkOverlay(bitmap, "editor-paint-overlay");
+    state.work = work;
+    state.wctx = work.getContext("2d");
+    state.scale = scale;
+    // Precompute fully blurred + sharpened versions via the engine; paint copies
+    // the matching one into the brushed region.
+    try {
+      const blurBlob = applyAdjust(bitmap, { sharpness: -90 });
+      const sharpBlob = applyAdjust(bitmap, { sharpness: 85 });
+      state.processed.blur = blurBlob ? await loadBitmap(blurBlob) : null;
+      state.processed.sharpen = sharpBlob ? await loadBitmap(sharpBlob) : null;
+    } catch (error) {
+      console.info("Blur/sharpen precompute failed", error);
+    }
+    const at = (event) => {
+      const rect = overlay.getBoundingClientRect();
+      return { x: (event.clientX - rect.left) * scale, y: (event.clientY - rect.top) * scale };
+    };
+    const stamp = (p) => {
+      const src = state.processed[state.mode];
+      const wctx = state.wctx;
+      if (!src || !wctx) return;
+      const r = (state.size * scale) / 2;
+      wctx.save();
+      wctx.beginPath();
+      wctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      wctx.clip();
+      wctx.drawImage(src, 0, 0, natW, natH);
+      wctx.restore();
+      state.painted = true;
+      const btn = toolPanel.querySelector("[data-bs-apply]");
+      if (btn) btn.disabled = false;
+    };
+    let drawing = false;
+    let last = null;
+    const down = (event) => {
+      drawing = true;
+      last = at(event);
+      stamp(last);
+      try {
+        overlay.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    };
+    const move = (event) => {
+      if (!drawing) return;
+      const p = at(event);
+      const dist = Math.hypot(p.x - last.x, p.y - last.y);
+      const step = Math.max(1, (state.size * scale) / 5);
+      const n = Math.ceil(dist / step);
+      for (let i = 1; i <= n; i += 1) {
+        stamp({ x: last.x + ((p.x - last.x) * i) / n, y: last.y + ((p.y - last.y) * i) / n });
+      }
+      last = p;
+      event.preventDefault();
+    };
+    const up = () => {
+      drawing = false;
+      last = null;
+    };
+    overlay.addEventListener("pointerdown", down);
+    overlay.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    overlayCleanup = () => {
+      overlay.removeEventListener("pointerdown", down);
+      overlay.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      overlay.remove();
+    };
+  }
+
+  // ---- Stickers & Shapes -------------------------------------------------
+
+  function renderStickersTool() {
+    const state = { items: [], color: "#ff3b6b", size: 90, overlay: null, scale: 1, natW: 0, natH: 0 };
+    toolPanel.innerHTML = `
+      <div class="editor-stickers">
+        <div class="editor-sticker-grid" aria-label="Stickers">
+          ${STICKER_EMOJI.map((e) => `<button type="button" class="editor-sticker" data-emoji="${e}">${e}</button>`).join("")}
+          ${STICKER_SHAPES.map((s) => `<button type="button" class="editor-sticker" data-shape="${s.key}">${s.glyph}</button>`).join("")}
+        </div>
+        <div class="editor-swatches" role="group" aria-label="Shape color">
+          ${colorSwatchesMarkup("sticker-color", state.color)}
+        </div>
+        <label class="editor-slider editor-draw-size">
+          <span class="editor-slider-label">Size</span>
+          <input type="range" min="40" max="220" value="90" step="1" data-sticker-size aria-label="Sticker size" />
+        </label>
+        <div class="editor-manual-actions">
+          <button type="button" class="editor-manual-reset" data-sticker-clear>Clear</button>
+          <button type="button" class="editor-manual-apply" data-sticker-apply disabled>Apply</button>
+        </div>
+      </div>
+    `;
+    const applyBtn = toolPanel.querySelector("[data-sticker-apply]");
+    const refresh = () => {
+      if (applyBtn) applyBtn.disabled = state.items.length === 0;
+    };
+    toolPanel.querySelectorAll("[data-emoji]").forEach((b) =>
+      b.addEventListener("click", () => addSticker(state, { type: "emoji", value: b.dataset.emoji }, refresh)),
+    );
+    toolPanel.querySelectorAll("[data-shape]").forEach((b) =>
+      b.addEventListener("click", () => addSticker(state, { type: "shape", value: b.dataset.shape }, refresh)),
+    );
+    toolPanel.querySelectorAll("[data-sticker-color]").forEach((sw) =>
+      sw.addEventListener("click", () => {
+        state.color = sw.dataset.stickerColor;
+        toolPanel.querySelectorAll("[data-sticker-color]").forEach((s) => s.classList.toggle("is-active", s === sw));
+      }),
+    );
+    toolPanel.querySelector("[data-sticker-size]")?.addEventListener("input", (e) => {
+      state.size = Number(e.target.value) || 90;
+    });
+    toolPanel.querySelector("[data-sticker-clear]")?.addEventListener("click", () => {
+      state.items.forEach((it) => it.el?.remove());
+      state.items = [];
+      refresh();
+    });
+    applyBtn?.addEventListener("click", async () => {
+      if (manualBusy || !state.items.length) return;
+      manualBusy = true;
+      status.textContent = "Applying…";
+      const bitmap = await activeBitmap();
+      const blob = bitmap ? rasterizeStickers(bitmap, state) : null;
+      manualBusy = false;
+      commitManualVersion("Stickers", blob, "Stickers");
+    });
+    void setupStickersOverlay(state);
+  }
+
+  async function setupStickersOverlay(state) {
+    const bitmap = await activeBitmap();
+    if (!bitmap || tool !== "Stickers" || mode !== "manual") return;
+    const { overlay, natW, natH, scale } = buildImageOverlay(bitmap, "editor-text-overlay");
+    state.overlay = overlay;
+    state.scale = scale;
+    state.natW = natW;
+    state.natH = natH;
+    overlayCleanup = () => overlay.remove();
+  }
+
+  function addSticker(state, def, refresh) {
+    if (!state.overlay) return;
+    const item = {
+      type: def.type,
+      value: def.value,
+      color: state.color,
+      size: state.size,
+      x: 0.5,
+      y: 0.5,
+      el: null,
+    };
+    const el = document.createElement("div");
+    el.className = "editor-sticker-el";
+    el.style.left = "50%";
+    el.style.top = "50%";
+    el.style.fontSize = `${item.size / state.scale}px`;
+    if (def.type === "emoji") {
+      el.textContent = def.value;
+    } else {
+      el.textContent = STICKER_SHAPES.find((s) => s.key === def.value)?.glyph || "▭";
+      el.style.color = item.color;
+    }
+    state.overlay.appendChild(el);
+    item.el = el;
+    state.items.push(item);
+    refresh();
+
+    let dragging = false;
+    let start = null;
+    el.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      const rect = state.overlay.getBoundingClientRect();
+      start = { x: event.clientX, y: event.clientY, px: item.x * rect.width, py: item.y * rect.height, w: rect.width, h: rect.height };
+      try {
+        el.setPointerCapture?.(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      event.preventDefault();
+    });
+    el.addEventListener("pointermove", (event) => {
+      if (!dragging || !start) return;
+      item.x = Math.max(0, Math.min(1, (start.px + (event.clientX - start.x)) / start.w));
+      item.y = Math.max(0, Math.min(1, (start.py + (event.clientY - start.y)) / start.h));
+      el.style.left = `${item.x * 100}%`;
+      el.style.top = `${item.y * 100}%`;
+      event.preventDefault();
+    });
+    const up = () => {
+      dragging = false;
+      start = null;
+    };
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+
+  function rasterizeStickers(bitmap, state) {
+    try {
+      const natW = state.natW || bitmap.width || bitmap.naturalWidth || 0;
+      const natH = state.natH || bitmap.height || bitmap.naturalHeight || 0;
+      const surface = document.createElement("canvas");
+      surface.width = natW;
+      surface.height = natH;
+      const ctx = surface.getContext("2d");
+      if (!ctx) return null;
+      for (const item of state.items) {
+        const cx = item.x * natW;
+        const cy = item.y * natH;
+        const s = item.size; // natural px (slider is already natural-scaled on export)
+        if (item.type === "emoji") {
+          ctx.font = `${s}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(item.value, cx, cy);
+        } else {
+          ctx.strokeStyle = item.color;
+          ctx.fillStyle = item.color;
+          ctx.lineWidth = Math.max(3, s * 0.09);
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          const h = s / 2;
+          if (item.value === "box") {
+            ctx.strokeRect(cx - h, cy - h * 0.7, s, s * 0.7);
+          } else if (item.value === "circle") {
+            ctx.beginPath();
+            ctx.arc(cx, cy, h, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (item.value === "arrow") {
+            ctx.beginPath();
+            ctx.moveTo(cx - h, cy);
+            ctx.lineTo(cx + h, cy);
+            ctx.moveTo(cx + h, cy);
+            ctx.lineTo(cx + h - s * 0.28, cy - s * 0.2);
+            ctx.moveTo(cx + h, cy);
+            ctx.lineTo(cx + h - s * 0.28, cy + s * 0.2);
+            ctx.stroke();
+          }
+        }
+      }
+      return applyOverlay(bitmap, surface);
+    } catch (error) {
+      console.info("rasterizeStickers failed", error);
+      return null;
+    }
   }
 
   // ---- Add (AI tool, model-gated) ----------------------------------------

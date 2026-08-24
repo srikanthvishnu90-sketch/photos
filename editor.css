@@ -760,6 +760,67 @@
   background: var(--color-surface);
 }
 
+/* ---- Clone source marker ---- */
+.editor-clone-source {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.6);
+  background:
+    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  pointer-events: none;
+}
+
+/* ---- Stickers & Shapes ---- */
+.editor-stickers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.editor-sticker {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: 0;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-white);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.editor-sticker:hover {
+  background: var(--color-surface);
+}
+
+.editor-sticker-el {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.editor-sticker-el:active {
+  cursor: grabbing;
+}
+
 /* ---- Adjust sliders ---- */
 
 .editor-adjust {
