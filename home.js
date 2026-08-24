@@ -2,6 +2,7 @@ import { homeActions } from "./home-actions.js";
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
 import { pickGemOfTheDay } from "./gems-daily.js";
+import { listPhotos } from "./gems-photolib.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -161,6 +162,7 @@ function homeMarkup() {
                 style="--home-delay: ${150 + index * 35}ms"
               >
                 ${sceneMarkup(gem.scene)}
+                <span class="gem-sample-tag" aria-hidden="true">Sample</span>
                 <span class="gem-caption">
                   <strong>${gem.label}</strong>
                   <small>${gem.meta}</small>
@@ -311,8 +313,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   const initial = mount.querySelector("#homeInitial");
   const profile = mount.querySelector("#homeProfile");
   const carousel = mount.querySelector("#gemsCarousel");
-  const dots = [...mount.querySelectorAll(".gem-dot")];
+  const dotsWrap = mount.querySelector("#gemDots");
+  let dots = [...mount.querySelectorAll(".gem-dot")];
   const carouselStatus = mount.querySelector("#gemCarouselStatus");
+  const seeAllLink = mount.querySelector("#seeAllGems");
+  let gemCount = GEMS.length;
+  let realGems = false;
   const chatForm = mount.querySelector("#homeChatForm");
   const chatInput = mount.querySelector("#homeChatInput");
   const chatSend = mount.querySelector("#homeChatSend");
@@ -340,12 +346,77 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     if (!card) return;
     const nextIndex = Math.max(
       0,
-      Math.min(GEMS.length - 1, Math.round(carousel.scrollLeft / (card.offsetWidth + 12))),
+      Math.min(gemCount - 1, Math.round(carousel.scrollLeft / (card.offsetWidth + 12))),
     );
     if (nextIndex === activeGem) return;
     activeGem = nextIndex;
     dots.forEach((dot, index) => dot.classList.toggle("is-active", index === activeGem));
-    carouselStatus.textContent = `Photo ${activeGem + 1} of ${GEMS.length}`;
+    carouselStatus.textContent = `Photo ${activeGem + 1} of ${gemCount}`;
+  }
+
+  // An honest label for a real imported photo — the ranking category once it's
+  // computed, otherwise a plain, truthful line (never a fabricated "Best cover"
+  // on an unranked photo).
+  function gemLabelFor(record) {
+    const cat = record.derived?.passA?.best_for?.[0];
+    const map = {
+      cover: ["Best cover", "Sharp & clean"],
+      "dump-slot": ["Great in a dump", "Your vibe"],
+      dating: ["Dating pick", "Strong solo shot"],
+      "profile-pic": ["Profile-worthy", "Clear & confident"],
+    };
+    if (cat && map[cat]) return { label: map[cat][0], meta: map[cat][1] };
+    if (record.gem) return { label: "Ranked gem", meta: "One of your best" };
+    return { label: "Just imported", meta: "Tap to do something with it" };
+  }
+
+  // Swap the placeholder scenes for the user's real best photos once a library
+  // exists. Rebuilds the cards, dots, and "See all" count from the shared store.
+  async function refreshGemsCarousel() {
+    try {
+      const all = await listPhotos();
+      if (!Array.isArray(all) || all.length === 0) {
+        realGems = false;
+        gemCount = GEMS.length;
+        return; // keep the sample scenes (they carry a "Sample" tag in the markup)
+      }
+      const ranked = [...all].sort(
+        (a, b) =>
+          Number(b.gem) - Number(a.gem) ||
+          (b.metrics?.quality ?? 0) - (a.metrics?.quality ?? 0),
+      );
+      const top = ranked.slice(0, 6);
+      realGems = true;
+      gemCount = top.length;
+      carousel.innerHTML = top
+        .map((record, index) => {
+          const { label, meta } = gemLabelFor(record);
+          return `
+            <button class="home-gem-card home-entrance" type="button" data-gem-id="${escapeHtml(record.id)}" aria-label="${escapeHtml(label)}, ${escapeHtml(meta)}" style="--home-delay: ${150 + index * 35}ms">
+              <img class="home-gem-photo" src="${escapeHtml(record.url)}" alt="" loading="lazy" decoding="async" />
+              <span class="gem-caption"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(meta)}</small></span>
+            </button>`;
+        })
+        .join("");
+      dotsWrap.innerHTML = top
+        .map((_, index) => `<span class="gem-dot${index === 0 ? " is-active" : ""}"></span>`)
+        .join("");
+      dots = [...dotsWrap.querySelectorAll(".gem-dot")];
+      dotsWrap.hidden = top.length < 2;
+      if (seeAllLink) seeAllLink.textContent = `See all ${all.length}`;
+      activeGem = 0;
+      carousel.scrollTo({ left: 0, behavior: "auto" });
+      carouselStatus.textContent = `Photo 1 of ${gemCount}`;
+      // Rewire the new cards to open the photo.
+      carousel.querySelectorAll("[data-gem-id]").forEach((card) => {
+        card.addEventListener("click", () => {
+          homeActions.openGem(card.dataset.gemId);
+          onNavigate("Photos", {});
+        });
+      });
+    } catch (error) {
+      console.info("Gems carousel stayed in sample mode", error);
+    }
   }
 
   function queueCarouselUpdate() {
@@ -644,6 +715,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       // Recompute today's hidden gem each activation (rotates daily; upgrades
       // the demo card to a real photo once a library exists).
       void refreshHiddenGem();
+      void refreshGemsCarousel();
       if (activated) return;
       activated = true;
       content.scrollTo({ top: 0, behavior: "auto" });
@@ -663,6 +735,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       // Returning to Home (e.g. after importing photos) recomputes the gem —
       // the first activate() ran on an empty library.
       void refreshHiddenGem();
+      void refreshGemsCarousel();
     },
 
     focusHeading() {

@@ -58,7 +58,7 @@ function editorMarkup() {
       <button id="editorDone" class="editor-done" type="button">Done</button>
     </header>
 
-    <div class="editor-canvas-region">
+    <div class="editor-content">
       <div id="editorCanvas" class="editor-canvas">
         ${beachSceneMarkup()}
         <img id="editorPhotoView" class="editor-photo" alt="" decoding="async" hidden />
@@ -75,9 +75,7 @@ function editorMarkup() {
       </div>
 
       <div id="editorVersions" class="editor-versions home-scroll" aria-label="Edit versions"></div>
-    </div>
 
-    <div class="editor-mode-region">
       <div class="editor-mode-toggle" role="group" aria-label="Editing mode">
         <button class="editor-mode is-active" type="button" data-editor-mode="describe" aria-pressed="true">
           Describe it
@@ -86,9 +84,6 @@ function editorMarkup() {
           Manual tools
         </button>
       </div>
-    </div>
-
-    <div class="editor-panel-spacer" aria-hidden="true"></div>
 
     <section id="editorDescribePanel" class="editor-panel editor-describe-panel" aria-label="Describe an edit">
       <div class="editor-suggestions home-scroll" aria-label="Suggested edits">
@@ -136,6 +131,7 @@ function editorMarkup() {
       <p id="editorToolHelp" class="editor-tool-help">${TOOL_HELP.Erase}</p>
       <div id="editorToolPanel" class="editor-tool-panel" hidden></div>
     </section>
+    </div>
   `;
 }
 
@@ -1074,6 +1070,18 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     event.preventDefault();
     requestEdit(promptInput.value);
   });
+
+  // Keep the describe input visible above the iOS keyboard: scroll it to
+  // center within the editor's scroll region on focus and whenever the visual
+  // viewport resizes (the keyboard opening/closing).
+  function keepPromptVisible() {
+    if (document.activeElement !== promptInput) return;
+    window.requestAnimationFrame(() =>
+      promptInput.scrollIntoView({ block: "center", behavior: "smooth" }),
+    );
+  }
+  promptInput.addEventListener("focus", () => window.setTimeout(keepPromptVisible, 180));
+  window.visualViewport?.addEventListener("resize", keepPromptVisible);
 
   return Object.freeze({
     activate(options = {}) {

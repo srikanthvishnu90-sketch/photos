@@ -82,16 +82,36 @@
   font-weight: 600;
 }
 
-.editor-canvas-region {
-  flex: 0 1 auto;
+/* The single scroll region — canvas, versions, mode toggle, and the active
+   panel are flow siblings here. min-height:0 lets it actually scroll instead
+   of overflowing and overlapping on short phones. */
+.editor-content {
+  flex: 1 1 auto;
   min-height: 0;
-  padding: 4px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 4px 20px calc(env(safe-area-inset-bottom) + 20px);
+}
+
+.editor-content::-webkit-scrollbar {
+  display: none;
 }
 
 .editor-canvas {
   position: relative;
+  flex-shrink: 0;
   width: 100%;
-  height: clamp(250px, 47vh, 372px);
+  /* Shrinks on short viewports (and when the keyboard opens) instead of
+     forcing overlap. Never a fixed pixel height. */
+  aspect-ratio: 4 / 5;
+  max-height: 44dvh;
+  margin-inline: auto;
   overflow: hidden;
   border-radius: 22px;
   background: var(--color-photo-black);
@@ -280,8 +300,8 @@
 .editor-versions {
   gap: 8px;
   min-height: 48px;
+  flex-shrink: 0;
   align-items: center;
-  margin-top: 6px;
 }
 
 .editor-version {
@@ -307,13 +327,9 @@
   background: var(--color-ink);
 }
 
-.editor-mode-region {
-  flex: 0 0 auto;
-  padding: 8px 20px 0;
-}
-
 .editor-mode-toggle {
   display: flex;
+  flex-shrink: 0;
   padding: 4px;
   border-radius: 999px;
   background: var(--color-surface);
@@ -337,17 +353,11 @@
   background: var(--color-ink);
 }
 
-.editor-panel-spacer {
-  min-height: 4px;
-  flex: 1 1 auto;
-}
-
 .editor-panel {
-  flex: 0 0 auto;
-  padding:
-    0
-    20px
-    max(24px, calc(env(safe-area-inset-bottom) + 12px));
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .editor-suggestions {
