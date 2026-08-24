@@ -201,7 +201,7 @@ export async function loadBitmap(blob) {
 const ADJUST_KEYS = Object.freeze([
   "exposure", "brightness", "contrast", "highlights", "shadows",
   "whites", "blacks", "saturation", "vibrance", "warmth", "tint",
-  "sharpness", "clarity", "vignette", "grain",
+  "sharpness", "clarity", "dehaze", "vignette", "grain",
 ]);
 
 function anyPixelWork(a) {
@@ -289,10 +289,14 @@ function paintFull(bitmap, adjust = {}) {
 
     // Pass 1 — brightness/contrast/saturation via the compositor filter, plus a
     // negative-sharpness blur (CSS blur only softens; positive sharpen is below).
+    // Dehaze folds into contrast + saturation (haze is low-contrast, low-color).
     const blurPx = a.sharpness < 0 ? (Math.abs(a.sharpness) / 100) * 4 : 0;
     ctx.filter =
-      baseFilter({ brightness: a.brightness, contrast: a.contrast, saturation: a.saturation }) +
-      (blurPx ? ` blur(${blurPx.toFixed(2)}px)` : "");
+      baseFilter({
+        brightness: a.brightness,
+        contrast: a.contrast + a.dehaze * 0.5,
+        saturation: a.saturation + a.dehaze * 0.35,
+      }) + (blurPx ? ` blur(${blurPx.toFixed(2)}px)` : "");
     ctx.drawImage(bitmap, 0, 0, w, h);
     ctx.filter = "none";
 
@@ -313,6 +317,32 @@ function paintFull(bitmap, adjust = {}) {
           img.data.set(sharper);
         }
         ctx.putImageData(img, 0, 0);
+      }
+    }
+
+    // Pass 2b — Clarity: large-radius local contrast (midtone punch). Blur a
+    // copy, then push each pixel away from its local average by `clarity`.
+    if (a.clarity) {
+      try {
+        const blurCanvas = makeCanvas(w, h);
+        const bctx = blurCanvas?.getContext("2d");
+        if (bctx) {
+          const radius = Math.max(2, Math.round(Math.min(w, h) / 55));
+          bctx.filter = `blur(${radius}px)`;
+          bctx.drawImage(canvas, 0, 0);
+          const lo = bctx.getImageData(0, 0, w, h).data;
+          const cur = ctx.getImageData(0, 0, w, h);
+          const cd = cur.data;
+          const amt = (a.clarity / 100) * 0.8;
+          for (let i = 0; i < cd.length; i += 4) {
+            cd[i] += (cd[i] - lo[i]) * amt;
+            cd[i + 1] += (cd[i + 1] - lo[i + 1]) * amt;
+            cd[i + 2] += (cd[i + 2] - lo[i + 2]) * amt;
+          }
+          ctx.putImageData(cur, 0, 0);
+        }
+      } catch (error) {
+        console.info("clarity pass skipped", error);
       }
     }
 

@@ -100,6 +100,8 @@ const ADJUST_GROUPS = Object.freeze([
     name: "Effects",
     fields: [
       { key: "sharpness", label: "Sharpness" },
+      { key: "clarity", label: "Clarity" },
+      { key: "dehaze", label: "Dehaze" },
       { key: "vignette", label: "Vignette" },
       { key: "grain", label: "Grain" },
     ],
