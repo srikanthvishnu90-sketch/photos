@@ -1,6 +1,7 @@
 import { editorActions } from "./editor-actions.js";
 import { getPhoto, getPhotoBlob, listPhotos } from "./gems-photolib.js";
 import { getSession } from "./gems-supabase.js";
+import { parseEditIntent } from "./gems-edit-intent.js";
 import {
   loadBitmap,
   applyAdjust,
@@ -27,9 +28,12 @@ const TOOL_HELP = Object.freeze({
 });
 
 const SUGGESTIONS = Object.freeze([
+  "Make it darker",
+  "Make it brighter",
+  "More contrast",
+  "Warmer",
+  "Black and white",
   "Remove the ship in the background",
-  "Make it golden hour",
-  "Fix the lighting on my face",
 ]);
 
 function beachSceneMarkup() {
@@ -1005,10 +1009,44 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
+  // A described edit that is pure tonal math (darker, lighter, more contrast,
+  // warmer, black & white, a named grade…) runs INSTANTLY on-device — no model
+  // call, no cost, and it always does exactly what was asked. Content edits
+  // fall through to the generative model.
+  async function applyDescribedAdjustment(intent, prompt) {
+    try {
+      const bitmap = await activeBitmap();
+      if (!bitmap) {
+        void requestRealEdit(prompt, "describe");
+        return;
+      }
+      const blob =
+        intent.kind === "grade"
+          ? applyGrade(bitmap, intent.grade)
+          : applyAdjust(bitmap, intent.adjust);
+      if (!blob) {
+        status.textContent = "That edit couldn't be applied — try again.";
+        return;
+      }
+      promptInput.value = "";
+      syncPrompt();
+      commitManualVersion(intent.summary, blob, "Describe");
+      editorActions.requestEdit(prompt, currentVersion());
+    } catch (error) {
+      console.info("On-device described edit failed, trying the model", error);
+      void requestRealEdit(prompt, "describe");
+    }
+  }
+
   function requestEdit(rawPrompt) {
     const prompt = rawPrompt.trim();
     if (!prompt || processing) return;
     if (photo) {
+      const intent = parseEditIntent(prompt);
+      if (intent.kind !== "ai") {
+        void applyDescribedAdjustment(intent, prompt);
+        return;
+      }
       void requestRealEdit(prompt, "describe");
       return;
     }
