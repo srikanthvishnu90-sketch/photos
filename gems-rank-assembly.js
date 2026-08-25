@@ -6,6 +6,87 @@
 const DEFAULT_SLOTS = 12;
 const DUPE_THRESHOLD = 0.6;
 
+// ---- "Best photos" = a forced MIX of the founder's 4 types, not a score-sort.
+//   1 group · 2 self-action (wide) · 3 self-scenery · 4 standout object.
+// "of me" INCLUDES objects (they're your aesthetic). Further-from-camera already
+// wins in Pass B scoring; here we guarantee variety across the four types.
+const BEST_TYPE_ORDER = ["group", "self-action", "self-scenery", "object"];
+
+// Classify a Pass-A description into a best-photo type. Uses the model's
+// best_type when present (new field); otherwise derives it from the older
+// fields so cached photos still bucket correctly. Pure.
+export function bestTypeOf(passA = {}) {
+  const bt = passA.best_type;
+  if (typeof bt === "string" && bt) return bt;
+  const t = passA.photo_type;
+  const n = Number(passA.people_count ?? 0);
+  const dist = passA.distance;
+  const scale = Number(passA.subject_scale ?? 0);
+  if (t === "screenshot" || t === "document" || t === "meme") return "utility";
+  if (n >= 2) return "group";
+  if (n === 1) {
+    if (t === "action") return "self-action";
+    if (dist === "wide" || scale >= 4) return "self-scenery";
+    if (dist === "mid") return "self-action";
+    return "portrait"; // tight single-person
+  }
+  if (["object", "scene", "art", "food"].includes(t)) return "object";
+  return "utility";
+}
+
+/**
+ * Reorder scored results into the forced 4-type "best photos" mix. Items are
+ * { record, score } (record.derived.passA carries the type). Returns a new
+ * array: the mix first (one of each available type, then the strongest of any
+ * type), followed by everything else in score order. `includeObjects` = false
+ * drops type 4 (used only if a caller ever wants people-only). Pure.
+ */
+export function assembleBestPhotos(results, { slots = DEFAULT_SLOTS, includeObjects = true } = {}) {
+  const list = (Array.isArray(results) ? results : []).filter((r) => r?.record);
+  const typed = list.map((r) => ({
+    r,
+    id: r.record.id,
+    score: Number.isFinite(r.score) ? r.score : (r.record.metrics?.quality ?? 0),
+    bt: bestTypeOf(r.record.derived?.passA ?? {}),
+  }));
+  const eligible = typed
+    .filter((x) => x.bt !== "utility" && (includeObjects || x.bt !== "object"))
+    .sort((a, b) => b.score - a.score);
+  if (!eligible.length) return list;
+
+  const used = new Set();
+  const picked = [];
+  // 1) Force one of each named type, in the founder's priority order.
+  for (const type of BEST_TYPE_ORDER) {
+    if (type === "object" && !includeObjects) continue;
+    const hit = eligible.find((x) => !used.has(x.id) && x.bt === type);
+    if (hit) { used.add(hit.id); picked.push(hit); }
+  }
+  // 2) Fill remaining slots by score, but don't let one type dominate the set:
+  // cap any single type at ~40% until the others have had their turn.
+  const cap = Math.max(2, Math.ceil(slots * 0.4));
+  const count = {};
+  picked.forEach((x) => { count[x.bt] = (count[x.bt] || 0) + 1; });
+  const deferred = [];
+  for (const x of eligible) {
+    if (picked.length >= slots) break;
+    if (used.has(x.id)) continue;
+    if ((count[x.bt] || 0) >= cap) { deferred.push(x); continue; }
+    used.add(x.id); picked.push(x); count[x.bt] = (count[x.bt] || 0) + 1;
+  }
+  // 3) Top up from deferred (over-cap) if still short.
+  for (const x of deferred) {
+    if (picked.length >= slots) break;
+    if (used.has(x.id)) continue;
+    used.add(x.id); picked.push(x);
+  }
+  // 4) Everything else (the long tail) in score order, then any utility last.
+  const tail = typed
+    .filter((x) => !used.has(x.id))
+    .sort((a, b) => (a.bt === "utility") - (b.bt === "utility") || b.score - a.score);
+  return [...picked.map((x) => x.r), ...tail.map((x) => x.r)];
+}
+
 // Phase-B upgrade point: replace with embedding cosine similarity. Until
 // then, similarity = Jaccard overlap of vibe_tags plus content-word overlap.
 export function descriptionSimilarity(a, b) {

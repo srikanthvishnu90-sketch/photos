@@ -15,6 +15,8 @@ export const PASS_A_PROMPT = `You are the photo analyst inside Gems. For each nu
     "emotion": string,
     "candid_or_posed": "candid" | "posed" | "neither",
     "distance": "close" | "mid" | "wide",
+    "subject_scale": 1-5,
+    "best_type": "group" | "self-action" | "self-scenery" | "portrait" | "object" | "utility",
     "vibe_tags": string[],
     "intentionality": 1-5,
     "appeal": 1-5,
@@ -26,6 +28,14 @@ export const PASS_A_PROMPT = `You are the photo analyst inside Gems. For each nu
 Field notes:
 - content: one line, who/what/where (e.g. "young woman laughing on a rooftop at golden hour").
 - photo_type: what KIND of image this is. "person"/"group"/"pet"/"action" = a real life moment. "scene"/"food"/"art" = a nice moment without people. CRITICAL — "screenshot" (a phone/computer screen: apps, code editors, chats, maps, tickets), "document" (receipts, forms, whiteboards, notes, paperwork), and "meme" are UTILITY images people save for information, NOT photos worth showing off.
+- subject_scale: how far the main subject is from the camera, 1-5. 1 = extreme close-up / arm's-length selfie (face fills the frame). 3 = mid, waist-up. 5 = the person is small in a wide frame, lots of environment. FURTHER IS BETTER for a strong photo — judge this honestly, it drives ranking.
+- best_type: which of Gems' "best photo" categories this is (this is what a great feed is MADE of):
+    "group" = 2+ people who are friends/family, ideally all looking at the camera smiling OR sharing a clear action. The single most valuable kind.
+    "self-action" = ONE person (the user) doing something that looks intentional — a sport, walking a beautiful street, an activity — framed MID or WIDE, never a tight selfie.
+    "self-scenery" = ONE person in a beautiful setting (beach, water, a striking place), the place is as much the point as the person; wider framing.
+    "portrait" = ONE person, posed/close, the face is the point (a good dating/profile shot) — use this for tight, person-forward shots that aren't action or scenery.
+    "object" = NO people: a standout object or place shot with intention (a luxury object, an aesthetic still-life, an empty striking scene). These ARE feed-worthy b-roll, not filler.
+    "utility" = screenshot / document / meme / accidental junk. Never feed-worthy.
 - expression: face quality if faces present: natural, engaged, eyes open. null when no faces.
 - smile: the strongest genuine smile visible on any face; null when no faces. A real Duchenne smile or laughter is the single biggest driver of a photo feeling alive.
 - emotion: 1-3 words for the feeling the image gives off ("joyful", "calm", "hyped", "tender", "none/flat" for utility shots).
@@ -61,8 +71,9 @@ Scoring order of importance:
 2. HARD RULE: utility images — photo_type "screenshot", "document", or "meme" — are almost never "best photos". Cap their score at 15 and rank them last, UNLESS the REQUEST explicitly asks for that kind of image (e.g. "find the screenshot of the tickets"). A pristine, sharp screenshot of a coding platform, a chat, or a spreadsheet still loses to an ordinary snapshot of a real moment.
 3. intentionality and absence of technical_flaws (a flawed photo can't win among real photos)
 4. fit to PURPOSE (a 5-expression close-up beats a wide shot for dating; reverse for an establishing dump slot)
-5. vibe_tags match to USER TASTE and RECENT BEHAVIOR
-6. subject_clarity, expression, and a genuine smile (a real smile or laughter is a strong positive)
+5. FRAMING — for "self-action" and "self-scenery" photos, FURTHER FROM THE CAMERA IS BETTER: a wider shot where the person looks intentional in their environment beats an arm's-length selfie. Down-rank tight close-ups (subject_scale 1) for these types. Group and portrait shots are judged on expression, not distance.
+6. vibe_tags match to USER TASTE and RECENT BEHAVIOR
+7. subject_clarity, expression, and a genuine smile (a real smile or laughter is a strong positive)
 
 "because" is ONE short user-facing line explaining what the photo is good for (e.g. "strong side light, clean silhouette — cover material"), never a number, never negative about the person in the photo. Be honest: never rebrand a real flaw as a feature — do NOT call motion-blur "soft motion", closed-eyes "candid", or an unreadable frame "atmospheric". For a low-scoring photo, plain neutral photo-level language is fine ("a little soft — better as a filler than a cover"); praise only what is genuinely there.
 

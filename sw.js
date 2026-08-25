@@ -13,7 +13,7 @@
 //
 // Every handler is wrapped so a cache miss or error can never break the page.
 
-const CACHE = "gems-shell-v15";
+const CACHE = "gems-shell-v16";
 
 const SHELL = [
   "./",

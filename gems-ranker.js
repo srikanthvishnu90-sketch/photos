@@ -12,6 +12,18 @@ import { getPhotoBlob, listPhotos, updatePhotoDerived } from "./gems-photolib.js
 import { getSession, getSupabase, recordTasteEvent } from "./gems-supabase.js";
 import { photoIdsForQuery } from "./gems-faces.js";
 import { searchPhotos } from "./gems-embeddings.js";
+import { assembleBestPhotos } from "./gems-rank-assembly.js";
+
+// A generic "best photos" ask (vs. a specific content/purpose search). These get
+// the forced 4-type MIX (group / action-you / you-in-scenery / standout object)
+// instead of a flat score-sort — the founder's definition of "best".
+export function isBestPhotosQuery(request) {
+  const t = String(request || "").trim().toLowerCase();
+  if (!t) return true; // empty default = "best photos"
+  if (/^(my best|best of me|best of|show me my best|my top)/.test(t)) return true;
+  return /\b(best|top|favou?rite|greatest|standout|strongest|good)\b/.test(t) &&
+    /\b(photo|pic|shot|image|one)/.test(t);
+}
 
 // A descriptive "what's in the photo" query (semantic search helps) vs. a generic
 // quality/mode ask ("best photos", "dating picks") where content search doesn't apply.
@@ -341,18 +353,25 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
         (b.record.metrics?.quality ?? 0) - (a.record.metrics?.quality ?? 0) ||
         (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0),
     );
+
+    // "Best photos" asks get the forced 4-type MIX (founder's definition) instead
+    // of a flat score-sort; specific/purpose searches keep the pure ranking.
+    const finalOrder = isBestPhotosQuery(request)
+      ? assembleBestPhotos(results, { slots: 12, includeObjects: true })
+      : results;
+
     for (const record of records) {
       if (!rankedIds.has(record.id)) {
-        results.push(Object.freeze({ record, score: null, because: null }));
+        finalOrder.push(Object.freeze({ record, score: null, because: null }));
       }
     }
 
     recordTasteEvent("rank_requested", {
       purpose,
       request,
-      top5: results.slice(0, 5).map((entry) => entry.record.id),
+      top5: finalOrder.slice(0, 5).map((entry) => entry.record.id),
     });
-    return results;
+    return finalOrder;
   } catch (error) {
     console.info("Rank fell back to on-device quality ordering", error);
     return [...records]
