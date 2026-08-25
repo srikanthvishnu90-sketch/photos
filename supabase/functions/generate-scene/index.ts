@@ -37,6 +37,7 @@ EMBRACE IMPERFECTION — DELIBERATELY MAKE THE IMAGE "WORSE" (this is the #1 rea
 - HAZY ATMOSPHERIC DISTANCE: render distant backgrounds (skylines, hills, far buildings) LOW-contrast, desaturated and softened by haze/atmospheric perspective — never crisp and hyper-detailed to the horizon.
 - MUNDANE CONTENT & BACKGROUND PEOPLE: fill it with incidental strangers mid-errand, a passing dog, a bird, ordinary clutter — not everything is a hero subject cleanly framed.
 - MUTED, SLIGHTLY-OFF COLOR + real sensor noise and light JPEG compression. Never vivid, never spotless.
+- RAKING LIGHT + GENUINE WEAR: favor low, raking side-light that skims and reveals texture; include real everyday wear — a scuffed shoe, creased linen, a wrinkle, a smudge, a stray hair. Nothing pristine or freshly-pressed.
 - Often a LANDSCAPE or loosely-framed grab-shot rather than a perfectly composed portrait.
 
 CAPTURE MODEL — reproduce a modern iPhone's computational pipeline, not a DSLR:
@@ -74,17 +75,21 @@ const MODESTY = `WARDROBE MODESTY (required): the user is always fully and taste
 // aspirational references, swimwear/shirtless excluded). Used to auto-dress the
 // subject when the user names a scene but no outfit. The model sees the person and
 // picks a gender-appropriate option.
+// Two go-to fits (founder's recommendation), with colors chosen by the location,
+// plus the analyzed women's options. FIT 1 = a well-fitted linen button-down
+// (long- OR short-sleeve) in a location-appropriate color with linen trousers.
+// FIT 2 = a tight, good-fitting plain tee with good pants. NEVER swimwear/shirtless.
 const PACK_WARDROBE: Record<string, string> = {
   "euro-summer":
-    "for a man: a relaxed linen button-down (white/cream/olive/terracotta) with cream or stone linen trousers or tailored shorts and leather sandals; for a woman: a white halter or ribbed linen top with white wide-leg linen trousers or a cream silky maxi skirt, or an oversized white linen shirt with tailored white shorts and a slim brown leather belt, finished with delicate gold jewelry, a small leather bag and sunglasses",
+    "PREFERRED for a man — FIT 1: a well-fitted linen button-down (long- or short-sleeve) in beige, white, cream or olive, worn with matching linen trousers and leather sandals or clean minimal sneakers; OR FIT 2: a tight, good-fitting plain tee in a warm neutral (white/beige/olive) with well-fitted tailored trousers or clean stone chinos. For a woman: a white halter or ribbed linen top with white wide-leg linen trousers or a cream silky maxi skirt, or an oversized white linen shirt with tailored white shorts and a slim brown belt — gold jewelry, a small leather bag, sunglasses",
   "dubai":
-    "for a man: a crisp fitted white or pastel shirt with tailored stone/beige trousers and a good watch, or an elegant all-black shirt and dark trousers; for a woman: a flowing cream/white maxi dress, or a linen co-ord (fitted top and wide-leg trousers), or a chic white shirt with tailored trousers — elegant resort luxury",
+    "PREFERRED for a man — FIT 1: a crisp well-fitted linen button-down (long- or short-sleeve) in white, beige, light blue or navy, with matching linen or tailored trousers and a good watch; OR FIT 2: a tight, good-fitting plain tee in white, beige or navy with sharp tailored trousers. For a woman: a flowing cream/white maxi dress, a linen co-ord (fitted top and wide-leg trousers), or a chic white shirt with tailored trousers — elegant resort luxury",
   "boat":
-    "for a man: a light-blue or white linen shirt (buttoned, or only lightly open) with white linen trousers or tailored stone shorts and sunglasses; for a woman: a white or striped linen shirt with tailored shorts, or a breezy cream sundress — relaxed, FULLY-CLOTHED boat-day resortwear (never swimwear)",
+    "PREFERRED for a man — FIT 1: a well-fitted linen button-down (long- or short-sleeve) in white, light blue or navy, with white or stone linen trousers and sunglasses; OR FIT 2: a tight, good-fitting plain tee in white or navy with tailored linen trousers. For a woman: a white or striped linen shirt with tailored trousers, or a breezy cream sundress — FULLY-CLOTHED boat-day resortwear (never swimwear)",
   "dark-luxe":
-    "for a man: a navy or charcoal suit worn with an open collar and no tie, or a fine black knit with dark tailored trousers, or a white dress shirt with a tailored vest; for a woman: an elegant black slip dress, a silk co-ord, or a white shirt with black tailored trousers — quiet, expensive eveningwear",
+    "PREFERRED for a man — FIT 1: a well-fitted linen or fine button-down in navy, black or charcoal with dark tailored trousers; OR FIT 2: a tight, good-fitting plain tee in black, navy or charcoal with dark tailored trousers; a navy/charcoal suit with an open collar and no tie also works. For a woman: an elegant black slip dress, a silk co-ord, or a white shirt with black tailored trousers — quiet, expensive eveningwear",
   "after-dark":
-    "for a man: a matte black bomber or overshirt over a plain tee with dark trousers, or a fitted black shirt with dark trousers; for a woman: a sleek black slip dress, or a fitted top with tailored trousers — sharp, understated night-out",
+    "PREFERRED for a man — FIT 1: a well-fitted button-down in black or navy with dark trousers; OR FIT 2: a tight, good-fitting plain tee in black or navy with dark tailored trousers, optionally a matte black overshirt on top. For a woman: a sleek black slip dress, or a fitted top with tailored trousers — sharp, understated night-out",
 };
 
 const IDENTITY_BLOCK = `The attached photo(s) at the START are all the SAME person — the user. Study them together to lock their exact facial identity, then render that same person in the scene with their skin tone, hair, and build preserved — recognizably them, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
@@ -361,6 +366,12 @@ Deno.serve(async (request) => {
       hasSubject && pose
         ? `\n\nPOSE & ACTION: the user is ${pose}. Make it look candid and natural — caught mid-moment, not stiffly posed for the camera.`
         : "";
+    // Non-negotiable candid pose when none was chosen — the "between-takes" look
+    // that reads as a real photo, never a stiff straight-on smile.
+    const candidDefaultBlock =
+      hasSubject && !pose
+        ? `\n\nPOSE (candid, NON-NEGOTIABLE — never a stiff straight-on smile to camera): put them in a real between-takes moment — looking down at their phone, glancing off to the side, adjusting a watch or shirt cuff, a hand in a pocket, mid-stride walking, or looking out at the view. Relaxed, weight on one leg, unposed and natural.`
+        : "";
     // Identity handling: face-swap-a-reference > put-me-in-scene > empty scene.
     const identityBlock =
       mode === "background"
@@ -381,6 +392,7 @@ Deno.serve(async (request) => {
       wardrobeBlock +
       autoWardrobeBlock +
       poseBlock +
+      candidDefaultBlock +
       `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
     parts.push({ text: promptText });
 

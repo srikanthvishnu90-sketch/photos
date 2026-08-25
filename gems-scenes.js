@@ -62,34 +62,39 @@ const POSE_OPTIONS = Object.freeze({
   ],
 });
 
+// Two go-to fits lead every pack (founder rec): a well-fitted linen button-down
+// (long/short sleeve, color by location) with linen pants, or a tight good-fitting
+// tee with good pants. Plus pack-appropriate alternates. No swimwear/shirtless.
 const OUTFIT_OPTIONS = Object.freeze({
   "euro-summer": [
-    { label: "White linen shirt", value: "a relaxed white linen button-down, sleeves rolled, with cream loose tailored trousers and leather sandals" },
-    { label: "Olive linen", value: "an olive linen shirt open over a plain white tee, with stone chinos and espadrilles" },
-    { label: "Terracotta shirt", value: "a terracotta/rust linen shirt with light grey trousers and a simple watch, no logos" },
-    { label: "Polo & shorts", value: "a fitted cream knit polo with tailored beige shorts and loafers, old-money summer" },
+    { label: "Linen button-down", value: "a well-fitted linen button-down (long or short sleeve) in beige, white or olive with matching linen trousers and leather sandals" },
+    { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee in a warm neutral with well-fitted tailored trousers or clean chinos" },
+    { label: "White halter set", value: "a white halter linen top with white wide-leg linen trousers, gold jewelry and a small leather bag" },
+    { label: "Oversized white shirt", value: "an oversized white linen shirt with tailored white shorts and a slim brown belt" },
   ],
   dubai: [
-    { label: "Crisp white shirt", value: "a crisp fitted white shirt with tailored stone trousers and a good watch, understated luxury" },
-    { label: "Open resort shirt", value: "an open cream resort shirt over swim shorts, sunglasses, relaxed poolside" },
-    { label: "Black on black", value: "an all-black outfit — a fitted black shirt and dark tailored trousers, quiet expensive" },
-    { label: "Polo & chinos", value: "a navy knit polo with beige chinos and leather loafers, sharp but easy" },
+    { label: "Crisp linen shirt", value: "a crisp well-fitted linen button-down in white, beige, light blue or navy with tailored trousers and a good watch" },
+    { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee in white, beige or navy with sharp tailored trousers" },
+    { label: "Cream maxi dress", value: "a flowing cream maxi dress, elegant resort luxury" },
+    { label: "White shirt & trousers", value: "a chic white shirt with tailored trousers, understated Gulf luxury" },
   ],
   boat: [
-    { label: "Blue linen shirt", value: "a light-blue linen shirt buttoned with white linen trousers and sunglasses" },
-    { label: "White linen set", value: "a white linen shirt with tailored stone shorts and sunglasses, relaxed resortwear" },
-    { label: "Navy polo", value: "a navy knit polo with white tailored shorts and sunglasses pushed up" },
+    { label: "Linen button-down", value: "a well-fitted linen button-down (long or short sleeve) in white, light blue or navy with white or stone linen trousers and sunglasses" },
+    { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee in white or navy with tailored linen trousers" },
+    { label: "Striped linen shirt", value: "a white or striped linen shirt with tailored trousers, relaxed boat-day resortwear" },
     { label: "Cream sundress", value: "a breezy cream sundress with sunglasses, easy boat-day resortwear" },
   ],
   "dark-luxe": [
-    { label: "Black knit", value: "a fine black knit sweater with dark tailored trousers, quiet and expensive" },
-    { label: "White shirt, dark", value: "a crisp white shirt half-lit by warm lamplight with dark trousers" },
-    { label: "Charcoal suit, no tie", value: "a charcoal suit with the collar open and no tie, relaxed penthouse formal" },
+    { label: "Navy linen shirt", value: "a well-fitted linen or fine button-down in navy, black or charcoal with dark tailored trousers" },
+    { label: "Fitted dark tee", value: "a tight, good-fitting plain tee in black, navy or charcoal with dark tailored trousers" },
+    { label: "Suit, no tie", value: "a navy or charcoal suit with the collar open and no tie, relaxed penthouse formal" },
+    { label: "Black slip dress", value: "an elegant black slip dress, quiet and expensive" },
   ],
   "after-dark": [
-    { label: "Dark bomber", value: "a matte black bomber jacket over a plain tee with dark jeans" },
-    { label: "Black shirt", value: "a fitted black shirt with dark trousers, minimal and clean" },
-    { label: "Grey hoodie", value: "a heather-grey hoodie under a dark overshirt, casual night-out" },
+    { label: "Black button-down", value: "a well-fitted button-down in black or navy with dark trousers" },
+    { label: "Fitted dark tee", value: "a tight, good-fitting plain tee in black or navy with dark tailored trousers" },
+    { label: "Tee & overshirt", value: "a fitted tee under a matte black overshirt with dark trousers, sharp night-out" },
+    { label: "Black slip dress", value: "a sleek black slip dress, understated night-out" },
   ],
 });
 
