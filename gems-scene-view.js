@@ -23,14 +23,17 @@ const BG_HINTS = {
   "after-dark": "a moody city skyline at blue hour from a high window",
 };
 
-export async function openSceneStudio(defaultPack = "euro-summer") {
+export async function openSceneStudio(defaultPack = "euro-summer", prefill = {}) {
   if (typeof document === "undefined") return;
   document.querySelector(".scene-overlay")?.remove();
 
   const state = {
-    mode: "me", // "me" = put the user in it · "background" = empty aesthetic scene
+    // Pre-filled from a chat "generate" request when provided.
+    mode: prefill.mode === "background" ? "background" : "me",
     matchReference: false, wardrobe: "",
-    photoId: null, pack: defaultPack, prompt: "", aspect: "4:5",
+    photoId: null, pack: defaultPack,
+    prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
+    aspect: "4:5",
     refs: [], inspiration: [], busy: false, resultUrl: "", faceNote: "",
   };
 

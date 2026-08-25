@@ -40,7 +40,8 @@ function userIdFromAuth(header: string | null): string | null {
   }
 }
 
-const VALID_INTENTS = new Set(["find", "build", "edit", "inspire", "chat"]);
+const VALID_INTENTS = new Set(["find", "build", "edit", "inspire", "chat", "generate"]);
+const VALID_PACKS = new Set(["euro-summer", "dark-luxe", "after-dark"]);
 const VALID_SCREENS = new Set(["Photos", "Studio", "Editor", "Discover"]);
 
 // Harden the model output into the exact contract the UI relies on.
@@ -88,7 +89,17 @@ function sanitizeContract(raw: unknown): Record<string, unknown> {
     photos = value.photos.filter((x) => typeof x === "string" && x).slice(0, 8);
     if (!photos.length) photos = null;
   }
-  return { intent, reply, action, clarify, editInstruction, rankRequest, photos, model: CHAT_MODEL };
+  let generate: Record<string, unknown> | null = null;
+  const rawGen = value.generate as Record<string, unknown> | null;
+  if (rawGen && (rawGen.kind === "scene" || rawGen.kind === "commitment")) {
+    generate = {
+      kind: rawGen.kind,
+      stylePack: VALID_PACKS.has(rawGen.stylePack as string) ? rawGen.stylePack : null,
+      mode: rawGen.mode === "background" ? "background" : "me",
+      prompt: typeof rawGen.prompt === "string" ? rawGen.prompt.slice(0, 300) : null,
+    };
+  }
+  return { intent, reply, action, clarify, editInstruction, rankRequest, photos, generate, model: CHAT_MODEL };
 }
 
 function parseModelJson(text: string): unknown {

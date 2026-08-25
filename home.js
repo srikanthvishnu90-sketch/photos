@@ -718,6 +718,23 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       showReply(reply, data?.clarify, replyShots);
       homeActions.chatReplyShown(typeof data?.intent === "string" ? data.intent : "chat");
 
+      // Generation request → open the right studio, pre-filled from their words.
+      if (data?.intent === "generate" && data?.generate) {
+        const g = data.generate;
+        chatHistory = [];
+        if (g.kind === "commitment") {
+          void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+        } else {
+          void import("./gems-scene-view.js").then((m) =>
+            m.openSceneStudio(g.stylePack || "euro-summer", {
+              prompt: g.prompt || "",
+              mode: g.mode || "me",
+            }),
+          );
+        }
+        return;
+      }
+
       const routed = chatActionPayload(data);
       if (routed) {
         // An edit routed to the Editor needs a photo to act on. If the server
