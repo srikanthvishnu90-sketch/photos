@@ -4,6 +4,7 @@ import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
 import { pickGemOfTheDay } from "./gems-daily.js";
 import { importPhotoFiles, listPhotos } from "./gems-photolib.js";
 import { importFromDevice, hasNativeLibrary } from "./gems-native.js";
+import { buildChatContext, serverContext } from "./gems-chat-context.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -274,6 +275,7 @@ function homeMarkup() {
           </button>
         </div>
         <div id="homeReplyChips" class="home-reply-chips" hidden></div>
+        <div id="homeReplyPhotos" class="home-reply-photos" hidden></div>
       </div>
       <div class="home-chat-dock">
         <form id="homeChatForm" class="home-chat-form home-entrance">
@@ -335,6 +337,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   const replyStrip = mount.querySelector("#homeReplyStrip");
   const replyText = mount.querySelector("#homeReplyText");
   const replyChips = mount.querySelector("#homeReplyChips");
+  const replyPhotos = mount.querySelector("#homeReplyPhotos");
   const replyClose = mount.querySelector("#homeReplyClose");
   const hiddenGemBtn = mount.querySelector("#openHiddenGem");
   let activeGem = 0;
@@ -502,12 +505,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     replyText.textContent = "";
     replyChips.innerHTML = "";
     replyChips.hidden = true;
+    if (replyPhotos) {
+      replyPhotos.innerHTML = "";
+      replyPhotos.hidden = true;
+    }
   }
 
   // The dock reply: one short assistant line plus up to two clarify chips.
   // Text lands via textContent and chip labels/values via escapeHtml, so
   // model output can never inject markup.
-  function showReply(text, clarify) {
+  function showReply(text, clarify, photos) {
     try {
       replyText.textContent = String(text);
       const chips = (Array.isArray(clarify) ? clarify : [])
@@ -526,6 +533,21 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         )
         .join("");
       replyChips.hidden = chips.length === 0;
+
+      // Inline result thumbnails (grounded answers like "which beach pics").
+      // Each opens the editor on that photo. src is a same-origin object URL.
+      if (replyPhotos) {
+        const shots = (Array.isArray(photos) ? photos : [])
+          .filter((p) => p && p.id && p.url)
+          .slice(0, 6);
+        replyPhotos.innerHTML = shots
+          .map(
+            (p) =>
+              `<button class="home-reply-photo" type="button" data-reply-photo="${escapeHtml(p.id)}"><img src="${escapeHtml(p.url)}" alt="" loading="lazy"></button>`,
+          )
+          .join("");
+        replyPhotos.hidden = shots.length === 0;
+      }
       replyStrip.hidden = false;
     } catch (error) {
       console.info("Gems reply strip unavailable", error);
@@ -659,6 +681,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const userAesthetics = await loadAesthetics();
       const history = chatHistory.slice();
       pushHistory("user", prompt);
+      // Ground the orchestrator in the on-device library, relevant photos, and
+      // taste — built client-side (only ids/captions/summary are sent).
+      const ctx = await buildChatContext(prompt).catch(() => null);
       const response = await fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: {
@@ -666,7 +691,13 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
           apikey: SUPABASE_PUBLISHABLE_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: prompt, userAesthetics, screen: "Home", history }),
+        body: JSON.stringify({
+          message: prompt,
+          userAesthetics,
+          screen: "Home",
+          history,
+          ...(ctx ? { context: serverContext(ctx) } : {}),
+        }),
       });
       if (response.status === 402) {
         showReply("You've used all your free chats this month — Gems Plus unlocks more.");
@@ -678,7 +709,13 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const reply =
         typeof data?.reply === "string" && data.reply.trim() ? data.reply : "Done.";
       pushHistory("assistant", reply);
-      showReply(reply, data?.clarify);
+      // Resolve any photo ids the model chose to show back to on-device URLs.
+      const replyShots = Array.isArray(data?.photos)
+        ? data.photos
+            .map((id) => ({ id, url: ctx?.relevantUrls?.get(id) }))
+            .filter((p) => p.url)
+        : [];
+      showReply(reply, data?.clarify, replyShots);
       homeActions.chatReplyShown(typeof data?.intent === "string" ? data.intent : "chat");
 
       const routed = chatActionPayload(data);
@@ -859,6 +896,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     const chip = event.target.closest("[data-chip-value]");
     if (!chip) return;
     void sendChatMessage(chip.dataset.chipValue);
+  });
+  // Tapping an inline result opens that photo in the editor.
+  replyPhotos?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-reply-photo]");
+    if (!btn) return;
+    goTo("Editor", { mode: "describe", photoId: btn.dataset.replyPhoto });
   });
 
   mount.querySelectorAll("[data-gem-id]").forEach((button) => {

@@ -197,7 +197,7 @@ export async function ensureDescriptions(records) {
 
 // The user's chosen aesthetics, in their chosen order. Empty when signed out
 // or unset — Pass B just weighs taste less.
-async function fetchUserAesthetics() {
+export async function fetchUserAesthetics() {
   try {
     const supabase = await getSupabase();
     const session = await getSession();
@@ -216,7 +216,7 @@ async function fetchUserAesthetics() {
 
 // Compact recent-behavior digest for Pass B (docs/rank-photos.md): counts of
 // the user's latest taste_events, e.g. "photo_kept x12, rank_requested x3".
-async function fetchTasteSummary() {
+export async function fetchTasteSummary() {
   try {
     const supabase = await getSupabase();
     const session = await getSession();

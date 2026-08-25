@@ -49,7 +49,7 @@ function sanitizeContract(raw: unknown): Record<string, unknown> {
   const intent = VALID_INTENTS.has(value.intent as string) ? (value.intent as string) : "chat";
   const reply =
     typeof value.reply === "string" && value.reply.trim()
-      ? value.reply.trim().slice(0, 240)
+      ? value.reply.trim().slice(0, 400)
       : "I'm here — ask me anything about your photos.";
   let action: Record<string, unknown> | null = null;
   const rawAction = value.action as Record<string, unknown> | null;
@@ -83,7 +83,12 @@ function sanitizeContract(raw: unknown): Record<string, unknown> {
         : "general",
     };
   }
-  return { intent, reply, action, clarify, editInstruction, rankRequest, model: CHAT_MODEL };
+  let photos: string[] | null = null;
+  if (Array.isArray(value.photos)) {
+    photos = value.photos.filter((x) => typeof x === "string" && x).slice(0, 8);
+    if (!photos.length) photos = null;
+  }
+  return { intent, reply, action, clarify, editInstruction, rankRequest, photos, model: CHAT_MODEL };
 }
 
 function parseModelJson(text: string): unknown {
@@ -108,6 +113,11 @@ Deno.serve(async (request) => {
     userAesthetics?: string[];
     screen?: string;
     history?: Array<{ role?: string; text?: string }>;
+    context?: {
+      library?: Record<string, unknown> | null;
+      relevantPhotos?: Array<{ id?: string; caption?: string }>;
+      taste?: Record<string, unknown> | null;
+    };
   };
   try {
     body = await request.json();
@@ -178,6 +188,7 @@ Deno.serve(async (request) => {
             message,
             userAesthetics: Array.isArray(body.userAesthetics) ? body.userAesthetics : [],
             screen: body.screen,
+            context: body.context ?? null,
           }),
         },
       ],
@@ -205,7 +216,18 @@ Deno.serve(async (request) => {
     } catch {
       contract = { intent: "chat", reply: text.slice(0, 200) };
     }
-    return json(200, sanitizeContract(contract));
+    const result = sanitizeContract(contract);
+    // Only surface photo ids we actually provided (never hallucinated ones).
+    if (Array.isArray(result.photos)) {
+      const allowed = new Set(
+        (body.context?.relevantPhotos ?? [])
+          .map((p) => p?.id)
+          .filter((id): id is string => typeof id === "string"),
+      );
+      const filtered = (result.photos as string[]).filter((id) => allowed.has(id));
+      result.photos = filtered.length ? filtered : null;
+    }
+    return json(200, result);
   } catch (error) {
     console.error("gems-chat failed", error);
     return json(502, { error: String((error as Error).message ?? error) });
