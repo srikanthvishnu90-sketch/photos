@@ -32,7 +32,7 @@ const REALISM_LAYER = `REALISM REQUIREMENTS — this must read as a real, casual
 NORTH STAR: it should look like a good photo a friend snapped on their phone — authentic, not impressive. If the result looks too perfect, too clean, too evenly lit, too well-composed, or too "premium," it reads as AI. Aim for AUTHENTIC over BEAUTIFUL every single time. A slightly worse-looking but real photo beats a gorgeous fake one.
 
 EMBRACE IMPERFECTION — DELIBERATELY MAKE THE IMAGE "WORSE" (this is the #1 realism lever). A real phone photo is TECHNICALLY WORSE than a polished render, and that is exactly why it reads as real. Do NOT optimize image quality — do the opposite:
-- DO NOT "fix" or improve the exposure. Real photos are often underexposed and dim, or harshly overexposed. Let faces fall partly into shadow; let some highlights blow out; let blacks crush — but keep them NOISY, never clean.
+- DO NOT "fix" the image into a polished render, but DO render it through the iPhone pipeline: shadows are LIFTED and OPEN (few true blacks) yet still noisy; highlights are gently COMPRESSED/rolled off (rarely pure-white clipped); the midtones read slightly FLAT and washed-out — the "everything visible, low-contrast HDR" look people call over-processed. Dim scenes stay dim-but-open-and-noisy, not crushed to black.
 - HARSH, UNEVEN, UNFLATTERING LIGHT is good: hard midday sun with hard-edged shadows and blown highlights, or dim warm indoor tungsten with deep shadow across the frame and mixed white balance. Avoid the even, soft, flattering, everywhere-lit look — that is the giveaway.
 - HAZY ATMOSPHERIC DISTANCE: render distant backgrounds (skylines, hills, far buildings) LOW-contrast, desaturated and softened by haze/atmospheric perspective — never crisp and hyper-detailed to the horizon.
 - MUNDANE CONTENT & BACKGROUND PEOPLE: fill it with incidental strangers mid-errand, a passing dog, a bird, ordinary clutter — not everything is a hero subject cleanly framed.
@@ -44,15 +44,17 @@ CAPTURE MODEL — reproduce a modern iPhone's computational pipeline, not a DSLR
 - Small-sensor smartphone, ~24mm-equivalent main lens at ƒ/1.8. DEEP depth of field: the subject AND the background are both essentially in focus. Do NOT add creamy/dreamy background blur unless Portrait mode is explicitly requested — shallow optical bokeh is a top AI/DSLR tell.
 - Casual handheld framing: a real person's grab-shot, never a tripod, drone, or art-directed composition. Slight tilt, imperfect horizon, subject a little off-center, natural (not golden-ratio) placement are all GOOD.
 
-SENSOR & OPTICS — the physical fingerprints AI omits:
-- Faint LUMINANCE noise that survives noise reduction, concentrated in shadows and mid-tones and on skin — never a perfectly clean image. This is the strongest cheap realism cue; a too-clean image is the giveaway.
-- Mild edge softness and gentle corner vignetting; occasional subtle lens flare/ghosting from a bright source; a trace of chromatic aberration at high-contrast edges.
-- Realistic, slightly aggressive iPhone sharpening — crisp micro-contrast, not soft or painterly.
+SENSOR & OPTICS — the exact iPhone fingerprints (multi-frame fusion of ~9 stacked frames):
+- NOISE: near-zero chroma noise, but a TRACE of fine, tight LUMINANCE noise surviving in shadows and mid-dark skin. NOT film grain — fine and tight. Flat areas (skies, walls, cheeks) read slightly "plasticky" from aggressive denoise.
+- SHARPENING: strong local edge micro-contrast — the "etched / over-sharpened" iPhone look. High-frequency detail (hair strands, fabric weave, foliage, distant brick) is crunchy and accentuated, with FAINT BRIGHT HALOS along high-contrast edges. Never soft or painterly.
+- LENS (24mm-equiv ƒ/1.78): mild corner softness and light vignetting; occasional green/magenta chromatic aberration on backlit edges; and — against any point light (streetlight, sun) — a distinctive multi-point LENS FLARE with small colored ghost blobs (a strong iPhone tell).
+- MOTION: static subjects are crisp with no blur, but MOVING edges (hands, hair, leaves, water) can show faint ghosting/doubling from the frame stacking.
 
-TONE & COLOR — Apple's color science, not hyper-HDR:
-- Wide dynamic range with gently lifted shadows and soft highlight rolloff, BUT keep real directional contrast and honest cast shadows. Do NOT flatten the scene into shadowless even HDR — that flat "everything-lit" look is both an iPhone-critique failure AND an AI tell.
-- Slightly WARM white balance. Natural, PROTECTED skin tones — true to the person, with visible pores, fine lines, a little specular sheen; never whitened, waxy, or beauty-filtered.
-- Restrained, controlled saturation. Never candy-HDR / radioactive-teal / oversaturated.
+TONE & COLOR — Apple's exact processed look:
+- SEGMENTED EXPOSURE (the key iPhone tell): the pipeline exposes sky, skin, and background INDEPENDENTLY, so you get a bright, cleanly-exposed FACE against a still-detailed BRIGHT SKY — neither blown. Faces are lifted/brightened relative to the scene.
+- Very wide DR with a FLAT, low-contrast HDR midtone; lifted OPEN shadows (few true blacks), soft highlight roll-off (no clipped white) — milky, not punchy.
+- WHITE BALANCE slightly cool-accurate to warm; skin rendered WARM and slightly brightened. PROTECTED skin tones with visible pores, fine lines and a little T-zone sheen — never whitened, waxy, or beauty-filtered.
+- Punchy-but-not-lurid color, with characteristically OVER-SATURATED blue skies and vivid greens. Never candy-HDR / radioactive-teal.
 
 PHYSICAL CONSISTENCY: one coherent light logic; shadows all agree in direction, length and softness; reflections geometrically correct and matched between both eyes and in glass/mirrors; parallel lines converge to consistent vanishing points; materials obey physics (cloth drape, hair strands, liquid, fabric weave, fingerprints on glass, wear on surfaces).
 
@@ -74,6 +76,18 @@ const MODESTY = `WARDROBE MODESTY (required): the user is always fully and taste
 // Framing distance — a close-up face filling the frame is one of the strongest AI
 // tells; real lifestyle photos are shot from a few steps back so you see the PLACE.
 const FRAMING = `FRAMING & DISTANCE (critical for realism): shoot the user from a NATURAL DISTANCE — a medium-to-wide candid photo where they occupy only about a third to a half of the frame and the SETTING is clearly visible around and behind them. Their FACE must NOT be close to the camera and must NOT fill the frame — absolutely no tight selfie or head-and-shoulders portrait crop. Frame it like a friend a few steps away taking a full-body or half-body travel photo, so the person AND the place both read. A face too close to the camera instantly looks AI-generated — keep the distance.`;
+
+// Face-realism — the specific tells that make an AI PERSON read as fake even at
+// SOTA (from forensic research). Complements FACE_FIDELITY (identity + skin texture).
+const FACE_REALISM = `FACE REALISM — kill the AI-person tells (obey all):
+- EYES: natural moisture and a SOFT single catchlight that is IDENTICAL in BOTH eyes and matches the scene's light direction; gaze slightly soft and often off-camera. NEVER glassy, doll-like, dead, or hyper-focused razor-sharp irises.
+- ASYMMETRY: a real, ordinary, NON-symmetric face — features not averaged into "influencer" perfection; allow a slightly uneven eye, a natural nose, distinctive imperfections. Perfect symmetry and model-beauty read as AI.
+- SKIN under this light: visible pores, peach-fuzz, minor blemishes/redness, uneven tone, under-eye texture, a little T-zone shine — never airbrushed, poreless, or glowing.
+- TEETH: natural, slightly uneven, not brilliant-white or a perfect grin.
+- HAIR: individual flyaway strands and a slightly messy, natural hairline that does NOT melt into the skin.
+- FACE LIGHT: directional — one side of the face a little brighter, soft shadow under the nose/chin. Never flat, even, everywhere-flattering studio light on the face.
+- EXPRESSION: candid, caught mid-moment, a neutral or asymmetric micro-expression — never a posed, straight-to-camera "trustworthy" smile (the uncanny tell).
+- HANDS if visible: correct five fingers, relaxed and natural — or kept partly out of frame.`;
 
 // Curated, fully-clothed outfit vocabulary per style pack (analyzed from the
 // aspirational references, swimwear/shirtless excluded). Used to auto-dress the
@@ -404,6 +418,7 @@ Deno.serve(async (request) => {
       realismRefBlock +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
+      (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
       (hasSubject ? `\n\n${FRAMING}` : "") +
       wardrobeBlock +
