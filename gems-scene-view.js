@@ -4,7 +4,7 @@
 import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
-  poseOptionsFor, outfitOptionsFor,
+  poseOptionsFor, outfitOptionsFor, datingShots,
 } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
@@ -13,6 +13,7 @@ function esc(v) {
 }
 
 const PROMPT_HINTS = {
+  "dating": "makes 6 varied dating photos — no need to describe a scene",
   "euro-summer": "walking through a sunlit European old town",
   "dubai": "by a rooftop infinity pool at sunset, Burj Khalifa behind me",
   "old-money": "on a cobbled Monaco street with the yacht harbor behind me",
@@ -41,7 +42,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
   const state = {
     // Pre-filled from a chat "generate" request when provided.
     mode: prefill.mode === "background" ? "background" : "me",
-    matchReference: false, wardrobe: "", pose: "",
+    matchReference: false, wardrobe: "", pose: "", build: "",
     photoId: null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
@@ -106,6 +107,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                </div>`
             : (() => {
         const inMe = state.mode !== "background";
+        const isDating = inMe && state.pack === "dating";
         const canGenerate = !state.busy && (inMe ? !!state.photoId : true);
         const oneRefSelected = state.refs.length === 1;
         return `
@@ -166,15 +168,20 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           ${ASPECTS.map((a) => `<button type="button" class="commit-chip${state.aspect === a.id ? " is-active" : ""}" data-aspect="${a.id}">${esc(a.label)}</button>`).join("")}
         </div>
 
-        <label class="commit-label">${inMe ? "7" : "5"} · How many</label>
+        ${
+          isDating
+            ? `<label class="commit-label">Your build <span style="font-weight:400;color:var(--color-mauve)">(optional · gets your proportions right)</span></label>
+        <input class="commit-input" data-build type="text" maxlength="120" placeholder="e.g. 5'10, 150 lbs, slim build" value="${esc(state.build)}" />`
+            : `<label class="commit-label">${inMe ? "7" : "5"} · How many</label>
         <div class="commit-headlines">
           ${[1, 4].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " photos"}</button>`).join("")}
-        </div>
+        </div>`
+        }
 
         <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
-          ${state.busy ? "Generating…" : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
+          ${state.busy ? "Generating…" : isDating ? "Make my dating set (6)" : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
         </button>
-        <p class="commit-note">${inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
+        <p class="commit-note">${isDating ? "6 varied dating photos — a real mix, tailored to you · keeps your face" : inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
         <p class="commit-status" data-status></p>`;
       })()
         }
@@ -216,6 +223,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     );
     overlay.querySelector("[data-prompt]")?.addEventListener("input", (e) => { state.prompt = e.target.value; });
     overlay.querySelector("[data-wardrobe]")?.addEventListener("input", (e) => { state.wardrobe = e.target.value; });
+    overlay.querySelector("[data-build]")?.addEventListener("input", (e) => { state.build = e.target.value; });
     overlay.querySelector("[data-match]")?.addEventListener("change", (e) => { state.matchReference = e.target.checked; });
     overlay.querySelectorAll("[data-aspect]").forEach((b) =>
       b.addEventListener("click", () => { state.aspect = b.dataset.aspect; render(); }),
@@ -354,30 +362,47 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       } catch { /* no identity → skip */ }
     }
 
-    const opts = {
+    const baseOpts = {
       mode: state.mode,
       subjectPhotoId: inMe ? state.photoId : undefined,
       identityPhotoIds,
-      prompt:
-        state.prompt ||
-        (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
       stylePackId: state.pack,
       referenceAssetIds: state.refs,
       matchReference,
-      wardrobe: inMe ? state.wardrobe : undefined,
-      pose: inMe ? state.pose : undefined,
-      aspect: state.aspect,
+      build: inMe ? state.build : undefined,
       quality: matchReference ? "pro" : "standard",
     };
 
-    // Numerous images are generated SEPARATELY, one call each, and pushed in as
-    // they arrive so the user can start swiping before the batch finishes.
-    const N = Math.max(1, Math.min(8, state.count | 0));
+    // A dating profile is a VARIED SET: one call per recipe (different setting,
+    // pose, framing, camera-direction), not the same shot N times. Otherwise a
+    // batch is N separate calls of the SAME request. Each result is pushed in as
+    // it arrives so the user can start swiping before the batch finishes.
+    const isDating = inMe && state.pack === "dating";
+    const jobs = isDating
+      ? datingShots().map((s) => ({
+          ...baseOpts,
+          prompt: s.prompt,
+          pose: s.pose,
+          // A per-shot outfit unless the user typed their own.
+          wardrobe: state.wardrobe || s.wardrobe,
+          aspect: s.aspect || state.aspect,
+        }))
+      : Array.from({ length: Math.max(1, Math.min(8, state.count | 0)) }, () => ({
+          ...baseOpts,
+          prompt:
+            state.prompt ||
+            (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
+          wardrobe: inMe ? state.wardrobe : undefined,
+          pose: inMe ? state.pose : undefined,
+          aspect: state.aspect,
+        }));
+
+    const N = jobs.length;
     let lastError = null;
     for (let n = 0; n < N; n++) {
       state.progress = N > 1 ? `Generating ${n + 1} of ${N}…` : "Creating your photo…";
       render();
-      const r = await generateOne(opts, verify);
+      const r = await generateOne(jobs[n], verify);
       if (r?.url) {
         state.results.push({ url: r.url, faceNote: r.faceNote });
         state.resultIndex = state.results.length - 1;

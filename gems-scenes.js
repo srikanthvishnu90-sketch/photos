@@ -9,6 +9,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Z8Fw1dZYiqOGUDITzU929A_i2k9wANc
 const FN_URL = `${SUPABASE_URL}/functions/v1/generate-scene`;
 
 export const STYLE_PACKS = Object.freeze([
+  { id: "dating", label: "Dating Profile" },
   { id: "euro-summer", label: "Euro Summer" },
   { id: "dubai", label: "Dubai Luxe" },
   { id: "old-money", label: "Old Money" },
@@ -18,6 +19,24 @@ export const STYLE_PACKS = Object.freeze([
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
 ]);
+
+// A dating profile is a VARIED SET (~6) — a mix of settings, framings and camera
+// directions (looking at camera + away), stylish and fully clothed, like a real
+// person's best photos. Each shot is generated SEPARATELY from its own recipe.
+// Founder rule: a mix of everything, tailored to the person's real build.
+export const DATING_SHOTS = Object.freeze([
+  { label: "Driver's seat", prompt: "sitting in the driver's seat of a nice car in warm golden light, seatbelt on, glancing out the side window with a calm relaxed expression, city visible through the windscreen", pose: "sitting in the driver's seat looking out the window, one hand near the wheel, candid", wardrobe: "a fitted knit sweater or crewneck in navy or grey", aspect: "4:5" },
+  { label: "Full-body outfit", prompt: "standing full-body on a plant-filled patio or terrace, relaxed with hands in pockets, looking straight at the camera, a stylish put-together outfit", pose: "standing full-body, hands loosely in pockets, weight on one leg, looking at the camera", wardrobe: "a crisp white or light linen shirt half-tucked with well-fitted jeans and clean sneakers", aspect: "4:5" },
+  { label: "Golden-hour portrait", prompt: "a warm golden-hour half-body shot outdoors at dusk with soft sky behind, calm approachable expression looking straight at the camera", pose: "half-body, relaxed shoulders, looking softly at the camera, natural micro-smile", wardrobe: "a casual layered look — a plain tee under an open overshirt or light jacket", aspect: "4:5" },
+  { label: "Street candid", prompt: "sitting on the step of a European street cafe or a stone stair, relaxed and looking off to the side, an effortless stylish streetwear fit, everyday city background", pose: "seated on a step, forearms on knees, looking off to the side, candid and unposed", wardrobe: "relaxed stylish streetwear — a sweatshirt or overshirt with loose jeans and clean shoes", aspect: "4:5" },
+  { label: "Walking away", prompt: "walking down a sunlit city street glancing off to the side, mid-stride and candid, natural daylight, real urban background with some passers-by", pose: "walking mid-stride, glancing off to the side, not looking at the camera", wardrobe: "a smart-casual fit — a knit polo or button-down with tailored trousers", aspect: "4:5" },
+  { label: "Rooftop social", prompt: "a relaxed half-body shot at a rooftop or nice interior with warm evening light and soft bokeh of people behind, an easy confident half-smile looking at the camera", pose: "half-body, relaxed, a slight genuine smile, looking at the camera, holding a drink", wardrobe: "an evening smart-casual look — a dark shirt or fine knit", aspect: "4:5" },
+]);
+
+/** The dating shot recipes (a fresh copy so callers can't mutate the frozen set). */
+export function datingShots() {
+  return DATING_SHOTS.map((s) => ({ ...s }));
+}
 
 export const ASPECTS = Object.freeze([
   { id: "4:5", label: "Portrait" },
@@ -294,6 +313,7 @@ export async function generateScene(opts) {
         matchReference: opts.matchReference === true,
         wardrobe: opts.wardrobe ?? undefined,
         pose: opts.pose ?? undefined,
+        build: opts.build ?? undefined,
       }),
     });
     const data = await res.json().catch(() => null);

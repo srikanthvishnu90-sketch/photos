@@ -231,6 +231,7 @@ Deno.serve(async (request) => {
     matchReference?: boolean; // recreate the reference photo AS the user (face swap)
     wardrobe?: string;      // optional: change the user's outfit
     pose?: string;          // optional: how the user is posed / what they're doing
+    build?: string;         // optional: real body type (e.g. "5'10, 150lbs, slim")
   };
   try {
     body = await request.json();
@@ -391,6 +392,14 @@ Deno.serve(async (request) => {
       hasSubject && !wardrobe
         ? `\n\nWARDROBE (choose one that suits the subject): dress the user in a tasteful, fully-clothed, on-theme outfit${packWardrobe ? ` — ${packWardrobe}` : " appropriate to the setting"}. Pick the option that best fits the person you see; keep their face and identity unchanged.`
         : "";
+    // Body-type honesty: AI loves to make people taller, broader and more
+    // chiselled than they are. Keep the user's REAL frame from their photos, and
+    // apply any stated build. Appended for all person shots.
+    const build = String(body.build ?? "").trim().slice(0, 120);
+    const buildBlock =
+      hasSubject
+        ? `\n\nBODY TYPE (keep it honest): render the user's REAL body type and proportions exactly as in their reference photos${build ? ` (${build})` : ""}. Do NOT make them more muscular, taller, broader, leaner, or more chiselled than they are, and do NOT exaggerate their facial structure or jawline. Their true frame and natural build — never an idealized or "gym-bro" version.`
+        : "";
     const pose = String(body.pose ?? "").trim().slice(0, 200);
     const poseBlock =
       hasSubject && pose
@@ -421,6 +430,7 @@ Deno.serve(async (request) => {
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
       (hasSubject ? `\n\n${FRAMING}` : "") +
+      buildBlock +
       wardrobeBlock +
       autoWardrobeBlock +
       poseBlock +
@@ -483,6 +493,7 @@ Deno.serve(async (request) => {
           match_reference: matchReference,
           pose: pose || null,
           wardrobe: wardrobe || null,
+          build: build || null,
           realism_refs: realismRefCount,
         },
       })
