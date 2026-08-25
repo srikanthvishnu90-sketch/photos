@@ -129,6 +129,7 @@ Deno.serve(async (request) => {
       relevantPhotos?: Array<{ id?: string; caption?: string }>;
       taste?: Record<string, unknown> | null;
     };
+    images?: Array<{ base64?: string; mimeType?: string }>;
   };
   try {
     body = await request.json();
@@ -186,23 +187,32 @@ Deno.serve(async (request) => {
       console.error("chat cap check failed (allowing)", error);
     }
 
+    // Attached photos → Claude sees them (vision critique/comparison). Cap count
+    // and total size so a runaway payload can't blow the request up.
+    const rawImages = Array.isArray(body.images) ? body.images.slice(0, 4) : [];
+    const imageBlocks = rawImages
+      .filter((im) => typeof im?.base64 === "string" && im.base64.length > 0 && im.base64.length < 7_000_000)
+      .map((im) => ({
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: (im.mimeType || "image/jpeg"), data: im.base64 as string },
+      }));
+
+    const userText = buildChatUserMessage({
+      message,
+      userAesthetics: Array.isArray(body.userAesthetics) ? body.userAesthetics : [],
+      screen: body.screen,
+      context: body.context ?? null,
+    });
+    const userContent = imageBlocks.length
+      ? [...imageBlocks, { type: "text" as const, text: userText }]
+      : userText;
+
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
       max_tokens: 1024,
       system: ORCHESTRATOR_PROMPT,
-      messages: [
-        ...priorMessages,
-        {
-          role: "user",
-          content: buildChatUserMessage({
-            message,
-            userAesthetics: Array.isArray(body.userAesthetics) ? body.userAesthetics : [],
-            screen: body.screen,
-            context: body.context ?? null,
-          }),
-        },
-      ],
+      messages: [...priorMessages, { role: "user", content: userContent }],
     });
     // Meter the model call (counts toward the monthly cap; ignore insert errors).
     try {

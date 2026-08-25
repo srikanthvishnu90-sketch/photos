@@ -2,7 +2,7 @@ import { homeActions } from "./home-actions.js";
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
 import { getSupabase, getSession, recordTasteEvent } from "./gems-supabase.js";
 import { pickGemOfTheDay } from "./gems-daily.js";
-import { importPhotoFiles, listPhotos } from "./gems-photolib.js";
+import { importPhotoFiles, listPhotos, getPhotoBlob } from "./gems-photolib.js";
 import { importFromDevice, hasNativeLibrary } from "./gems-native.js";
 import { buildChatContext, serverContext } from "./gems-chat-context.js";
 
@@ -278,6 +278,7 @@ function homeMarkup() {
         <div id="homeReplyPhotos" class="home-reply-photos" hidden></div>
       </div>
       <div class="home-chat-dock">
+        <div id="homeChatAttach" class="home-chat-attach" hidden></div>
         <form id="homeChatForm" class="home-chat-form home-entrance">
           <button id="attachPhoto" class="home-chat-icon" type="button" aria-label="Attach a photo">
             <svg viewBox="0 0 18 18" aria-hidden="true">
@@ -332,6 +333,11 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   let realGems = false;
   const chatForm = mount.querySelector("#homeChatForm");
   const chatInput = mount.querySelector("#homeChatInput");
+  const chatAttach = mount.querySelector("#homeChatAttach");
+  // Photos the user has attached to the next chat message so Gems can SEE them
+  // (vision critique/comparison). [{ id, url, base64, mimeType }], max 3.
+  let chatAttachments = [];
+  const MAX_ATTACH = 3;
   const chatSend = mount.querySelector("#homeChatSend");
   const chatStatus = mount.querySelector("#homeChatStatus");
   const replyStrip = mount.querySelector("#homeReplyStrip");
@@ -498,6 +504,90 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     chatInput.value = prompt;
     syncChat();
     chatInput.focus({ preventScroll: true });
+  }
+
+  function chatBlobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const s = String(reader.result ?? "");
+        resolve(s.slice(s.indexOf(",") + 1));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function renderAttachments() {
+    if (!chatAttach) return;
+    if (!chatAttachments.length) {
+      chatAttach.hidden = true;
+      chatAttach.innerHTML = "";
+      return;
+    }
+    chatAttach.hidden = false;
+    chatAttach.innerHTML = chatAttachments
+      .map(
+        (a, i) =>
+          `<span class="home-chat-thumb"><img src="${escapeHtml(a.url)}" alt=""><button type="button" class="home-chat-thumb-x" data-attach-remove="${i}" aria-label="Remove">✕</button></span>`,
+      )
+      .join("");
+    chatAttach.querySelectorAll("[data-attach-remove]").forEach((b) =>
+      b.addEventListener("click", () => {
+        chatAttachments.splice(Number(b.dataset.attachRemove), 1);
+        renderAttachments();
+      }),
+    );
+  }
+
+  function clearAttachments() {
+    chatAttachments = [];
+    renderAttachments();
+  }
+
+  async function attachPhotoById(id, url) {
+    if (chatAttachments.length >= MAX_ATTACH || chatAttachments.some((a) => a.id === id)) return;
+    try {
+      const blob = await getPhotoBlob(id);
+      if (!blob) return;
+      const base64 = await chatBlobToBase64(blob);
+      chatAttachments.push({ id, url, base64, mimeType: blob.type || "image/jpeg" });
+      renderAttachments();
+    } catch (error) {
+      console.info("attach failed", error);
+    }
+  }
+
+  // Lightweight picker: tap library photos to attach (up to MAX_ATTACH), so Gems
+  // can look at them. Self-contained overlay; never throws.
+  async function openAttachPicker() {
+    homeActions.attachPhoto();
+    let photos = [];
+    try { photos = await listPhotos(); } catch { photos = []; }
+    if (!photos.length) {
+      showReply("Import some photos first, then attach one and I'll take a look.");
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "home-attach-overlay";
+    overlay.innerHTML = `
+      <div class="home-attach-sheet">
+        <div class="home-attach-head"><strong>Attach a photo</strong><button type="button" class="home-attach-done">Done</button></div>
+        <div class="home-attach-grid">
+          ${photos.slice(0, 30).map((p) => `<button type="button" class="home-attach-cell" data-pick="${escapeHtml(p.id)}" data-url="${escapeHtml(p.url)}"><img src="${escapeHtml(p.url)}" alt="" loading="lazy"></button>`).join("")}
+        </div>
+      </div>`;
+    document.body.append(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector(".home-attach-done")?.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll("[data-pick]").forEach((cell) =>
+      cell.addEventListener("click", async () => {
+        await attachPhotoById(cell.dataset.pick, cell.dataset.url);
+        cell.classList.toggle("is-picked", chatAttachments.some((a) => a.id === cell.dataset.pick));
+        if (chatAttachments.length >= MAX_ATTACH) close();
+      }),
+    );
   }
 
   function hideReply() {
@@ -697,8 +787,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
           screen: "Home",
           history,
           ...(ctx ? { context: serverContext(ctx) } : {}),
+          ...(chatAttachments.length
+            ? { images: chatAttachments.map((a) => ({ base64: a.base64, mimeType: a.mimeType })) }
+            : {}),
         }),
       });
+      clearAttachments();
       if (response.status === 402) {
         showReply("You've used all your free chats this month — Gems Plus unlocks more.");
         return;
@@ -907,7 +1001,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
 
   importButton.addEventListener("click", runImport);
   // The chat dock's paperclip now imports too, rather than being a dead stub.
-  mount.querySelector("#attachPhoto").addEventListener("click", runImport);
+  mount.querySelector("#attachPhoto").addEventListener("click", () => void openAttachPicker());
   replyClose.addEventListener("click", () => {
     window.clearTimeout(navigateTimer);
     hideReply();
