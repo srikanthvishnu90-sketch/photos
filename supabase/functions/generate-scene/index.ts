@@ -14,14 +14,41 @@ const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_REFS = 3;
 
 // Always appended so output reads as a real smartphone photo, not AI art.
-const REALISM_LAYER = `REALISM REQUIREMENTS — this must read as a real smartphone photograph, not AI art:
-Rendered as if shot on a recent iPhone: natural sensor behavior, believable dynamic range, slight highlight rolloff. Composition slightly imperfect and casual — a real person's framing, not a tripod or drone-perfect shot; small amounts of tilt or off-center placement are good. Natural micro-imperfections: subtle lens softness toward edges, faint noise in shadows, real-world clutter and asymmetry in the environment (cords, smudges, uneven objects). Physically consistent lighting with one believable light logic and correct shadows and reflections. Materials must have true texture: fabric weave, skin pores, fingerprints on glass, wear on surfaces. ABSOLUTELY AVOID the AI tells: plastic or waxy skin, perfect symmetry, over-smooth gradients, hyper-saturated HDR look, warped or gibberish text, impossible reflections, extra fingers, melted object boundaries, dreamlike depth of field.
+// This is the single most load-bearing block for "it looks too AI". The core
+// insight: a real iPhone photo is NOT a polished, superior-looking image — it
+// carries a SPECIFIC computational-photography signature (deep depth of field,
+// warm protected skin, luminance shadow noise, casual framing, entropy). The AI
+// tell is that the output looks TOO good — too clean, too composed, too lit. We
+// reproduce Apple's processed look, not optical perfection.
+const REALISM_LAYER = `REALISM REQUIREMENTS — this must read as a real, casual iPhone photograph, NOT AI art and NOT a professional/editorial/stock shoot.
+NORTH STAR: it should look like a good photo a friend snapped on their phone — authentic, not impressive. If the result looks too perfect, too clean, too evenly lit, too well-composed, or too "premium," it reads as AI. Aim for AUTHENTIC over BEAUTIFUL every single time. A slightly worse-looking but real photo beats a gorgeous fake one.
+
+CAPTURE MODEL — reproduce a modern iPhone's computational pipeline, not a DSLR:
+- Small-sensor smartphone, ~24mm-equivalent main lens at ƒ/1.8. DEEP depth of field: the subject AND the background are both essentially in focus. Do NOT add creamy/dreamy background blur unless Portrait mode is explicitly requested — shallow optical bokeh is a top AI/DSLR tell.
+- Casual handheld framing: a real person's grab-shot, never a tripod, drone, or art-directed composition. Slight tilt, imperfect horizon, subject a little off-center, natural (not golden-ratio) placement are all GOOD.
+
+SENSOR & OPTICS — the physical fingerprints AI omits:
+- Faint LUMINANCE noise that survives noise reduction, concentrated in shadows and mid-tones and on skin — never a perfectly clean image. This is the strongest cheap realism cue; a too-clean image is the giveaway.
+- Mild edge softness and gentle corner vignetting; occasional subtle lens flare/ghosting from a bright source; a trace of chromatic aberration at high-contrast edges.
+- Realistic, slightly aggressive iPhone sharpening — crisp micro-contrast, not soft or painterly.
+
+TONE & COLOR — Apple's color science, not hyper-HDR:
+- Wide dynamic range with gently lifted shadows and soft highlight rolloff, BUT keep real directional contrast and honest cast shadows. Do NOT flatten the scene into shadowless even HDR — that flat "everything-lit" look is both an iPhone-critique failure AND an AI tell.
+- Slightly WARM white balance. Natural, PROTECTED skin tones — true to the person, with visible pores, fine lines, a little specular sheen; never whitened, waxy, or beauty-filtered.
+- Restrained, controlled saturation. Never candy-HDR / radioactive-teal / oversaturated.
+
+PHYSICAL CONSISTENCY: one coherent light logic; shadows all agree in direction, length and softness; reflections geometrically correct and matched between both eyes and in glass/mirrors; parallel lines converge to consistent vanishing points; materials obey physics (cloth drape, hair strands, liquid, fabric weave, fingerprints on glass, wear on surfaces).
+
+PORTRAIT MODE (ONLY when explicitly requested): synthetic-style background blur with a believable focal plane, and TOLERATE slightly imperfect subject-edge separation (a little haloing at the hairline) rather than a flawless cutout — real Portrait mode is imperfect.
+
 FAILURE-DERIVED RULES (these are the tells that survive even excellent generation — obey them):
-- UNEVEN ARCHITECTURAL LIGHT: in any lit building, ruin, or facade, illumination through multiple openings must be UNEVEN — some windows/arches bright, some dim, some fully dark where real interior structure would block the light. Never render a uniform glow of equal intensity through many openings (the averaging signature).
+- UNEVEN ARCHITECTURAL LIGHT: in any lit building, ruin, or facade, illumination through multiple openings must be UNEVEN — some windows/arches bright, some dim, some fully dark where real interior structure would block the light. Never a uniform glow of equal intensity through many openings (the averaging signature).
 - IMPERFECT STAGING: real scenes are not art-directed. Foreground props must be asymmetric; include at least one mundane, slightly out-of-theme object (a stray napkin, a cord, a neighbor's clutter, a sign). NEVER symmetric flanking decor (matched potted trees on each side), never a perfectly centered, spotless composition.
 - TIME-OF-DAY COHERENCE: food, activity, crowd density, sky state, streetlights, and shadow direction must all agree on ONE hour of day. Never breakfast food under night lighting, or a bright midday sky with lit interior lamps.
 - ENTROPY: fill the world with hundreds of small uncurated real-world decisions — mismatched shutters, antennas, laundry, worn edges, people mid-errand rather than posed. Sterile perfection reads as fake.
-- SATURATION CEILING: keep color controlled and muted; NEVER the radioactive-teal / candy-HDR / over-saturated tone-compressed look. Over-editing is its own uncanny valley — restrained grade over punchy every time.`;
+- SATURATION CEILING: keep color controlled and muted; NEVER the radioactive-teal / candy-HDR / over-saturated tone-compressed look. Over-editing is its own uncanny valley — restrained grade over punchy every time.
+
+BANNED AI TELLS: plastic/waxy/poreless skin, perfect facial or scene symmetry, over-smooth gradients, hyper-saturated HDR flatness, shadowless studio-everywhere lighting, warped/gibberish text, impossible or mismatched reflections, extra or fused fingers, melted object boundaries, dreamy optically-perfect bokeh, floating/pasted-on subjects, and the overall "too polished to be real" look.`;
 
 const IDENTITY_BLOCK = `The attached photo(s) at the START are all the SAME person — the user. Study them together to lock their exact facial identity, then render that same person in the scene with their skin tone, hair, and build preserved — recognizably them, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
 
@@ -131,6 +158,7 @@ Deno.serve(async (request) => {
     mode?: string;          // "me" (default) | "background"
     matchReference?: boolean; // recreate the reference photo AS the user (face swap)
     wardrobe?: string;      // optional: change the user's outfit
+    pose?: string;          // optional: how the user is posed / what they're doing
   };
   try {
     body = await request.json();
@@ -241,7 +269,12 @@ Deno.serve(async (request) => {
     const wardrobe = String(body.wardrobe ?? "").trim().slice(0, 200);
     const wardrobeBlock =
       hasSubject && wardrobe
-        ? `\n\nWARDROBE: dress the user in ${wardrobe}. Keep their face and identity unchanged.`
+        ? `\n\nWARDROBE: dress the user in ${wardrobe}. This replaces whatever they are wearing in the reference photo — restyle the clothing to match, but keep their exact face, body, and identity unchanged.`
+        : "";
+    const pose = String(body.pose ?? "").trim().slice(0, 200);
+    const poseBlock =
+      hasSubject && pose
+        ? `\n\nPOSE & ACTION: the user is ${pose}. Make it look candid and natural — caught mid-moment, not stiffly posed for the camera.`
         : "";
     // Identity handling: face-swap-a-reference > put-me-in-scene > empty scene.
     const identityBlock =
@@ -259,6 +292,7 @@ Deno.serve(async (request) => {
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       wardrobeBlock +
+      poseBlock +
       `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
     parts.push({ text: promptText });
 
@@ -315,6 +349,8 @@ Deno.serve(async (request) => {
           me_in_scene: hasSubject,
           mode,
           match_reference: matchReference,
+          pose: pose || null,
+          wardrobe: wardrobe || null,
         },
       })
       .select("id")

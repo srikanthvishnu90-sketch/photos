@@ -4,6 +4,7 @@
 import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
+  poseOptionsFor, outfitOptionsFor,
 } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
@@ -34,7 +35,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
   const state = {
     // Pre-filled from a chat "generate" request when provided.
     mode: prefill.mode === "background" ? "background" : "me",
-    matchReference: false, wardrobe: "",
+    matchReference: false, wardrobe: "", pose: "",
     photoId: null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
@@ -104,6 +105,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
 
         <label class="commit-label">${inMe ? "3 · What are you doing?" : "2 · What's the scene?"} <span style="font-weight:400;color:var(--color-mauve)">(optional)</span></label>
         <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc((inMe ? PROMPT_HINTS : BG_HINTS)[state.pack] || "describe the scene")}" value="${esc(state.prompt)}" />
+        ${
+          inMe
+            ? `<div class="commit-headlines scene-poses">
+                 ${poseOptionsFor(state.pack).map((p) => `<button type="button" class="commit-chip${state.pose === p.value ? " is-active" : ""}" data-pose="${esc(p.value)}">${esc(p.label)}</button>`).join("")}
+               </div>`
+            : ""
+        }
 
         <label class="commit-label">${inMe ? "4" : "3"} · ${inMe ? "Inspiration references" : "Match a look"} <span style="font-weight:400;color:var(--color-mauve)">(optional · pick up to 3)</span></label>
         <div class="commit-photos">
@@ -118,8 +126,11 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
 
         ${
           inMe
-            ? `<label class="commit-label">5 · Change my fit <span style="font-weight:400;color:var(--color-mauve)">(optional)</span></label>
-        <input class="commit-input" data-wardrobe type="text" maxlength="120" placeholder="e.g. black linen shirt & cream trousers" value="${esc(state.wardrobe)}" />`
+            ? `<label class="commit-label">5 · Change my fit <span style="font-weight:400;color:var(--color-mauve)">(optional · tap one or type your own)</span></label>
+        <div class="commit-headlines scene-outfits">
+          ${outfitOptionsFor(state.pack).map((o) => `<button type="button" class="commit-chip${state.wardrobe === o.value ? " is-active" : ""}" data-outfit="${esc(o.value)}">${esc(o.label)}</button>`).join("")}
+        </div>
+        <input class="commit-input" data-wardrobe type="text" maxlength="200" placeholder="e.g. black linen shirt & cream trousers" value="${esc(state.wardrobe)}" />`
             : ""
         }
 
@@ -146,7 +157,23 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       b.addEventListener("click", () => { state.photoId = b.dataset.photo; render(); }),
     );
     overlay.querySelectorAll("[data-pack]").forEach((b) =>
-      b.addEventListener("click", () => { state.pack = b.dataset.pack; render(); }),
+      b.addEventListener("click", () => {
+        if (state.pack !== b.dataset.pack) state.pose = ""; // poses are pack-specific
+        state.pack = b.dataset.pack;
+        render();
+      }),
+    );
+    overlay.querySelectorAll("[data-pose]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.pose = state.pose === b.dataset.pose ? "" : b.dataset.pose; // toggle
+        render();
+      }),
+    );
+    overlay.querySelectorAll("[data-outfit]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.wardrobe = state.wardrobe === b.dataset.outfit ? "" : b.dataset.outfit; // toggle
+        render();
+      }),
     );
     overlay.querySelectorAll("[data-mode]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -237,6 +264,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       referenceAssetIds: state.refs,
       matchReference,
       wardrobe: inMe ? state.wardrobe : undefined,
+      pose: inMe ? state.pose : undefined,
       aspect: state.aspect,
       quality: matchReference ? "pro" : "standard",
     };

@@ -22,6 +22,96 @@ export const ASPECTS = Object.freeze([
   { id: "9:16", label: "Story" },
 ]);
 
+// Pose + outfit option catalogs, per style pack. When a user picks a scene we
+// surface a few candid poses and a few on-theme outfits as tappable chips, then
+// pass the chosen `value` strings to generate-scene as `pose` / `wardrobe`.
+// `value` is written as the phrase that slots into the prompt ("the user is …",
+// "dress the user in …"). Keep them candid and phone-real, never posed-perfect.
+const POSE_OPTIONS = Object.freeze({
+  "euro-summer": [
+    { label: "Walking a lane", value: "walking mid-stride down a narrow cobblestone alley, glancing off to the side, not at the camera" },
+    { label: "Café table", value: "sitting at a marble café table with an espresso, leaning back relaxed, caught mid-conversation" },
+    { label: "Leaning on a wall", value: "leaning against a sun-warmed stone wall with one hand in a pocket, looking out over the town" },
+    { label: "On the steps", value: "sitting on worn stone steps with bougainvillea overhead, forearms on knees, looking away" },
+    { label: "Overlooking the sea", value: "standing at a railing from behind over the shoulder, taking in the coastline and turquoise water" },
+  ],
+  dubai: [
+    { label: "Infinity pool edge", value: "leaning on the edge of a rooftop infinity pool looking out at the skyline, water to the chest" },
+    { label: "Rooftop lounge", value: "sitting back on a low cream sofa on a rooftop terrace at dusk, one arm along the back, relaxed" },
+    { label: "At the glass", value: "standing at a floor-to-ceiling penthouse window looking down at the city, shot from behind and to the side" },
+    { label: "Beach club daybed", value: "reclining on a striped beach-club daybed under an umbrella, sunglasses on, looking toward the water" },
+    { label: "Walking the terrace", value: "walking across a marble terrace mid-stride, glancing off-camera, city behind" },
+  ],
+  boat: [
+    { label: "Driving the boat", value: "at the wheel driving the boat, shot from behind over the shoulder, wake trailing behind" },
+    { label: "On the bow", value: "sitting on the bow looking out at the coastline, one knee up, relaxed and candid" },
+    { label: "Leaning on the rail", value: "leaning forearms on the chrome gunwale rail looking out over turquoise water" },
+    { label: "Off the swim ladder", value: "climbing the chrome swim-ladder out of the water, dripping, mid-motion" },
+    { label: "Toweling off", value: "sitting on the teak swim platform toweling off with a dive watch on the wrist, squinting in the sun" },
+  ],
+  "dark-luxe": [
+    { label: "By the window", value: "standing at a dark penthouse window against a blue-hour cityscape, lit by a single warm lamp, half in shadow" },
+    { label: "On the sofa", value: "sitting low on a boucle sofa in a dim suite, one warm lamp glowing, looking off into the room" },
+    { label: "At the pool", value: "standing at the edge of a dark infinity pool at dusk framed by deep-green foliage, seen from behind" },
+    { label: "Espresso at the table", value: "leaning over a low travertine table with an espresso and a laptop, warm light on one side of the face" },
+  ],
+  "after-dark": [
+    { label: "City at night", value: "standing on a balcony against a deep-navy night skyline, cool ambient light, hands in pockets" },
+    { label: "Walking lit streets", value: "walking a dim city street at night past warm shop-lights, caught mid-stride, not looking at the camera" },
+    { label: "Leaning, low light", value: "leaning against a wall under a single overhead light, deep protected shadows, quiet and candid" },
+  ],
+});
+
+const OUTFIT_OPTIONS = Object.freeze({
+  "euro-summer": [
+    { label: "White linen shirt", value: "a relaxed white linen button-down, sleeves rolled, with cream loose tailored trousers and leather sandals" },
+    { label: "Olive linen", value: "an olive linen shirt open over a plain white tee, with stone chinos and espadrilles" },
+    { label: "Terracotta shirt", value: "a terracotta/rust linen shirt with light grey trousers and a simple watch, no logos" },
+    { label: "Polo & shorts", value: "a fitted cream knit polo with tailored beige shorts and loafers, old-money summer" },
+  ],
+  dubai: [
+    { label: "Crisp white shirt", value: "a crisp fitted white shirt with tailored stone trousers and a good watch, understated luxury" },
+    { label: "Open resort shirt", value: "an open cream resort shirt over swim shorts, sunglasses, relaxed poolside" },
+    { label: "Black on black", value: "an all-black outfit — a fitted black shirt and dark tailored trousers, quiet expensive" },
+    { label: "Polo & chinos", value: "a navy knit polo with beige chinos and leather loafers, sharp but easy" },
+  ],
+  boat: [
+    { label: "Shirtless & tan", value: "shirtless and tanned in swim shorts, a dive watch on the wrist" },
+    { label: "Open linen", value: "an open white linen shirt over bare chest with swim shorts, effortless" },
+    { label: "Polo & shorts", value: "a navy polo with white swim shorts and sunglasses pushed up" },
+    { label: "Tee & board shorts", value: "a plain fitted white tee with board shorts, salt-and-sun casual" },
+  ],
+  "dark-luxe": [
+    { label: "Black knit", value: "a fine black knit sweater with dark tailored trousers, quiet and expensive" },
+    { label: "White shirt, dark", value: "a crisp white shirt half-lit by warm lamplight with dark trousers" },
+    { label: "Charcoal suit, no tie", value: "a charcoal suit with the collar open and no tie, relaxed penthouse formal" },
+  ],
+  "after-dark": [
+    { label: "Dark bomber", value: "a matte black bomber jacket over a plain tee with dark jeans" },
+    { label: "Black shirt", value: "a fitted black shirt with dark trousers, minimal and clean" },
+    { label: "Grey hoodie", value: "a heather-grey hoodie under a dark overshirt, casual night-out" },
+  ],
+});
+
+/** Candid pose options for a style pack (or a small generic set). */
+export function poseOptionsFor(stylePackId) {
+  return POSE_OPTIONS[stylePackId] || [
+    { label: "Walking", value: "walking mid-stride, glancing off-camera, candid" },
+    { label: "Leaning", value: "leaning relaxed against a surface, looking out, not at the camera" },
+    { label: "Seated", value: "sitting relaxed, caught mid-moment, natural expression" },
+    { label: "From behind", value: "shot from behind over the shoulder, taking in the view" },
+  ];
+}
+
+/** On-theme outfit options for a style pack (or a small generic set). */
+export function outfitOptionsFor(stylePackId) {
+  return OUTFIT_OPTIONS[stylePackId] || [
+    { label: "White linen shirt", value: "a relaxed white linen button-down with tailored trousers" },
+    { label: "Fitted tee", value: "a plain fitted white tee with dark jeans" },
+    { label: "Knit polo", value: "a fitted knit polo with chinos and loafers" },
+  ];
+}
+
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -156,6 +246,7 @@ export async function generateScene(opts) {
         mode,
         matchReference: opts.matchReference === true,
         wardrobe: opts.wardrobe ?? undefined,
+        pose: opts.pose ?? undefined,
       }),
     });
     const data = await res.json().catch(() => null);

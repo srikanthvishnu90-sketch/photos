@@ -130,6 +130,32 @@
   background: var(--color-photo-black);
 }
 
+/* Real photos keep their OWN shape — no fixed 4:5 box, no black pillar-bars.
+   The frame shrink-wraps the photo (capped to the available space, centered),
+   so every image reads edge-to-edge like the rest of the app. Because the frame
+   then matches the photo's ratio exactly, containRect() still returns the full
+   box and the erase/crop overlays stay aligned. */
+.editor-canvas.is-real {
+  align-self: center;
+  width: auto;
+  height: auto;
+  aspect-ratio: auto;
+  max-width: 100%;
+  max-height: calc(var(--app-height, 100dvh) * 0.42);
+  background: transparent;
+  box-shadow: 0 10px 26px var(--color-home-shadow);
+}
+
+.editor-canvas.is-real .editor-photo {
+  position: static;
+  inset: auto;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(var(--app-height, 100dvh) * 0.42);
+  background: transparent;
+}
+
 .editor-canvas.is-real .editor-beach-scene {
   display: none;
 }
