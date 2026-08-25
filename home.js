@@ -818,6 +818,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         chatHistory = [];
         if (g.kind === "commitment") {
           void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+        } else if (g.stylePack === "dating") {
+          // Founder model: select from the user's own photos first, then fill gaps.
+          void import("./gems-dating-view.js").then((m) => m.openDatingProfile());
         } else {
           void import("./gems-scene-view.js").then((m) =>
             m.openSceneStudio(g.stylePack || "euro-summer", {

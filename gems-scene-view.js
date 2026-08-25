@@ -43,7 +43,9 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     // Pre-filled from a chat "generate" request when provided.
     mode: prefill.mode === "background" ? "background" : "me",
     matchReference: false, wardrobe: "", pose: "", build: "",
-    photoId: null, pack: defaultPack,
+    // Fill-gaps: only generate these dating recipe labels (else the full set of 6).
+    datingRecipes: Array.isArray(prefill.datingRecipes) && prefill.datingRecipes.length ? prefill.datingRecipes : null,
+    photoId: typeof prefill.photoId === "string" ? prefill.photoId : null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
     count: 1,
@@ -179,9 +181,9 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
         }
 
         <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
-          ${state.busy ? "Generating…" : isDating ? "Make my dating set (6)" : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
+          ${state.busy ? "Generating…" : isDating ? (state.datingRecipes ? `Fill ${state.datingRecipes.length} gap${state.datingRecipes.length === 1 ? "" : "s"}` : "Make my dating set (6)") : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
         </button>
-        <p class="commit-note">${isDating ? "6 varied dating photos — a real mix, tailored to you · keeps your face" : inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
+        <p class="commit-note">${isDating ? (state.datingRecipes ? `Generates the ${state.datingRecipes.length} missing shot${state.datingRecipes.length === 1 ? "" : "s"} · keeps your face` : "6 varied dating photos — a real mix, tailored to you · keeps your face") : inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
         <p class="commit-status" data-status></p>`;
       })()
         }
@@ -378,8 +380,12 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     // batch is N separate calls of the SAME request. Each result is pushed in as
     // it arrives so the user can start swiping before the batch finishes.
     const isDating = inMe && state.pack === "dating";
+    // Fill-gaps: restrict to the requested recipe labels when provided.
+    const shots = state.datingRecipes
+      ? datingShots().filter((s) => state.datingRecipes.includes(s.label))
+      : datingShots();
     const jobs = isDating
-      ? datingShots().map((s) => ({
+      ? shots.map((s) => ({
           ...baseOpts,
           prompt: s.prompt,
           pose: s.pose,

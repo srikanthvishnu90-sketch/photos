@@ -12,7 +12,7 @@ import { getPhotoBlob, listPhotos, updatePhotoDerived } from "./gems-photolib.js
 import { getSession, getSupabase, recordTasteEvent } from "./gems-supabase.js";
 import { photoIdsForQuery } from "./gems-faces.js";
 import { searchPhotos } from "./gems-embeddings.js";
-import { assembleBestPhotos } from "./gems-rank-assembly.js";
+import { assembleBestPhotos, assembleDatingProfile } from "./gems-rank-assembly.js";
 
 // A generic "best photos" ask (vs. a specific content/purpose search). These get
 // the forced 4-type MIX (group / action-you / you-in-scenery / standout object)
@@ -384,6 +384,28 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
     return [...records]
       .sort((a, b) => (b.metrics?.quality ?? 0) - (a.metrics?.quality ?? 0))
       .map((record) => Object.freeze({ record, score: null, because: null }));
+  }
+}
+
+/**
+ * Build the dating-profile lineup from the user's OWN library: rank photos with
+ * purpose "dating", prefer photos that are actually the user (face match), and
+ * slot them into the 6 dating slots. Returns { lineup, gaps } where lineup items
+ * carry the record (or null) and gaps is the list of unfilled slot ids — the
+ * "fill gaps" flow generates just those. Never throws.
+ */
+export async function buildDatingProfile() {
+  try {
+    const results = await rankPhotos({ request: "best dating profile photos of me", purpose: "dating" });
+    let preferIds = null;
+    try {
+      const ids = await photoIdsForQuery("photos of me");
+      if (Array.isArray(ids) && ids.length) preferIds = new Set(ids);
+    } catch { /* no face identity → slot by score only */ }
+    return assembleDatingProfile(results, { preferIds });
+  } catch (error) {
+    console.info("buildDatingProfile failed", error);
+    return { lineup: [], gaps: [] };
   }
 }
 

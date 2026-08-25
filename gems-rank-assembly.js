@@ -96,6 +96,72 @@ export function assembleBestPhotos(
   return [...picked.map((x) => x.r), ...tail.map((x) => x.r)];
 }
 
+// ---- Dating profile = 6 slots, each a photo TYPE that makes a strong profile.
+// Each slot matches Pass-A signals for SELECTION from the library, and names a
+// DATING_SHOTS recipe label (in gems-scenes.js) for GAP-FILLING by generation.
+// Founder: "select + offer to fill gaps"; a mix of everything.
+export const DATING_SLOTS = Object.freeze([
+  { id: "face", label: "Clear face", recipe: "Golden-hour portrait",
+    match: (p, bt) => bt === "portrait" || (Number(p.people_count ?? 0) === 1 && (p.distance === "close" || p.distance === "mid")) },
+  { id: "fullbody", label: "Full-body / outfit", recipe: "Full-body outfit",
+    match: (p, bt) => bt === "self-scenery" || (Number(p.people_count ?? 0) === 1 && (p.distance === "wide" || Number(p.subject_scale ?? 0) >= 4)) },
+  { id: "social", label: "With friends", recipe: "Rooftop social",
+    match: (p, bt) => bt === "group" || Number(p.people_count ?? 0) >= 2 },
+  { id: "activity", label: "Doing something", recipe: "Driver's seat",
+    match: (p, bt) => bt === "self-action" || p.photo_type === "action" },
+  { id: "candid", label: "Candid personality", recipe: "Street candid",
+    match: (p) => p.candid_or_posed === "candid" && Number(p.people_count ?? 0) === 1 },
+  { id: "standout", label: "Standout / aesthetic", recipe: "Walking away",
+    match: (p, bt) => bt === "object" || p.photo_type === "scene" || (Array.isArray(p.vibe_tags) && p.vibe_tags.length >= 3) },
+]);
+
+/**
+ * Slot the user's scored photos into the 6 dating-profile slots. Prefers the
+ * user's OWN photos (preferIds) for the solo slots; the social slot is a group;
+ * the standout slot can be any aesthetic shot. Screenshots/docs/memes (utility)
+ * are dropped. Returns { lineup: [{slot,label,recipe,record|null}], gaps: [id] }.
+ * Pure. Input = [{ record, score }] (record.derived.passA carries the signals).
+ */
+export function assembleDatingProfile(results, { preferIds = null } = {}) {
+  const list = (Array.isArray(results) ? results : []).filter((r) => r?.record);
+  const pref = preferIds instanceof Set && preferIds.size ? preferIds : null;
+  const typed = list
+    .map((r) => {
+      const p = r.record.derived?.passA ?? {};
+      return {
+        r,
+        id: r.record.id,
+        p,
+        bt: bestTypeOf(p),
+        score: Number.isFinite(r.score) ? r.score : (r.record.metrics?.quality ?? 0),
+      };
+    })
+    .filter((x) => x.bt !== "utility"); // never a screenshot/doc/meme in a dating profile
+
+  const used = new Set();
+  const lineup = DATING_SLOTS.map((slot) => {
+    // Solo slots prefer photos that are actually the user; social/standout don't.
+    const wantMe = pref && slot.id !== "social" && slot.id !== "standout";
+    const hit = typed
+      .filter((x) => !used.has(x.id) && slot.match(x.p, x.bt))
+      .sort((a, b) => {
+        if (wantMe) {
+          const d = (pref.has(b.id) ? 1 : 0) - (pref.has(a.id) ? 1 : 0);
+          if (d) return d;
+        }
+        return b.score - a.score;
+      })[0];
+    if (hit) {
+      used.add(hit.id);
+      return { slot: slot.id, label: slot.label, recipe: slot.recipe, record: hit.r.record };
+    }
+    return { slot: slot.id, label: slot.label, recipe: slot.recipe, record: null };
+  });
+
+  const gaps = lineup.filter((s) => !s.record).map((s) => s.slot);
+  return { lineup, gaps };
+}
+
 // Phase-B upgrade point: replace with embedding cosine similarity. Until
 // then, similarity = Jaccard overlap of vibe_tags plus content-word overlap.
 export function descriptionSimilarity(a, b) {

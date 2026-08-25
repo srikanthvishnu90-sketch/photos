@@ -1567,6 +1567,51 @@
 @keyframes scene-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .scene-spinner { animation: none; } }
 
+/* Dating profile lineup: 6 slot tiles (filled from library, or a gap to fill). */
+.dating-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.dating-slot {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 14px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.dating-slot.is-filled img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dating-slot.is-gap {
+  border: 1.5px dashed var(--color-border);
+  background: var(--color-surface);
+  gap: 4px;
+}
+.dating-slot-plus { font-size: 26px; font-weight: 300; color: var(--color-mauve); }
+.dating-slot-missing { font-size: 11px; color: var(--color-mauve); }
+.dating-slot-tag {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-ink) 62%, transparent);
+  color: var(--color-white);
+}
+.dating-slot.is-gap .dating-slot-tag {
+  position: static;
+  background: transparent;
+  color: var(--color-ink);
+}
+
 /* Scene studio inspiration "+" upload tile */
 .scene-insp-add {
   display: grid !important;
