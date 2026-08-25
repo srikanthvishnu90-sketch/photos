@@ -49,5 +49,18 @@ const noObj = results.filter((r) => r.record.id !== "obj1");
 const out2 = assembleBestPhotos(noObj, { slots: 8 });
 ok("missing a type is skipped gracefully", out2.length === noObj.length && !out2.some((r) => bestTypeOf(r.record.derived.passA) === "object"));
 
+// "of me" preference: two self-action shots, the LOWER-scored one is actually
+// you (preferIds) → it wins the self-action slot; objects still included.
+const meResults = [
+  rec("act_me",    { people_count: 1, photo_type: "action" }, 55), // you, lower score
+  rec("act_other", { people_count: 1, photo_type: "action" }, 88), // someone else, higher
+  rec("grp1",      { people_count: 3, photo_type: "group" }, 70),
+  rec("obj1",      { people_count: 0, photo_type: "object" }, 60),
+];
+const outMe = assembleBestPhotos(meResults, { slots: 8, preferIds: new Set(["act_me"]) });
+const actionPick = outMe.find((r) => bestTypeOf(r.record.derived.passA) === "self-action");
+ok("'of me' prefers YOUR photo within a type despite lower score", actionPick?.record.id === "act_me", actionPick?.record.id);
+ok("'of me' still includes the object b-roll", outMe.slice(0, 4).some((r) => r.record.id === "obj1"));
+
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

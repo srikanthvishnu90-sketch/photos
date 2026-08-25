@@ -262,15 +262,22 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
     records = await listPhotos();
     if (!records.length) return [];
 
-    // Face filter: "best photos of me" / "photos of <name>" restricts the
-    // candidates to that person when the user has tagged faces (on-device). A
-    // null/empty match leaves the full library in play, so search never breaks.
+    // Face handling. Two cases:
+    //  - A specific person query ("pics of me and Jake") → filter to that person.
+    //  - "best photos of me" → do NOT filter (that would drop the object/scenery
+    //    b-roll that IS part of your aesthetic); instead PREFER your photos within
+    //    the forced mix, refining toward you as faces resolve. Null match = no-op.
+    let preferIds = null;
     try {
       const personIds = await photoIdsForQuery(request);
       if (personIds && personIds.length) {
-        const set = new Set(personIds);
-        const filtered = records.filter((r) => set.has(r.id));
-        if (filtered.length) records = filtered;
+        if (isBestPhotosQuery(request)) {
+          preferIds = new Set(personIds);
+        } else {
+          const set = new Set(personIds);
+          const filtered = records.filter((r) => set.has(r.id));
+          if (filtered.length) records = filtered;
+        }
       }
     } catch (error) {
       console.info("face filter skipped", error);
@@ -357,7 +364,7 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
     // "Best photos" asks get the forced 4-type MIX (founder's definition) instead
     // of a flat score-sort; specific/purpose searches keep the pure ranking.
     const finalOrder = isBestPhotosQuery(request)
-      ? assembleBestPhotos(results, { slots: 12, includeObjects: true })
+      ? assembleBestPhotos(results, { slots: 12, includeObjects: true, preferIds })
       : results;
 
     for (const record of records) {

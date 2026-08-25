@@ -41,17 +41,26 @@ export function bestTypeOf(passA = {}) {
  * type), followed by everything else in score order. `includeObjects` = false
  * drops type 4 (used only if a caller ever wants people-only). Pure.
  */
-export function assembleBestPhotos(results, { slots = DEFAULT_SLOTS, includeObjects = true } = {}) {
+export function assembleBestPhotos(
+  results,
+  { slots = DEFAULT_SLOTS, includeObjects = true, preferIds = null } = {},
+) {
   const list = (Array.isArray(results) ? results : []).filter((r) => r?.record);
+  const pref = preferIds instanceof Set && preferIds.size ? preferIds : null;
   const typed = list.map((r) => ({
     r,
     id: r.record.id,
     score: Number.isFinite(r.score) ? r.score : (r.record.metrics?.quality ?? 0),
     bt: bestTypeOf(r.record.derived?.passA ?? {}),
   }));
+  // Sort by score, but when a preferred set is given ("best photos of ME"),
+  // photos that are actually the user win within each type bucket — the mix
+  // (incl. objects) is kept, just re-prioritized toward you as faces resolve.
   const eligible = typed
     .filter((x) => x.bt !== "utility" && (includeObjects || x.bt !== "object"))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) =>
+      (pref ? (pref.has(b.id) ? 1 : 0) - (pref.has(a.id) ? 1 : 0) : 0) || b.score - a.score,
+    );
   if (!eligible.length) return list;
 
   const used = new Set();

@@ -872,6 +872,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       showReply("Those didn't import — try photos straight from your library.");
       return;
     }
+    // Kick the on-device intelligence passes (faces, search index, Memories,
+    // analysis) in the background so 'best photos', 'of me', and search just work.
+    void import("./gems-enrich.js").then((m) => m.enrichLibrary()).catch(() => {});
     const gems = added.filter((record) => record.gem).length;
     showReply(
       gems > 0

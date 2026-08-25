@@ -647,6 +647,11 @@ syncEmailState();
 // Warm the Supabase client immediately so that when the user taps Continue with
 // Google there's no CDN import in the tap path (iOS drops late navigations).
 void getSupabase();
+
+// Auto-enrich: whenever photos are imported (from anywhere — Home, native shell,
+// reveal), quietly run the on-device intelligence passes in the background so
+// 'best photos', 'of me', search, and Memories just work. Lazy-loaded.
+void import("./gems-enrich.js").then((m) => m.autoEnrichOnImport()).catch(() => {});
 const bootIsOAuthReturn = isOAuthReturn();
 // Route as soon as the session check resolves. On an OAuth return we ALWAYS
 // leave the splash once we know the outcome — Home/onboarding on success, or
