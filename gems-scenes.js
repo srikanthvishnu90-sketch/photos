@@ -30,11 +30,11 @@ export const ASPECTS = Object.freeze([
 // "dress the user in …"). Keep them candid and phone-real, never posed-perfect.
 const POSE_OPTIONS = Object.freeze({
   "old-money": [
-    { label: "By a classic car", value: "leaning against a vintage sports car on a cobbled Monaco street, one hand in a pocket, looking off" },
-    { label: "Walking the street", value: "walking mid-stride down a cobbled Belle-Époque street lined with palms, glancing off-camera" },
-    { label: "Terrace overlook", value: "sitting on a hotel terrace overlooking the yacht harbor, relaxed, taking in the view" },
-    { label: "At the balustrade", value: "standing at a stone balustrade looking out over the bay full of yachts, seen from behind and to the side" },
-    { label: "Hand on watch", value: "standing on a palm-lined street adjusting the watch on their wrist, between-takes candid" },
+    { label: "Crossing the hairpin", value: "walking across the Monaco Grand-Prix hairpin road with its red-and-white kerb, mid-stride, sunglasses on, glancing off-camera" },
+    { label: "By a classic car (night)", value: "standing beside a classic cream convertible outside the lit Casino de Monte-Carlo at night, one hand in a pocket, relaxed" },
+    { label: "Over the harbor", value: "leaning on a railing under a pine tree looking out over the Fontvieille harbor full of white yachts" },
+    { label: "By a supercar", value: "standing beside a parked Ferrari on the Place du Casino, hand adjusting the watch, between-takes candid" },
+    { label: "At the iron gate", value: "standing at an ornate iron gate framing the sea and green mountains, seen from behind, hand in pocket" },
   ],
   "euro-summer": [
     { label: "Walking a lane", value: "walking mid-stride down a narrow cobblestone alley, glancing off to the side, not at the camera" },
@@ -75,10 +75,10 @@ const POSE_OPTIONS = Object.freeze({
 // tee with good pants. Plus pack-appropriate alternates. No swimwear/shirtless.
 const OUTFIT_OPTIONS = Object.freeze({
   "old-money": [
-    { label: "Linen button-down", value: "a well-fitted linen or fine-cotton button-down in white, cream, pale blue or navy with tailored trousers and leather loafers" },
-    { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee or fine polo in white, navy or cream with sharp tailored trousers" },
+    { label: "Blue shirt & white trousers", value: "a pale-blue linen shirt with white wide-leg pleated trousers, leather loafers, a good watch and sunglasses — the signature Monaco look" },
+    { label: "Black shirt (night)", value: "a black silky shirt with white pleated trousers, elegant and cinematic for a Monaco evening" },
+    { label: "Blue polo & grey trousers", value: "a fitted pale-blue polo with grey tailored trousers, a watch and sunglasses" },
     { label: "Navy blazer", value: "a navy blazer over a crisp white shirt with tailored cream trousers, understated old-money" },
-    { label: "White shirt & trousers", value: "a tailored white shirt with cream wide-leg trousers and delicate gold jewelry" },
   ],
   "euro-summer": [
     { label: "Linen button-down", value: "a well-fitted linen button-down (long or short sleeve) in beige, white or olive with matching linen trousers and leather sandals" },
