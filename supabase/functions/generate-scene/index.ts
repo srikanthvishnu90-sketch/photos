@@ -13,6 +13,14 @@ const FREE_SCENE_UNITS_PER_MONTH = Number(Deno.env.get("FREE_SCENE_UNITS_PER_MON
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_REFS = 3;
 
+// Global realism reference set: real amateur iPhone photos stored under a reserved
+// prefix in the `inspiration` bucket (managed out-of-band, shared across all users).
+// Attached as QUALITY-ONLY conditioning so generations inherit real-photo
+// imperfection (grain, exposure, haze) — pixel-anchored realism beyond the prompt.
+const REALISM_REFS_ENABLED = (Deno.env.get("REALISM_REFS_ENABLED") ?? "true") !== "false";
+const REALISM_REFS_PREFIX = Deno.env.get("REALISM_REFS_PREFIX") ?? "_global/realism";
+const REALISM_REF_COUNT = Number(Deno.env.get("REALISM_REF_COUNT") ?? "2");
+
 // Always appended so output reads as a real smartphone photo, not AI art.
 // This is the single most load-bearing block for "it looks too AI". The core
 // insight: a real iPhone photo is NOT a polished, superior-looking image — it
@@ -271,6 +279,46 @@ Deno.serve(async (request) => {
       }
     }
 
+    // ---- Global realism references (quality-only conditioning). Attached AFTER
+    // identity + inspiration refs so they are the FINAL images the model sees.
+    // Skipped for match-reference mode (its last image must stay the photo being
+    // recreated) and capped to 1 when a subject is present (so identity isn't
+    // diluted). Fails OPEN — realism refs are an enhancement, never a hard dep.
+    let realismRefCount = 0;
+    if (REALISM_REFS_ENABLED && !matchReference) {
+      try {
+        const wanted = Math.max(0, Math.min(REALISM_REF_COUNT, hasSubject ? 1 : 2));
+        if (wanted > 0) {
+          const { data: files } = await supabase.storage
+            .from("inspiration").list(REALISM_REFS_PREFIX, { limit: 100 });
+          const imgs = (files ?? []).filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name));
+          // Shuffle so repeated generations rotate through the set.
+          for (let i = imgs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [imgs[i], imgs[j]] = [imgs[j], imgs[i]];
+          }
+          for (const f of imgs.slice(0, wanted)) {
+            try {
+              const { data: file } = await supabase.storage
+                .from("inspiration").download(`${REALISM_REFS_PREFIX}/${f.name}`);
+              if (!file) continue;
+              const b64 = await bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+              parts.push({ inline_data: { mime_type: file.type || "image/jpeg", data: b64 } });
+              realismRefCount++;
+            } catch (error) {
+              console.info("realism ref skipped", f.name, error);
+            }
+          }
+        }
+      } catch (error) {
+        console.info("realism refs unavailable", error);
+      }
+    }
+    const realismRefBlock =
+      realismRefCount > 0
+        ? `\n\nPHOTOGRAPHIC-QUALITY REFERENCES: the FINAL ${realismRefCount} attached photo(s) are REAL amateur iPhone snapshots, included ONLY as the target for PHOTOGRAPHIC QUALITY and REALISM. Study their imperfect exposure, grain and sensor noise, haze, harsh or dim natural light, muted color, and casual amateur feel, and make THIS image look like it was captured the same way — same real, slightly-worse phone-photo quality. Do NOT copy their people, faces, clothing, locations, objects, text, or composition; they are quality/texture references only. The subject and scene come solely from the instructions above.`
+        : "";
+
     const styleBlock = body.stylePackId && STYLE_PACKS[body.stylePackId]
       ? `\n\n${STYLE_PACKS[body.stylePackId]}`
       : "";
@@ -297,6 +345,7 @@ Deno.serve(async (request) => {
       `SCENE REQUEST: ${prompt}` +
       styleBlock +
       `\n\n${REALISM_LAYER}` +
+      realismRefBlock +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       wardrobeBlock +
@@ -359,6 +408,7 @@ Deno.serve(async (request) => {
           match_reference: matchReference,
           pose: pose || null,
           wardrobe: wardrobe || null,
+          realism_refs: realismRefCount,
         },
       })
       .select("id")

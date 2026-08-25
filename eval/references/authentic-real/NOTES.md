@@ -36,6 +36,22 @@ These are the concrete tells, per image, that drove the REALISM_LAYER rewrite in
   the brick, deep shadow on frame-left, high contrast. Faces partly in shadow.
 - This is the opposite of the even, soft, flattering light AI defaults to.
 
+## Wired as a GLOBAL realism reference set (2026-08-25)
+These photos are uploaded (resized to 1280px JPEG) to the `inspiration` bucket under
+`_global/realism/`, and `generate-scene` attaches up to N of them to EVERY generation
+as **quality-only** references — so the output is pixel-conditioned on real amateur
+imperfection, not just prompt-described. The prompt block tells the model to match
+their quality/grain/exposure but NOT copy their content/people/composition.
+- Count: `REALISM_REF_COUNT` (default 2; capped to 1 when a subject photo is present so
+  identity isn't diluted). Toggle with `REALISM_REFS_ENABLED=false`. Prefix:
+  `REALISM_REFS_PREFIX` (default `_global/realism`). Skipped in match-reference mode.
+
+**To add more** (genuine imperfect phone photos only — dim, harsh, hazy, noisy):
+```
+./eval/references/authentic-real/add-realism-refs.sh photo1.jpg photo2.png ...
+```
+It resizes + uploads them; generate-scene picks them up automatically (no redeploy).
+
 ## The rules these produce (now in REALISM_LAYER)
 1. **Do NOT improve exposure or quality.** Embrace underexposure, crushed-but-noisy
    blacks, blown highlights. Real photos are dim/harsh; AI over-brightens everything.
