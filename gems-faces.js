@@ -15,6 +15,8 @@ const MODELS_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/mod
 // face-api's own guidance: descriptors of the same person are < ~0.6 apart
 // (euclidean). We cluster a touch tighter to avoid merging similar-looking people.
 const MATCH_THRESHOLD = 0.56;
+import { ensureDbUser, dbNameFor, onDbUserChange } from "./gems-db-user.js";
+
 const DB_NAME = "gems-faces";
 const DB_VERSION = 1;
 
@@ -162,11 +164,19 @@ export async function detectAndEmbed(bitmap) {
 
 let dbPromise = null;
 
-function openDb() {
+// Reset the face store on account switch so faces never bleed between accounts.
+onDbUserChange(() => {
+  const prev = dbPromise;
+  dbPromise = null;
+  if (prev) prev.then((db) => { try { db?.close?.(); } catch { /* already closed */ } }).catch(() => {});
+});
+
+async function openDb() {
+  await ensureDbUser(); // partition the face DB by the signed-in account
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const req = indexedDB.open(dbNameFor(DB_NAME), DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains("faces")) {

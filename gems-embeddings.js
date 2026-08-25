@@ -15,6 +15,8 @@
 
 const LIB_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
 const MODEL_ID = "Xenova/clip-vit-base-patch32";
+import { ensureDbUser, dbNameFor, onDbUserChange } from "./gems-db-user.js";
+
 const DB_NAME = "gems-embeddings";
 const DB_VERSION = 1;
 const DUP_THRESHOLD = 0.93; // cosine ≥ this → near-duplicate / same burst frame
@@ -147,11 +149,18 @@ export async function embedImageBlob(blob) {
 // ---------------------------------------------------------------------------
 
 let dbPromise = null;
-function openDb() {
+// Reset the embedding index on account switch so vectors never bleed between accounts.
+onDbUserChange(() => {
+  const prev = dbPromise;
+  dbPromise = null;
+  if (prev) prev.then((db) => { try { db?.close?.(); } catch { /* already closed */ } }).catch(() => {});
+});
+async function openDb() {
+  await ensureDbUser(); // partition the embedding DB by the signed-in account
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const req = indexedDB.open(dbNameFor(DB_NAME), DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains("vecs")) db.createObjectStore("vecs", { keyPath: "photoId" });

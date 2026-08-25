@@ -7,6 +7,7 @@
 // app flow never breaks.
 
 import { recordTasteEvent } from "./gems-supabase.js";
+import { ensureDbUser, dbNameFor, onDbUserChange } from "./gems-db-user.js";
 
 const DB_NAME = "gems-photolib";
 const DB_VERSION = 1;
@@ -54,7 +55,18 @@ function noteDbUnavailable(error) {
   }
 }
 
-function openDb() {
+// On account switch, drop the cached connection + object URLs so the next open
+// uses the new account's isolated DB — no photos ever bleed between accounts.
+onDbUserChange(() => {
+  const prev = dbPromise;
+  dbPromise = null;
+  if (prev) prev.then((db) => { try { db?.close?.(); } catch { /* already closed */ } }).catch(() => {});
+  for (const url of objectUrlCache.values()) { try { URL.revokeObjectURL(url); } catch { /* ignore */ } }
+  objectUrlCache.clear();
+});
+
+async function openDb() {
+  await ensureDbUser(); // partition the DB by the signed-in account
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     try {
@@ -63,7 +75,7 @@ function openDb() {
         resolve(null);
         return;
       }
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = indexedDB.open(dbNameFor(DB_NAME), DB_VERSION);
       request.onupgradeneeded = () => {
         try {
           const db = request.result;
