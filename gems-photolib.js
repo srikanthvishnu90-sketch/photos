@@ -556,6 +556,14 @@ export async function importPhotoFiles(fileList, options = {}) {
       console.info("Gem selection signal skipped", error);
     }
 
+    // Cross-device sync: upload the just-imported pixels + ledger rows to the
+    // user's own private backend space, in the background. Best-effort — never
+    // blocks or breaks the local import. (b + c)
+    try {
+      const toSync = storedRecords.slice();
+      import("./gems-cloud-sync.js").then((m) => { void m.uploadRecords(toSync); }).catch(() => {});
+    } catch { /* ignore */ }
+
     // Additive, decoupled hook: let the first-run Hidden-Gems reveal trigger
     // off a successful import without this module knowing anything about it.
     if (typeof window !== "undefined") {
@@ -632,6 +640,10 @@ export async function deletePhoto(id) {
       }
       objectUrlCache.delete(id);
     }
+    // Keep the backend in sync: remove the ledger row + stored pixels too.
+    try {
+      import("./gems-cloud-sync.js").then((m) => m.deleteCloud(id)).catch(() => {});
+    } catch { /* ignore */ }
     return deleted;
   } catch (error) {
     console.info("Photo delete failed", error);
@@ -658,6 +670,54 @@ export async function updatePhotoDerived(id, derived) {
   } catch (error) {
     console.info("Photo derived update failed", error);
     return false;
+  }
+}
+
+// Cross-device hydrate: if this device's library is EMPTY but the signed-in
+// account has photos in the backend, pull them down (pixels + metadata) and
+// store them locally, then fire the photos-imported event so views refresh.
+// Runs on boot for a returning user on a new device. Best-effort; returns the
+// number of photos hydrated.
+export async function hydrateFromCloudIfEmpty() {
+  try {
+    if ((await photoCount()) > 0) return 0;
+    const m = await import("./gems-cloud-sync.js");
+    const rows = await m.listCloudMeta();
+    if (!rows.length) return 0;
+    let stored = 0;
+    let buffer = [];
+    for (const row of rows) {
+      const blob = row.storage_path ? await m.downloadBlob(row.storage_path) : null;
+      if (!blob) continue; // no pixels stored → can't show it
+      const meta = row.meta || {};
+      buffer.push({
+        id: row.photo_id,
+        name: meta.name ?? row.photo_id,
+        type: meta.type || blob.type || "image/jpeg",
+        blob,
+        width: meta.width ?? 0,
+        height: meta.height ?? 0,
+        addedAt: meta.addedAt ?? Date.now(),
+        metrics: meta.metrics ?? { quality: 0 },
+        ...(meta.derived ? { derived: meta.derived } : {}),
+      });
+      if (buffer.length >= WRITE_CHUNK) {
+        await persistChunk(buffer);
+        stored += buffer.length;
+        buffer = [];
+      }
+    }
+    if (buffer.length) {
+      await persistChunk(buffer);
+      stored += buffer.length;
+    }
+    if (stored && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("gems:photos-imported", { detail: { count: stored, hydrated: true } }));
+    }
+    return stored;
+  } catch (error) {
+    console.info("hydrate from cloud failed", error);
+    return 0;
   }
 }
 

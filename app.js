@@ -199,6 +199,12 @@ async function checkExistingSession() {
       // A fully-onboarded account — the only case that skips the login screen
       // (straight to Home).
       restoredProfile = { name: data.display_name };
+      // Returning user: if this device has no local library yet (new device or
+      // cleared storage), pull their photos down from their account in the
+      // background — cross-device sync. Fires photos-imported when done.
+      try {
+        import("./gems-photolib.js").then((m) => m.hydrateFromCloudIfEmpty()).catch(() => {});
+      } catch { /* ignore */ }
     } else if (oauthReturn) {
       // Just authenticated via Google/email but not onboarded yet — continue
       // straight into signup. A leftover incomplete session on a NORMAL boot
