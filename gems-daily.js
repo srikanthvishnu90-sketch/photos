@@ -5,6 +5,10 @@
 // scene. All work is on-device: it only reads the local photo library.
 
 import { listPhotos, describePhoto } from "./gems-photolib.js";
+import { gemScore } from "./gems-memories.js";
+
+// How many of the strongest forgotten photos the daily gem rotates through.
+const DAILY_POOL = 24;
 
 // The evocative lead that opens every reason line.
 const REASON_LEAD = "You forgot about this one";
@@ -64,14 +68,20 @@ export async function pickGemOfTheDay(now = null) {
     const forgotten = pool.filter((record) => record.derived?.exported !== true);
     const candidates = forgotten.length > 0 ? forgotten : pool;
 
-    // Stable ordering by id so the daily index is reproducible.
-    const sorted = [...candidates].sort((a, b) =>
-      String(a.id).localeCompare(String(b.id)),
-    );
+    // Rank by real strength (quality + Pass-A appeal + people/smile), not blur
+    // alone — then rotate the day through the STRONGEST forgotten photos. Ties
+    // break by id so a given day is always reproducible.
+    const strongest = [...candidates]
+      .sort(
+        (a, b) =>
+          gemScore(b) - gemScore(a) ||
+          String(a.id).localeCompare(String(b.id)),
+      )
+      .slice(0, DAILY_POOL);
 
     const ms = now == null ? Date.now() : Number(now);
-    const index = dayIndex(ms) % sorted.length;
-    const record = sorted[index];
+    const index = dayIndex(ms) % strongest.length;
+    const record = strongest[index];
     if (!record) return null;
 
     return { record, reason: reasonFor(record) };

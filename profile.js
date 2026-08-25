@@ -50,6 +50,11 @@ const SETTINGS = Object.freeze([
     action: "people",
   },
   {
+    label: "Memories",
+    sublabel: "Auto-albums from your trips & moments · on your device",
+    action: "memories",
+  },
+  {
     label: "Privacy & data",
     sublabel: "What Gems keeps, and what it never sees",
     action: "privacy",
@@ -702,6 +707,10 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
       }
       if (action === "people") {
         void import("./gems-people-view.js").then((m) => m.openPeopleStudio());
+        return;
+      }
+      if (action === "memories") {
+        void import("./gems-memories-view.js").then((m) => m.openMemories());
         return;
       }
       // camera / help keep the existing engagement-signal behavior.
