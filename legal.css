@@ -3,9 +3,9 @@
    render instantly and work as public URLs the App Store / Play Store can link
    to. Brand tokens mirror the app. */
 :root {
-  --color-petal: #ffaecb;
-  --color-ink: #170b10;
-  --color-mauve: #746d70;
+  --color-petal: #aec6ec;
+  --color-ink: #0b0f17;
+  --color-mauve: #6d707a;
   --color-white: #ffffff;
   --color-surface: #f7f6f6;
   --color-border: #dfd9dc;

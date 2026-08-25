@@ -25,6 +25,8 @@ import {
 
 import { loadPresets, savePresetsList } from "./gems-presets.js";
 import { segmentPerson } from "./gems-segment.js";
+import { interpretEdit, pushSessionOp, cropRectFor } from "./gems-edit-interpreter.js";
+import { generateScene } from "./gems-scenes.js";
 
 // Deployed editing edge function. The publishable key is client-safe by
 // design — the function authorizes every call with the user's session token.
@@ -345,6 +347,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // a session exists. Null means the simulated demo flow is in charge.
   let photo = null;
   let lastInstruction = "";
+  // Edit Interpreter (v2) per-photo session memory (last ops + last target),
+  // persisted to localStorage so relative follow-ups survive a draft reopen.
+  let editSession = { ops: [], lastTarget: null };
   let abortController = null;
   // Bumped on every activate/deactivate so stale async work bails cleanly.
   let activationToken = 0;
@@ -1228,7 +1233,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     const dab = (p) => {
       const radius = (eraseState.brush * eraseState.scale) / 2;
       if (dctx) {
-        dctx.fillStyle = "rgba(255,64,120,0.5)";
+        dctx.fillStyle = "rgba(39,74,134,0.5)";
         dctx.beginPath();
         dctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         dctx.fill();
@@ -1932,7 +1937,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       // handles
       points.forEach((pt) => {
         const { px, py } = toPad(pt[0], pt[1]);
-        ctx.fillStyle = "#ff3b6b";
+        ctx.fillStyle = "#274a86";
         ctx.beginPath();
         ctx.arc(px, py, 6, 0, Math.PI * 2);
         ctx.fill();
@@ -2479,7 +2484,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // ---- Stickers & Shapes -------------------------------------------------
 
   function renderStickersTool() {
-    const state = { items: [], color: "#ff3b6b", size: 90, overlay: null, scale: 1, natW: 0, natH: 0 };
+    const state = { items: [], color: "#274a86", size: 90, overlay: null, scale: 1, natW: 0, natH: 0 };
     toolPanel.innerHTML = `
       <div class="editor-stickers">
         <div class="editor-sticker-grid" aria-label="Stickers">
@@ -3415,6 +3420,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       // A simulated edit already started in the gap — don't clobber it.
       if (processing || versions.length > 1) return;
       photo = record;
+      loadEditSession();
       photoView.alt = record.name || "Photo being edited";
       versions = [{ id: 0, label: "Original", url: record.url }];
       activeVersionId = 0;
@@ -3559,16 +3565,301 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
+  // ---- Edit Interpreter (v2) --------------------------------------------
+  // Every Describe-It input flows through the interpreter first. It returns a
+  // PLAN of typed ops; deterministic ops (crop/rotate/adjust/local_adjust/style)
+  // run on-device with ZERO generative calls, and only expand/generative_edit/
+  // scenario reach a model. Session memory persists per photo.
+
+  function editSessionKey() {
+    return photo ? `gems.editsession.${photo.id}` : null;
+  }
+  function loadEditSession() {
+    editSession = { ops: [], lastTarget: null };
+    try {
+      const key = editSessionKey();
+      const raw = key ? window.localStorage.getItem(key) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.ops)) editSession = { ops: parsed.ops.slice(-5), lastTarget: parsed.lastTarget ?? null };
+      }
+    } catch (error) {
+      console.info("edit session load skipped", error);
+    }
+  }
+  function persistEditSession() {
+    try {
+      const key = editSessionKey();
+      if (key) window.localStorage.setItem(key, JSON.stringify(editSession));
+    } catch (error) {
+      console.info("edit session persist skipped", error);
+    }
+  }
+  function recordSessionOp(op) {
+    editSession = pushSessionOp(editSession, op);
+    persistEditSession();
+  }
+
+  // Arbitrary-angle client rotate (applyGeometry only does 90° steps). Rotates
+  // the bitmap and crops back to the largest centered axis-aligned rectangle so
+  // there are no empty corners. Returns a Blob or null.
+  function rotateBitmapArbitrary(bitmap, degrees) {
+    try {
+      const deg = Number(degrees) || 0;
+      if (deg % 90 === 0) return applyGeometry(bitmap, { rotate: deg });
+      const w = bitmap.width || bitmap.naturalWidth || 0;
+      const h = bitmap.height || bitmap.naturalHeight || 0;
+      if (!w || !h) return null;
+      const rad = (deg * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const bw = Math.ceil(w * cos + h * sin);
+      const bh = Math.ceil(w * sin + h * cos);
+      const canvas = document.createElement("canvas");
+      canvas.width = bw;
+      canvas.height = bh;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.translate(bw / 2, bh / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(bitmap, -w / 2, -h / 2);
+      // Largest inscribed rectangle of the ORIGINAL aspect within the rotation.
+      const ar = w / h;
+      const absCos = Math.abs(Math.cos(rad));
+      const absSin = Math.abs(Math.sin(rad));
+      let cw;
+      let ch;
+      if (ar >= 1) {
+        ch = Math.min(h, (w) / (ar * absSin + absCos) * 1); // conservative
+        cw = ch * ar;
+      } else {
+        cw = Math.min(w, (h) / (absSin + absCos / ar));
+        ch = cw / ar;
+      }
+      cw = Math.min(cw, w * 0.98);
+      ch = Math.min(ch, h * 0.98);
+      const out = document.createElement("canvas");
+      out.width = Math.round(cw);
+      out.height = Math.round(ch);
+      const octx = out.getContext("2d");
+      if (!octx) return null;
+      octx.drawImage(canvas, (bw - cw) / 2, (bh - ch) / 2, cw, ch, 0, 0, cw, ch);
+      return dataURLToBlob(out.toDataURL("image/jpeg", 0.92));
+    } catch (error) {
+      console.info("arbitrary rotate failed", error);
+      return null;
+    }
+  }
+  function dataURLToBlob(dataUrl) {
+    const comma = dataUrl.indexOf(",");
+    const bytes = atob(dataUrl.slice(comma + 1));
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: "image/jpeg" });
+  }
+
+  // Which local-mask target for a local_adjust op.
+  function maskTypeFor(target) {
+    if (target === "sky") return "sky";
+    if (target === "background") return "sky"; // heuristic: sky/background band
+    return "subject"; // subject / face
+  }
+
+  // Show a clarify question with up to 4 tappable options in the status strip.
+  function showClarify(clarify) {
+    const q = clarify?.question || "Which did you mean?";
+    status.textContent = q;
+    const options = Array.isArray(clarify?.options) ? clarify.options.slice(0, 4) : [];
+    // Reuse the describe suggestions row if present, else drop chips under status.
+    let strip = mount.querySelector("#editorClarify");
+    if (!strip) {
+      strip = document.createElement("div");
+      strip.id = "editorClarify";
+      strip.className = "editor-clarify";
+      status.insertAdjacentElement("afterend", strip);
+    }
+    strip.innerHTML = options
+      .map(
+        (o) =>
+          `<button type="button" class="editor-clarify-chip" data-clarify="${esc(o.value)}">${esc(o.label)}</button>`,
+      )
+      .join("");
+    strip.hidden = options.length === 0;
+    strip.querySelectorAll("[data-clarify]").forEach((b) =>
+      b.addEventListener("click", () => {
+        strip.hidden = true;
+        strip.innerHTML = "";
+        requestEdit(b.dataset.clarify);
+      }),
+    );
+  }
+  function clearClarify() {
+    const strip = mount.querySelector("#editorClarify");
+    if (strip) {
+      strip.hidden = true;
+      strip.innerHTML = "";
+    }
+  }
+
+  // Run one plan op. Deterministic ops commit a manual version on-device;
+  // generative/scenario ops go to the right edge function. Returns true if it
+  // produced (or kicked off) a result.
+  async function executeOp(op) {
+    const p = op?.params || {};
+    if (op.engine === "generative" || op.op === "generative_edit") {
+      const instruction =
+        op.op === "expand"
+          ? `Zoom out and uncrop: extend the scene naturally outward by about ${Math.round((Number(p.grow) || 0.3) * 100)}%, keeping the existing subject and content unchanged and continuing the surroundings realistically.`
+          : String(p.instruction || lastInstruction || "").trim();
+      recordSessionOp({ op: op.op, params: p });
+      await requestRealEdit(instruction, op.op === "expand" ? "expand" : "describe");
+      return true;
+    }
+    if (op.op === "scenario") {
+      recordSessionOp({ op: "scenario", params: { place: p.place ?? null } });
+      await applyScenario(p);
+      return true;
+    }
+    if (op.op === "undo") {
+      if (activeVersionId > 0) {
+        activeVersionId -= 1;
+        renderVersions({ focusActive: true });
+        syncCanvas();
+        status.textContent = "Backed off the last change.";
+      }
+      return true;
+    }
+    // ---- Deterministic, on-device ops (no model call).
+    const bitmap = await activeBitmap();
+    if (!bitmap) return false;
+    let blob = null;
+    let label = op.say || "Edit";
+    if (op.op === "crop") {
+      const saliency = photoMetaForInterpreter().derived?.saliency ?? null;
+      const rect = cropRectFor(p, bitmap.width || bitmap.naturalWidth, bitmap.height || bitmap.naturalHeight, saliency);
+      blob = applyCrop(bitmap, rect);
+      label = op.say || "Crop";
+    } else if (op.op === "rotate") {
+      blob = rotateBitmapArbitrary(bitmap, p.degrees);
+      label = op.say || "Rotate";
+    } else if (op.op === "adjust") {
+      blob = applyAdjust(bitmap, p);
+      label = op.say || "Adjust";
+    } else if (op.op === "local_adjust") {
+      const mask = buildAutoMask(bitmap, maskTypeFor(p.target));
+      blob = mask ? applyMaskedAdjust(bitmap, p.adjust || {}, mask, p.target === "background") : applyAdjust(bitmap, p.adjust || {});
+      label = op.say || "Local adjust";
+    } else if (op.op === "style") {
+      const grade = FILTER_GRADES.find((g) => g.key === p.grade || g.id === p.grade);
+      if (grade) blob = applyGrade(bitmap, grade);
+      else {
+        await requestRealEdit(String(p.instruction || label), "describe");
+        return true;
+      }
+      label = op.say || "Style";
+    } else {
+      return false;
+    }
+    if (!blob) {
+      status.textContent = "That edit couldn't be applied — try again.";
+      return false;
+    }
+    recordSessionOp({ op: op.op, params: p });
+    commitManualVersion(label, blob, "Describe");
+    return true;
+  }
+
+  // Scenario placement: put the user into a generated scene via generate-scene.
+  async function applyScenario(params) {
+    const token = activationToken;
+    processing = true;
+    syncPrompt();
+    renderVersions();
+    syncCanvas();
+    status.textContent = "Placing you in the scene…";
+    try {
+      const specParts = [params.scene_spec, params.camera, params.pose].filter(Boolean);
+      const result = await generateScene({
+        mode: "me",
+        subjectPhotoId: photo.id,
+        prompt: specParts.join(". ").slice(0, 780) || "a photo of me in the scene",
+        quality: "pro",
+        aspect: "4:5",
+      });
+      if (token !== activationToken) return;
+      if (result?.url) {
+        const nextId = versions.length;
+        versions.push({ id: nextId, label: `V${nextId}`, url: result.url });
+        activeVersionId = nextId;
+        status.textContent = `Version ${nextId} is ready.`;
+      } else if (result?.error === "paywall") {
+        status.textContent = "You've used your free generations this month — Gems Plus unlocks more.";
+      } else {
+        status.textContent = "That scene didn't generate — try again.";
+      }
+    } catch (error) {
+      console.info("scenario generation failed", error);
+      status.textContent = "That scene didn't generate — try again.";
+    } finally {
+      if (token === activationToken) {
+        processing = false;
+        renderVersions({ focusActive: true });
+        syncCanvas();
+        syncPrompt();
+      }
+    }
+  }
+
+  // Light photo meta for the interpreter (dims + any derived saliency box).
+  function photoMetaForInterpreter() {
+    const meta = { kind: photo?.kind ?? "photo" };
+    if (photo?.width && photo?.height) meta.width = photo.width;
+    if (photo?.derived?.saliency) meta.derived = { saliency: photo.derived.saliency };
+    else meta.derived = {};
+    return meta;
+  }
+
+  // The Describe-It entrypoint (real-photo mode): interpret, then execute the plan.
+  async function runInterpretedEdit(prompt) {
+    if (processing) return;
+    clearClarify();
+    promptInput.value = "";
+    syncPrompt();
+    lastInstruction = prompt;
+    status.textContent = "Reading your edit…";
+    let result;
+    try {
+      result = await interpretEdit({
+        instruction: prompt,
+        sessionState: editSession,
+        photoMeta: photoMetaForInterpreter(),
+      });
+    } catch (error) {
+      console.info("interpret failed, using generative fallback", error);
+      void requestRealEdit(prompt, "describe");
+      return;
+    }
+    if (result?.clarify && (!result.plan || !result.plan.length)) {
+      showClarify(result.clarify);
+      return;
+    }
+    const plan = Array.isArray(result?.plan) ? result.plan : [];
+    if (!plan.length) {
+      void requestRealEdit(prompt, "describe");
+      return;
+    }
+    // Execute ops in order. Generative/scenario ops manage their own status.
+    for (const op of plan) {
+      const done = await executeOp(op);
+      if (!done) break;
+    }
+  }
+
   function requestEdit(rawPrompt) {
     const prompt = rawPrompt.trim();
     if (!prompt || processing) return;
     if (photo) {
-      const intent = parseEditIntent(prompt);
-      if (intent.kind !== "ai") {
-        void applyDescribedAdjustment(intent, prompt);
-        return;
-      }
-      void requestRealEdit(prompt, "describe");
+      void runInterpretedEdit(prompt);
       return;
     }
     const sourceVersion = currentVersion();

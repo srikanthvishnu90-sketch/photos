@@ -20,8 +20,8 @@ const MAUVE = "#746d70";
 const SURFACE = "#f7f6f6";
 const WHITE = "#ffffff";
 const BORDER = "#dfd9dc";
-const DEEP_PETAL = "#e0507e";
-const PETAL = "#ffaecb";
+const DEEP_PETAL = "#274a86";
+const PETAL = "#aec6ec";
 
 // The three taste chart colors, in slot order (euro, gym, golden).
 const SLOT_COLORS = Object.freeze(["#dca96c", "#3d3036", "#e8865a"]);

@@ -1,13 +1,14 @@
 :root {
   color-scheme: light;
 
-  --color-petal: #ffaecb;
-  --color-petal-gradient: #ff9fc0;
-  --color-blossom: #ffd3e1;
-  --color-blush: #fff0f5;
-  --color-ink: #170b10;
-  --color-mauve: #746d70;
-  --color-deep-petal: #e0507e;
+  /* Brand accent shifted from pink to navy blue (same lightness roles). */
+  --color-petal: #aec6ec;
+  --color-petal-gradient: #9fb8e6;
+  --color-blossom: #d3e0f4;
+  --color-blush: #eef4fb;
+  --color-ink: #0b0f17;
+  --color-mauve: #6d707a;
+  --color-deep-petal: #274a86;
   --color-white: #ffffff;
   --color-auth-outline: var(--color-border);
   --color-stage: #efedef;
@@ -18,16 +19,16 @@
   --color-device-shadow: rgba(23, 11, 16, 0.22);
 
   --color-card-left-start: #ffffff;
-  --color-card-left-end: #ffe3ec;
-  --color-card-center-start: #fff6f9;
-  --color-card-center-end: #ffd9e5;
-  --color-card-right-start: #ffedf3;
-  --color-card-right-end: #ffc9da;
+  --color-card-left-end: #e3ecfa;
+  --color-card-center-start: #f6f9ff;
+  --color-card-center-end: #d9e5fa;
+  --color-card-right-start: #edf3fc;
+  --color-card-right-end: #c9daf2;
 
-  --color-photo-shadow: rgba(120, 8, 44, 0.2);
+  --color-photo-shadow: rgba(12, 30, 72, 0.2);
   --color-card-border: rgba(255, 255, 255, 0.92);
   --color-ink-muted: rgba(23, 11, 16, 0.62);
-  --color-focus-halo: rgba(224, 80, 126, 0.2);
+  --color-focus-halo: rgba(39, 74, 134, 0.2);
   --color-google-blue: #4285f4;
   --color-google-green: #34a853;
   --color-google-yellow: #fbbc05;
