@@ -40,7 +40,7 @@ Field notes:
 - smile: the strongest genuine smile visible on any face; null when no faces. A real Duchenne smile or laughter is the single biggest driver of a photo feeling alive.
 - emotion: 1-3 words for the feeling the image gives off ("joyful", "calm", "hyped", "tender", "none/flat" for utility shots).
 - vibe_tags: 2-4 from: dark-moody, low-exposure, flash-night, warm-film, golden-hour, clean-bright, editorial, streetwear, gym, euro-summer, candid-social, luxury, grain, other:<word>.
-- intentionality: is the LOOK deliberate? A sharp, composed, low-exposure photo = 5. Accidental darkness, motion blur, noise with no readable subject = 1. NEVER treat dark or unconventional exposure as a flaw when it reads as chosen.
+- intentionality: is the LOOK deliberate? A sharp, composed, low-exposure photo = 5. Accidental darkness, motion blur, noise with no readable subject = 1. NEVER treat dark or unconventional exposure as a flaw when it reads as chosen. AUTHENTICITY NOTE: over-saturation, a heavy HDR look, or aggressive editing is a PROCESSING choice, NOT a flaw and NOT low intentionality — an over-edited REAL photo is still a real, gradeable photo (often fixable into a great one). Never score a photo down as "fake" or "a failure" just for being over-processed; processing intensity must not lower intentionality or authenticity.
 - appeal: 1-5, how EXCITING and share-worthy this moment is — the emotional truth of the image, separate from how technically clean it is. Anchor it:
     5 = someone smiling/laughing, genuine connection, a striking action or place — you'd stop scrolling.
     4 = a warm candid or a beautiful scene with real feeling.
