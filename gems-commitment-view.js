@@ -4,6 +4,7 @@
 // throws. The generated poster can be saved back into the library.
 import { listPhotos, importPhotoFiles, getPhotoBlob } from "./gems-photolib.js";
 import { searchSchools, generateCommitment, SPORTS } from "./gems-commitment.js";
+import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -15,7 +16,7 @@ export async function openCommitmentStudio() {
   if (typeof document === "undefined") return;
   document.querySelector(".commit-overlay")?.remove();
 
-  const state = { photoId: null, school: null, sport: "football", name: "", headline: "COMMITTED", busy: false, resultUrl: "" };
+  const state = { photoId: null, school: null, sport: "football", name: "", headline: "COMMITTED", busy: false, resultUrl: "", faceNote: "" };
 
   const overlay = document.createElement("div");
   overlay.className = "commit-overlay";
@@ -44,6 +45,7 @@ export async function openCommitmentStudio() {
           state.resultUrl
             ? `<div class="commit-result">
                  <img class="commit-result-img" src="${esc(state.resultUrl)}" alt="Your commitment post" />
+                 ${state.faceNote ? `<p class="commit-note">${esc(state.faceNote)}</p>` : ""}
                  <div class="commit-actions">
                    <button class="commit-btn" data-again type="button">Try again</button>
                    <button class="commit-btn commit-btn--primary" data-save type="button">Save to my photos</button>
@@ -155,26 +157,77 @@ export async function openCommitmentStudio() {
     overlay.querySelector("[data-save]")?.addEventListener("click", () => void saveResult());
   }
 
+  async function scoreFace(url) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      const d = await faceDistanceToMe(bmp);
+      bmp.close?.();
+      return d;
+    } catch (error) {
+      console.info("face verify skipped", error);
+      return null;
+    }
+  }
+
   async function generate() {
     if (state.busy || !state.photoId || !state.school) return;
     state.busy = true;
+    state.faceNote = "";
     render();
     const status = overlay.querySelector("[data-status]");
-    const result = await generateCommitment({
+
+    // Identity-lock + verify: attach the athlete's tagged face references and
+    // auto-reroll if the poster's face drifts from their real one.
+    let identityPhotoIds = [];
+    let verify = false;
+    try {
+      if (await hasMeIdentity()) {
+        verify = true;
+        identityPhotoIds = (await getMeReferences(4)).map((r) => r.photoId);
+      }
+    } catch { /* no identity → single pass */ }
+
+    const opts = {
       photoId: state.photoId,
+      identityPhotoIds,
       schoolId: state.school.id,
       sport: state.sport,
       athleteName: state.name,
       headline: state.headline,
       quality: "pro",
-    });
+    };
+    const MAX_ATTEMPTS = verify ? 2 : 1;
+    const GOOD_DIST = 0.6; // posters stylize more; be a touch more lenient
+    let best = null;
+    let bestDist = Infinity;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const statusEl = overlay.querySelector("[data-status]");
+      if (statusEl && attempt > 0) statusEl.textContent = "Improving the likeness…";
+      const result = await generateCommitment(opts);
+      if (!result?.url) { best = best || result; break; }
+      if (!verify) { best = result; break; }
+      const dist = await scoreFace(result.url);
+      if (dist == null) { best = result; break; }
+      if (dist < bestDist) { bestDist = dist; best = result; }
+      if (dist <= GOOD_DIST) break;
+    }
+
     state.busy = false;
-    if (result?.url) {
-      state.resultUrl = result.url;
+    if (best?.url) {
+      state.resultUrl = best.url;
+      state.faceNote =
+        verify && bestDist < Infinity
+          ? bestDist <= GOOD_DIST
+            ? "Matched to your face ✓"
+            : "Closest match — hit Try again if the face is off"
+          : "";
       render();
       return;
     }
     render();
+    const result = best;
     const msg = overlay.querySelector("[data-status]") || status;
     if (msg) {
       msg.textContent =

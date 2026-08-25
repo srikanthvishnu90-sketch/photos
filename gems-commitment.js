@@ -68,6 +68,24 @@ export async function generateCommitment(opts) {
     if (!blob && opts.photoId) blob = await getPhotoBlob(opts.photoId);
     if (!blob) return { error: "nophoto" };
     const athleteBase64 = await blobToBase64(blob);
+    // Extra identity references (the athlete's tagged face cluster) — more angles
+    // of the SAME person → much stronger likeness in the poster.
+    let athleteImages;
+    const extraIds = Array.isArray(opts.identityPhotoIds)
+      ? opts.identityPhotoIds.filter((id) => id && id !== opts.photoId).slice(0, 4)
+      : [];
+    if (extraIds.length) {
+      const imgs = [];
+      for (const id of extraIds) {
+        try {
+          const b = await getPhotoBlob(id);
+          if (b) imgs.push(await blobToBase64(b));
+        } catch (error) {
+          console.info("identity ref skipped", error);
+        }
+      }
+      if (imgs.length) athleteImages = imgs;
+    }
     const res = await fetch(FN_URL, {
       method: "POST",
       headers: {
@@ -77,6 +95,7 @@ export async function generateCommitment(opts) {
       },
       body: JSON.stringify({
         athleteBase64,
+        athleteImages: athleteImages ?? undefined,
         mimeType: blob.type || "image/jpeg",
         schoolId: opts.schoolId,
         sport: opts.sport ?? null,

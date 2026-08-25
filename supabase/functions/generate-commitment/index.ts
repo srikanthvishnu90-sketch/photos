@@ -14,7 +14,7 @@ const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 
 // The athlete's face must read as a real photo of a real person even inside the
 // stylized poster — the #1 thing that makes these look AI is a beautified face.
-const FACE_FIDELITY = `FACE FIDELITY — CRITICAL. The athlete's face must be the EXACT face from the first attached photo, kept photoreal, not a lookalike or a beautified version:
+const FACE_FIDELITY = `FACE FIDELITY — CRITICAL. The athlete's face must be the EXACT face from the attached reference photo(s), kept photoreal, not a lookalike or a beautified version:
 - Copy their real facial geometry exactly (eyes, nose, mouth, jawline, cheekbones, brow, hairline, ears) and keep every mole, freckle, scar, facial hair and natural asymmetry.
 - KEEP REAL SKIN TEXTURE: pores, fine lines, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age or beautify the face. No beauty filter.
 - The face is a real photograph composited into the graphic — the poster's lighting and effects wrap around it, they do NOT repaint or stylize the face itself.
@@ -76,6 +76,7 @@ Deno.serve(async (request) => {
 
   let body: {
     athleteBase64?: string;
+    athleteImages?: string[]; // extra identity reference photos of the SAME athlete
     mimeType?: string;
     schoolId?: string;
     sport?: string;
@@ -128,16 +129,23 @@ Deno.serve(async (request) => {
     const color = school.color ? `#${school.color}` : "team color";
     const altColor = school.alt_color ? `#${school.alt_color}` : "a complementary accent";
 
-    // ---- Parts: athlete photo FIRST (identity), then the school logo (branding).
-    const parts: Array<Record<string, unknown>> = [
-      { inline_data: { mime_type: body.mimeType || "image/jpeg", data: body.athleteBase64 } },
-    ];
+    // ---- Parts: athlete photo(s) FIRST (identity — more angles = better
+    // likeness), then the school logo LAST (branding).
+    const athleteImages = [
+      ...(typeof body.athleteBase64 === "string" && body.athleteBase64 ? [body.athleteBase64] : []),
+      ...(Array.isArray(body.athleteImages) ? body.athleteImages.filter((s) => typeof s === "string" && s) : []),
+    ].slice(0, 5);
+    const parts: Array<Record<string, unknown>> = athleteImages.map((img) => ({
+      inline_data: { mime_type: body.mimeType || "image/jpeg", data: img },
+    }));
+    let hasLogo = false;
     if (school.logo) {
       try {
         const res = await fetch(school.logo);
         if (res.ok) {
           const b64 = await bytesToBase64(new Uint8Array(await res.arrayBuffer()));
           parts.push({ inline_data: { mime_type: res.headers.get("content-type") || "image/png", data: b64 } });
+          hasLogo = true;
         }
       } catch (error) {
         console.info("logo fetch skipped", error);
@@ -146,8 +154,8 @@ Deno.serve(async (request) => {
 
     const prompt =
       `Create a professional, high-energy COLLEGE SPORTS COMMITMENT announcement graphic poster — the kind an athlete posts when they commit to a college — in ${aspect} portrait orientation.\n\n` +
-      `ATHLETE: the person in the FIRST attached image. Preserve their EXACT face and identity — it must be recognizably them. Feature them prominently: a large dramatic hero cutout from the chest up near the top, and again as a full-body figure standing confidently in the center, wearing a ${sportLabel} uniform.\n\n` +
-      `SCHOOL: ${school.display} (the "${school.mascot ?? "team"}"). Use the school's official logo (the SECOND attached image) as a large emblem behind the athlete, and design the entire poster around the team colors ${color} and ${altColor}. Add the ${school.mascot ?? "team"} mascot and a packed ${sportLabel} stadium or arena in the background.\n\n` +
+      `ATHLETE: the person in the attached photo(s) at the START — they are all the SAME athlete, so study them together to lock the exact face. Preserve their EXACT face and identity — it must be recognizably them. Feature them prominently: a large dramatic hero cutout from the chest up near the top, and again as a full-body figure standing confidently in the center, wearing a ${sportLabel} uniform.\n\n` +
+      `SCHOOL: ${school.display} (the "${school.mascot ?? "team"}").${hasLogo ? " Use the school's official logo (the LAST attached image) as a large emblem behind the athlete, and" : ""} design the entire poster around the team colors ${color} and ${altColor}. Add the ${school.mascot ?? "team"} mascot and a packed ${sportLabel} stadium or arena in the background.\n\n` +
       `HEADLINE: a big bold 3D metallic "${headline}" across the middle in the team colors with a beveled chrome shine.` +
       (athleteName ? ` At the bottom, the athlete's name "${athleteName}" in bold block letters and "${school.display}" underneath in elegant script.` : ` At the bottom, "${school.display}" in elegant script.`) +
       `\n\nSTYLE: hyper-detailed sports-edit / recruiting poster, dramatic stadium lighting, lightning and energy glow in the team colors, cinematic and celebratory, with sharp clean legible text. No extra people.\n\n${FACE_FIDELITY}`;
