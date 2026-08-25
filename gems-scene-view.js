@@ -12,6 +12,13 @@ function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+// The prompt split into per-word spans so they can drift/dissolve into the image.
+function genWords(text) {
+  const parts = String(text || "your scene").trim().split(/\s+/);
+  return `<p>${parts.map((w, i) => `<span class="gen-w">${esc(w)}${i < parts.length - 1 ? " " : ""}</span>`).join("")}</p>`;
+}
+const GEN_GRAIN = `<div class="gen-grain"></div>`;
+
 const PROMPT_HINTS = {
   "dating": "makes 6 varied dating photos — no need to describe a scene",
   "euro-summer": "walking through a sunlit European old town",
@@ -53,6 +60,9 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     // Generated images live here as { url, faceNote }. Multiple images are made
     // as SEPARATE generations and swiped through; each has its own export.
     results: [], resultIndex: 0, progress: "",
+    // "describe → image" animation: revealing = the one-time reveal of the first
+    // result; revealText = the words that dissolve into it.
+    revealing: false, revealText: "",
   };
 
   const overlay = document.createElement("div");
@@ -81,7 +91,19 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       </header>
       <div class="commit-body">
         ${
-          state.results.length
+          state.revealing && state.results.length
+            ? // ── The reveal: the words dissolve INTO the first generated image.
+              `<div class="commit-result">
+                 <div class="gen-stage is-revealing">
+                   <img class="gen-img is-revealing" src="${esc(state.results[0].url)}" alt="Your generated image" />
+                   ${GEN_GRAIN}
+                   <div class="gen-sweep"></div>
+                   <span class="gen-tag">AI SCENE${state.pack ? " · " + esc(state.pack.replace(/-/g, " ")) : ""}</span>
+                   <div class="gen-words">${genWords(state.revealText)}</div>
+                 </div>
+                 <p class="gen-caption" data-caption></p>
+               </div>`
+            : state.results.length
             ? (() => {
         const cur = state.results[state.resultIndex] || state.results[0];
         const many = state.results.length > 1;
@@ -103,9 +125,15 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                </div>`;
       })()
             : state.busy
-            ? `<div class="commit-result">
-                 <div class="scene-generating"><span class="scene-spinner" aria-hidden="true"></span></div>
-                 <p class="commit-note">${esc(state.progress || "Creating your photo…")}</p>
+            ? // ── The "describe" stage: words over a scene developing underneath.
+              `<div class="commit-result">
+                 <div class="gen-stage">
+                   <div class="gen-pic"></div>
+                   ${GEN_GRAIN}
+                   <span class="gen-tag">AI SCENE${state.pack ? " · " + esc(state.pack.replace(/-/g, " ")) : ""}</span>
+                   <div class="gen-words">${genWords(state.revealText)}</div>
+                 </div>
+                 <p class="commit-note">${esc(state.progress || "Painting your scene…")}</p>
                </div>`
             : (() => {
         const inMe = state.mode !== "background";
@@ -369,6 +397,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     state.results = [];
     state.resultIndex = 0;
     state.progress = "";
+    state.revealing = false;
+    // The words that will dissolve into the image — the user's own description.
+    state.revealText =
+      inMe && state.pack === "dating"
+        ? "your dating photos"
+        : state.prompt ||
+          (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene");
     render();
     const matchReference = inMe && state.refs.length === 1 && state.matchReference;
 
@@ -428,12 +463,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     let lastError = null;
     for (let n = 0; n < N; n++) {
       state.progress = N > 1 ? `Generating ${n + 1} of ${N}…` : "Creating your photo…";
-      render();
+      if (!state.revealing) render(); // don't disturb the reveal mid-animation
       const r = await generateOne(jobs[n], verify);
       if (r?.url) {
         state.results.push({ url: r.url, faceNote: r.faceNote });
         state.resultIndex = state.results.length - 1;
-        render();
+        if (state.results.length === 1) startReveal(); // first image → play the reveal
+        else if (!state.revealing) render();
       } else {
         lastError = r;
       }
@@ -441,11 +477,42 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
 
     state.busy = false;
     state.progress = "";
-    render();
+    if (!state.revealing) render(); // if still revealing, its timeout renders the carousel
     if (!state.results.length) {
       const msg = overlay.querySelector("[data-status]");
       if (msg) msg.textContent = errorText(lastError);
     }
+  }
+
+  // Play the one-time "words dissolve into the image" reveal for the first result.
+  function startReveal() {
+    state.revealing = true;
+    render();
+    const words = [...overlay.querySelectorAll(".gen-words .gen-w")];
+    words.forEach((w, i) => {
+      window.setTimeout(() => {
+        const dx = Math.random() * 60 - 30;
+        const dy = 40 + Math.random() * 90; // drift down into the scene
+        const rot = Math.random() * 14 - 7;
+        const sc = 0.6 + Math.random() * 0.25;
+        w.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg) scale(${sc})`;
+        w.classList.add("gone");
+      }, 300 + i * 90);
+    });
+    const cap = overlay.querySelector("[data-caption]");
+    if (cap) {
+      window.setTimeout(() => {
+        const pack = state.pack ? state.pack.replace(/-/g, " ") : "scene";
+        cap.textContent = `“${state.revealText}” · ${pack} · swipe or make more`;
+        cap.classList.add("in");
+      }, 300 + words.length * 90 + 200);
+    }
+    // Settle into the carousel with everything generated by then.
+    window.setTimeout(() => {
+      state.revealing = false;
+      state.resultIndex = 0;
+      render();
+    }, 2700);
   }
 
   // Export (share/download) any generated image — always available per image.

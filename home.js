@@ -558,21 +558,63 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
-  // Lightweight picker: tap library photos to attach (up to MAX_ATTACH), so Gems
-  // can look at them. Self-contained overlay; never throws.
+  // Device file import (GPT/Claude style): attach any image from the phone/computer.
+  let chatFileInput = null;
+  function ensureChatFileInput() {
+    if (chatFileInput) return chatFileInput;
+    chatFileInput = document.createElement("input");
+    chatFileInput.type = "file";
+    chatFileInput.accept = "image/*";
+    chatFileInput.multiple = true;
+    chatFileInput.hidden = true;
+    chatFileInput.addEventListener("change", async () => {
+      const files = [...(chatFileInput.files || [])];
+      chatFileInput.value = "";
+      await attachDeviceFiles(files);
+    });
+    document.body.append(chatFileInput);
+    return chatFileInput;
+  }
+  async function attachDeviceFiles(files) {
+    for (const file of files) {
+      if (chatAttachments.length >= MAX_ATTACH) break;
+      if (!file.type?.startsWith("image/")) continue;
+      try {
+        const base64 = await chatBlobToBase64(file);
+        chatAttachments.push({
+          id: `dev-${Math.random().toString(36).slice(2)}`,
+          url: URL.createObjectURL(file),
+          base64,
+          mimeType: file.type || "image/jpeg",
+        });
+        renderAttachments();
+      } catch (error) {
+        console.info("device attach failed", error);
+      }
+    }
+  }
+
+  // Picker: attach an image from the device (like GPT/Claude) OR tap a library
+  // photo. Self-contained overlay; never throws.
   async function openAttachPicker() {
     homeActions.attachPhoto();
     let photos = [];
     try { photos = await listPhotos(); } catch { photos = []; }
+    // No library photos → go straight to the device file picker.
     if (!photos.length) {
-      showReply("Import some photos first, then attach one and I'll take a look.");
+      ensureChatFileInput().click();
       return;
     }
     const overlay = document.createElement("div");
     overlay.className = "home-attach-overlay";
     overlay.innerHTML = `
       <div class="home-attach-sheet">
-        <div class="home-attach-head"><strong>Attach a photo</strong><button type="button" class="home-attach-done">Done</button></div>
+        <div class="home-attach-head"><strong>Attach an image</strong>
+          <span class="home-attach-actions">
+            <button type="button" class="home-attach-upload">Upload from device</button>
+            <button type="button" class="home-attach-done">Done</button>
+          </span>
+        </div>
         <div class="home-attach-grid">
           ${photos.slice(0, 30).map((p) => `<button type="button" class="home-attach-cell" data-pick="${escapeHtml(p.id)}" data-url="${escapeHtml(p.url)}"><img src="${escapeHtml(p.url)}" alt="" loading="lazy"></button>`).join("")}
         </div>
@@ -580,6 +622,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     document.body.append(overlay);
     const close = () => overlay.remove();
     overlay.querySelector(".home-attach-done")?.addEventListener("click", close);
+    overlay.querySelector(".home-attach-upload")?.addEventListener("click", () => { ensureChatFileInput().click(); close(); });
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
     overlay.querySelectorAll("[data-pick]").forEach((cell) =>
       cell.addEventListener("click", async () => {
