@@ -1057,14 +1057,15 @@
   background: var(--color-white);
 }
 
-/* GPT/Claude behavior: while the composer is focused (keyboard open) the tab bar
-   drops away so the input sits flush above the keyboard — nothing else moves. */
+/* While the composer is focused (keyboard open) the tab bar is hidden so the nav
+   doesn't sit over the keyboard — but with `visibility: hidden`, NOT `display:none`,
+   so its layout space is KEPT and the composer does NOT move a pixel when you tap
+   in to type. Zero layout change on focus = the chatbox stays perfectly still on
+   both mobile and web; the app already pins to the visual viewport (styles.css +
+   app.js), so the keyboard only shrinks the app, it never shifts the composer.
+   The reserved strip is the chrome's own white, so it reads as clean padding. */
 .home-bottom-chrome:has(.home-chat-form:focus-within) .home-tabs {
-  display: none;
-}
-
-.home-bottom-chrome:has(.home-chat-form:focus-within) .home-chat-dock {
-  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  visibility: hidden;
 }
 
 .home-chat-form {

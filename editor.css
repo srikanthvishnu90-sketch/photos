@@ -130,30 +130,25 @@
   background: var(--color-photo-black);
 }
 
-/* Real photos keep their OWN shape — no fixed 4:5 box, no black pillar-bars.
-   The frame shrink-wraps the photo (capped to the available space, centered),
-   so every image reads edge-to-edge like the rest of the app. Because the frame
-   then matches the photo's ratio exactly, containRect() still returns the full
-   box and the erase/crop overlays stay aligned. */
-.editor-canvas.is-real {
-  align-self: center;
-  width: auto;
-  height: auto;
-  aspect-ratio: auto;
-  max-width: 100%;
-  max-height: calc(var(--app-height, 100dvh) * 0.42);
-  background: transparent;
-  box-shadow: 0 10px 26px var(--color-home-shadow);
+/* Real photos FILL a consistent, fixed 4:5 frame — no black pillar-bars, and the
+   same frame shape for every image, so the preview reads edge-to-edge (Instagram
+   look) and exports predictably. `cover` fills the frame; the frame never changes.
+   The base .editor-canvas already sets the 4:5 aspect-ratio and radius. */
+.editor-canvas.is-real .editor-photo {
+  object-fit: cover;
 }
 
-.editor-canvas.is-real .editor-photo {
-  position: static;
-  inset: auto;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: calc(var(--app-height, 100dvh) * 0.42);
-  background: transparent;
+/* While a manual overlay tool (crop / erase) is active the WHOLE image must be
+   visible so its overlay geometry maps 1:1 to the pixels — switch to `contain`
+   just for that mode. The transient letterbox uses a neutral ground, not harsh
+   black. Defined after .is-real so it wins when both classes are present. */
+.editor-canvas.is-fitcontain {
+  background: var(--color-ink);
+}
+
+.editor-canvas.is-fitcontain .editor-photo {
+  object-fit: contain;
+  background: var(--color-ink);
 }
 
 .editor-canvas.is-real .editor-beach-scene {

@@ -369,6 +369,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   function syncCanvas() {
     const version = currentVersion();
     canvas.classList.toggle("is-real", Boolean(photo));
+    // Whole-image (contain) only while manually editing; describe view stays the
+    // consistent cover frame with no black bars.
+    canvas.classList.toggle("is-fitcontain", mode === "manual" && Boolean(photo));
     photoView.hidden = !photo;
     if (photo) {
       const url = version?.url ?? "";
@@ -435,6 +438,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     describePanel.hidden = mode !== "describe";
     manualPanel.hidden = mode !== "manual";
+    // Describe view = the consistent cover frame (no bars); Manual tools show the
+    // whole image (contain) so crop/erase overlays map 1:1 to the pixels.
+    canvas.classList.toggle("is-fitcontain", mode === "manual" && Boolean(photo));
     if (mode === "describe") {
       teardownToolPanel();
       syncPrompt();
