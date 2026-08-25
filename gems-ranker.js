@@ -10,6 +10,7 @@
 
 import { getPhotoBlob, listPhotos, updatePhotoDerived } from "./gems-photolib.js";
 import { getSession, getSupabase, recordTasteEvent } from "./gems-supabase.js";
+import { photoIdsForQuery } from "./gems-faces.js";
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -237,6 +238,20 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
   try {
     records = await listPhotos();
     if (!records.length) return [];
+
+    // Face filter: "best photos of me" / "photos of <name>" restricts the
+    // candidates to that person when the user has tagged faces (on-device). A
+    // null/empty match leaves the full library in play, so search never breaks.
+    try {
+      const personIds = await photoIdsForQuery(request);
+      if (personIds && personIds.length) {
+        const set = new Set(personIds);
+        const filtered = records.filter((r) => set.has(r.id));
+        if (filtered.length) records = filtered;
+      }
+    } catch (error) {
+      console.info("face filter skipped", error);
+    }
 
     const described = await ensureDescriptions(records);
 

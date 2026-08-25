@@ -910,9 +910,71 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         if (processing) return;
         const op = RETOUCH_OPS.find((entry) => entry.key === button.dataset.retouch);
         if (!op) return;
+        // Remove background runs the on-device matting model first — instant,
+        // free, private, and cleaner edges than a generative round-trip. Falls
+        // back to the model only if segmentation isn't available.
+        if (op.key === "remove-bg") {
+          void removeBackgroundOnDevice(op.instruction);
+          return;
+        }
         void requestRealEdit(op.instruction, op.key);
       });
     });
+  }
+
+  // On-device background removal: segment the person and composite them onto a
+  // clean white background. Commits a new version with no model call. Falls back
+  // to the generative path if the segmenter can't run.
+  async function removeBackgroundOnDevice(fallbackInstruction) {
+    if (manualBusy || processing) return;
+    manualBusy = true;
+    status.textContent = "Removing background…";
+    try {
+      const bitmap = await activeBitmap();
+      if (!bitmap) {
+        manualBusy = false;
+        return;
+      }
+      const mask = await segmentPerson(bitmap);
+      if (!mask) {
+        // No on-device matting available — fall back to the model.
+        manualBusy = false;
+        void requestRealEdit(fallbackInstruction, "remove-bg");
+        return;
+      }
+      const w = bitmap.width || bitmap.naturalWidth;
+      const h = bitmap.height || bitmap.naturalHeight;
+      const out = document.createElement("canvas");
+      out.width = w;
+      out.height = h;
+      const octx = out.getContext("2d");
+      if (!octx) {
+        manualBusy = false;
+        return;
+      }
+      // White backdrop, then the subject masked in on top.
+      octx.fillStyle = "#ffffff";
+      octx.fillRect(0, 0, w, h);
+      const cut = document.createElement("canvas");
+      cut.width = w;
+      cut.height = h;
+      const cctx = cut.getContext("2d");
+      if (!cctx) {
+        manualBusy = false;
+        return;
+      }
+      cctx.drawImage(bitmap, 0, 0, w, h);
+      cctx.globalCompositeOperation = "destination-in";
+      cctx.drawImage(mask, 0, 0, w, h);
+      octx.drawImage(cut, 0, 0);
+      const blob = dataURLToBlob(out.toDataURL("image/jpeg", 0.92));
+      manualBusy = false;
+      commitManualVersion("Background removed", blob, "Remove background");
+    } catch (error) {
+      console.info("on-device remove-bg failed, using model", error);
+      manualBusy = false;
+      void requestRealEdit(fallbackInstruction, "remove-bg");
+    }
   }
 
   // ---- Filters (one-tap grades) ------------------------------------------
@@ -3658,11 +3720,21 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     return new Blob([arr], { type: "image/jpeg" });
   }
 
-  // Which local-mask target for a local_adjust op.
-  function maskTypeFor(target) {
-    if (target === "sky") return "sky";
-    if (target === "background") return "sky"; // heuristic: sky/background band
-    return "subject"; // subject / face
+  // Build the mask for a local_adjust target. Subject/face/background use the
+  // real on-device person segmenter (MediaPipe); sky uses the color heuristic.
+  // Returns { mask, invert } — invert flips the mask so "background" hits
+  // everything EXCEPT the person. Falls back to a heuristic mask, never a no-op.
+  async function localMaskFor(bitmap, target) {
+    if (target === "sky") return { mask: buildAutoMask(bitmap, "sky"), invert: false };
+    if (target === "background") {
+      const person = await segmentPerson(bitmap);
+      if (person) return { mask: person, invert: true };
+      return { mask: buildAutoMask(bitmap, "sky"), invert: false };
+    }
+    // subject / face
+    const person = await segmentPerson(bitmap);
+    if (person) return { mask: person, invert: false };
+    return { mask: buildAutoMask(bitmap, "bright"), invert: false };
   }
 
   // Show a clarify question with up to 4 tappable options in the status strip.
@@ -3746,8 +3818,8 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       blob = applyAdjust(bitmap, p);
       label = op.say || "Adjust";
     } else if (op.op === "local_adjust") {
-      const mask = buildAutoMask(bitmap, maskTypeFor(p.target));
-      blob = mask ? applyMaskedAdjust(bitmap, p.adjust || {}, mask, p.target === "background") : applyAdjust(bitmap, p.adjust || {});
+      const { mask, invert } = await localMaskFor(bitmap, p.target);
+      blob = mask ? applyMaskedAdjust(bitmap, p.adjust || {}, mask, invert) : applyAdjust(bitmap, p.adjust || {});
       label = op.say || "Local adjust";
     } else if (op.op === "style") {
       const grade = FILTER_GRADES.find((g) => g.key === p.grade || g.id === p.grade);

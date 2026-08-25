@@ -45,6 +45,11 @@ const SETTINGS = Object.freeze([
     action: "camera",
   },
   {
+    label: "People",
+    sublabel: "Recognize faces · find photos of you · on your device",
+    action: "people",
+  },
+  {
     label: "Privacy & data",
     sublabel: "What Gems keeps, and what it never sees",
     action: "privacy",
@@ -693,6 +698,10 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
       }
       if (action === "privacy") {
         openPrivacy();
+        return;
+      }
+      if (action === "people") {
+        void import("./gems-people-view.js").then((m) => m.openPeopleStudio());
         return;
       }
       // camera / help keep the existing engagement-signal behavior.
