@@ -41,7 +41,7 @@ function userIdFromAuth(header: string | null): string | null {
 }
 
 const VALID_INTENTS = new Set(["find", "build", "edit", "inspire", "chat", "generate"]);
-const VALID_PACKS = new Set(["euro-summer", "dubai", "old-money", "luxury-cars", "boat", "dark-luxe", "after-dark"]);
+const VALID_PACKS = new Set(["euro-summer", "dubai", "old-money", "luxury-cars", "beach-club", "boat", "dark-luxe", "after-dark"]);
 const VALID_SCREENS = new Set(["Photos", "Studio", "Editor", "Discover"]);
 
 // Harden the model output into the exact contract the UI relies on.

@@ -13,6 +13,7 @@ export const STYLE_PACKS = Object.freeze([
   { id: "dubai", label: "Dubai Luxe" },
   { id: "old-money", label: "Old Money" },
   { id: "luxury-cars", label: "Luxury Cars" },
+  { id: "beach-club", label: "Beach Club" },
   { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
@@ -30,6 +31,13 @@ export const ASPECTS = Object.freeze([
 // `value` is written as the phrase that slots into the prompt ("the user is …",
 // "dress the user in …"). Keep them candid and phone-real, never posed-perfect.
 const POSE_OPTIONS = Object.freeze({
+  "beach-club": [
+    { label: "On a day-bed", value: "reclining back on a teak day-bed under a striped umbrella, fully dressed in resortwear, sunglasses on, relaxed" },
+    { label: "At the beach bar", value: "sitting at the beach bar with a cocktail, leaning on the counter, caught mid-conversation" },
+    { label: "Walking the boardwalk", value: "walking along the wooden boardwalk toward the sand, glancing off-camera, breeze in the clothes" },
+    { label: "By a cabana", value: "leaning against a white cabana post looking out at the turquoise water, one hand in a pocket" },
+    { label: "At the water's edge", value: "standing at the water's edge fully dressed in resortwear, looking out to sea, seen from behind and to the side" },
+  ],
   "luxury-cars": [
     { label: "Leaning on the hood", value: "leaning back against the hood of the supercar, arms loosely crossed, sunglasses on, looking off-camera" },
     { label: "Hand on the door", value: "standing beside the open driver's door with a hand resting on it, mid-motion about to get in" },
@@ -82,6 +90,12 @@ const POSE_OPTIONS = Object.freeze({
 // (long/short sleeve, color by location) with linen pants, or a tight good-fitting
 // tee with good pants. Plus pack-appropriate alternates. No swimwear/shirtless.
 const OUTFIT_OPTIONS = Object.freeze({
+  "beach-club": [
+    { label: "Open linen shirt", value: "an open buttoned white or blue linen shirt with linen shorts and leather sandals, sunglasses" },
+    { label: "Polo & shorts", value: "a fitted white or navy polo with tailored linen shorts" },
+    { label: "Sundress", value: "a breezy cream or floral sundress with sunglasses and a straw hat" },
+    { label: "Linen cover-up", value: "a linen shirt-dress or co-ord cover-up worn over the outfit, chic and modest" },
+  ],
   "luxury-cars": [
     { label: "Black tee & pants", value: "a fitted black tee with sharp tailored trousers, a good watch and sunglasses" },
     { label: "White linen shirt", value: "a crisp white linen shirt with tailored stone trousers and loafers" },

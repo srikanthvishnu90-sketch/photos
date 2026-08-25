@@ -17,6 +17,7 @@ Rules:
 - Never beautify, relight, denoise, or "improve" anything that wasn't asked for.
 - Dark, moody, grainy, or unconventional looks are deliberate; preserve them.
 - If the instruction asks to remove something, reconstruct what is naturally behind it.
+- When the requested change IS a lighting or color adjustment (warmer, brighter, more contrast, a grade), execute it like a skilled colorist: intentional and SUBTLE, skin tones protected and natural, never overcooked into crushed blacks, radioactive saturation, or HDR flatness.
 - Return the edited image.`;
 
 // The "After Dark" style block — mirrors the canonical definition in
@@ -35,9 +36,25 @@ STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not re
 const AUTO_AESTHETIC_TRIGGERS =
   /\b(edit this for me|edit it for me|match the vibe|match the look|make it (look )?(good|aesthetic|better)|make this look good|auto[- ]?edit|best edit|fix the (lighting|colors?|grade)|give it the vibe)\b/i;
 
-const AUTO_AESTHETIC_PREAMBLE = `You are the photo colorist inside Gems. RE-GRADE this photo — do NOT regenerate it. Keep the subject, faces, identity, pose, framing, background, and every object EXACTLY as-is; change ONLY lighting, color, contrast, and mood.
+// The craft of brilliant editing — a colorist's method + taste. Shared by the
+// auto-aesthetic grade and any color/light edit, so edits READ as intentional and
+// subtle, not one-tap filters.
+const EDITING_CRAFT = `BRILLIANT EDITING — work like a world-class photo colorist, not a one-tap filter. A brilliant edit is INTENTIONAL and SUBTLE: it makes the photo feel like the best, most real version of itself — the viewer should FEEL it, not spot it.
+METHOD (reason through this before you touch the grade):
+1. READ the photo: its current exposure, white balance and any color cast, contrast, where the shadows and highlights actually sit, skin-tone accuracy, and what is genuinely holding the image back.
+2. DIAGNOSE what THIS specific photo needs — a real judgment, not a preset (e.g. "shadows are muddy and slightly green → lift a touch and warm them; highlights are already clipped → protect them, don't chase them back; skin reads a little pale → add gentle warmth and a hint of vibrance").
+3. GRADE with a colorist's tools: white balance (temperature + tint), a gentle tone curve for contrast, HSL per colour (deepen foliage greens, hold a true-blue sky, keep skin clean), split-toning (usually warm highlights / cooler shadows), VIBRANCE before saturation, clarity/texture in moderation, and selective skin protection.
+TASTE (non-negotiable):
+- SUBTLE beats heavy every time — under-grade rather than overcook. Crushed blacks, radioactive saturation, HDR flatness, heavy vignette and plastic skin are amateur tells; avoid them.
+- PROTECT SKIN: natural, healthy, true-to-them tones with real texture — never orange, waxy, or grey.
+- Keep it filmic and believable — a beautifully-shot real photo, not a filter.
+- Respect the photo's own intent: a moody, dim, or grainy shot is a deliberate look — enhance it, don't "fix" it into bright-and-clean.`;
 
-STEP 1 — look at the photo and identify which of these real-world settings it is CLOSEST to (by its content and existing light). STEP 2 — apply that setting's LIGHT + GRADE recipe. If it clearly matches none, apply a tasteful, natural, true-to-life grade (gentle contrast, honest color, protected skin) rather than forcing a look.
+const AUTO_AESTHETIC_PREAMBLE = `${EDITING_CRAFT}
+
+Now apply that craft as an AUTO GRADE. RE-GRADE this photo — do NOT regenerate it. Keep the subject, faces, identity, pose, framing, background, and every object EXACTLY as-is; change ONLY lighting, color, contrast, and mood.
+
+STEP 1 — READ the photo and identify which of these real-world settings it is CLOSEST to (by its content and existing light). STEP 2 — apply that setting's LIGHT + GRADE recipe, executed with the craft and taste above. If it clearly matches none, apply a tasteful, natural, true-to-life grade (gentle contrast, honest color, protected skin) rather than forcing a look.
 
 RECIPES:
 - MEDITERRANEAN VILLAGE, GOLDEN HOUR (stone/plaster walls, shutters, cobbles, alley, warm low sun): warm golden side-light, long soft shadows, Kodak Portra warmth, lifted warm shadows, soft highlight rolloff, teal-and-tan, honey midtones, gentle grain. Never oversaturated.
@@ -45,6 +62,7 @@ RECIPES:
 - ELEVATED COAST/BAY VISTA (high vantage, vast sea, distant headland, yachts): warm foreground with a COOL, slightly-hazy, desaturated blue distance (atmospheric perspective); soft contrast, elegant and muted, never punchy.
 - BOAT / OPEN SEA, MIDDAY (teak deck, chrome, deep blue water, wake, clear sky): bright hard sun with sea-reflected fill, true vivid blues (navy sea, azure sky), warm teak brown, clean whites, crisp high-clarity, keep sun-sparkle on water.
 - CRYSTAL WATER / SWIM (transparent teal-green water over reef, wet tanned skin): make the water GLOW aqua-to-emerald with caustic sun-dapple, high-key and luminous, warm protected skin, specular sheen on wet skin.
+- CHIC BEACH CLUB (striped umbrellas, day-beds, cabanas, white sand, turquoise water): high-key and bright with true turquoise water, warm sand and crisp whites; sunny but controlled saturation, protected skin, keep the sun-sparkle — never blown-out or candy-HDR.
 - LUXURY SIGNIFIER / GRAND ARCHITECTURE or CLASSIC CAR (ornate facade, boutique, Riviera street): warm gold, muted elegant film-like grade, low saturation, gentle contrast, hazy warm air — "quiet wealth," never neon or HDR.
 - FRAMED LAKE / VILLA VISTA (arch or window onto lake, mountains, styled interior foreground): keep the interior foreground a touch darker so the view beyond GLOWS; warm creams, lush greens, lake blue, serene and soft.
 - WARM NIGHT / DIM INTERIOR (string lights, tungsten lamps, lit facade, dim lobby): warm amber highlights, deep shadows kept clean, protected skin, muted — do NOT brighten it into daylight; embrace the low-key mood.
