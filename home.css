@@ -1519,6 +1519,54 @@
 .commit-actions { display: flex; gap: 10px; }
 .commit-actions .commit-btn { flex: 1 1 auto; }
 
+/* Scene studio: swipeable carousel of separately-generated images. */
+.scene-carousel { position: relative; }
+.scene-carousel-view { touch-action: pan-y; }
+.scene-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  color: var(--color-white);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.scene-nav--prev { left: 8px; }
+.scene-nav--next { right: 8px; }
+.scene-nav:disabled { opacity: 0.25; cursor: default; }
+.scene-dots { display: flex; justify-content: center; gap: 6px; margin-top: -4px; }
+.scene-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+.scene-dot.is-active { background: var(--color-deep-petal); }
+.scene-generating {
+  aspect-ratio: 4 / 5;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+.scene-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-deep-petal);
+  animation: scene-spin 0.8s linear infinite;
+}
+@keyframes scene-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .scene-spinner { animation: none; } }
+
 /* Scene studio inspiration "+" upload tile */
 .scene-insp-add {
   display: grid !important;

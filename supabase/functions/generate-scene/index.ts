@@ -19,7 +19,7 @@ const MAX_REFS = 3;
 // imperfection (grain, exposure, haze) — pixel-anchored realism beyond the prompt.
 const REALISM_REFS_ENABLED = (Deno.env.get("REALISM_REFS_ENABLED") ?? "true") !== "false";
 const REALISM_REFS_PREFIX = Deno.env.get("REALISM_REFS_PREFIX") ?? "_global/realism";
-const REALISM_REF_COUNT = Number(Deno.env.get("REALISM_REF_COUNT") ?? "2");
+const REALISM_REF_COUNT = Number(Deno.env.get("REALISM_REF_COUNT") ?? "3");
 
 // Always appended so output reads as a real smartphone photo, not AI art.
 // This is the single most load-bearing block for "it looks too AI". The core
@@ -70,6 +70,10 @@ BANNED AI TELLS: plastic/waxy/poreless skin, perfect facial or scene symmetry, o
 // The subject is ALWAYS fully and tastefully clothed — never swimwear or shirtless,
 // in any setting. Appended whenever a real person is in the output.
 const MODESTY = `WARDROBE MODESTY (required): the user is always fully and tastefully clothed in real, on-theme outfits. NEVER depict them shirtless, in a bikini/swim trunks/swimwear, or in any revealing state — even in pool, boat, or beach scenes (in those, dress them in linen, resortwear, or a cover-up over clothing). Keep it modest and realistic.`;
+
+// Framing distance — a close-up face filling the frame is one of the strongest AI
+// tells; real lifestyle photos are shot from a few steps back so you see the PLACE.
+const FRAMING = `FRAMING & DISTANCE (critical for realism): shoot the user from a NATURAL DISTANCE — a medium-to-wide candid photo where they occupy only about a third to a half of the frame and the SETTING is clearly visible around and behind them. Their FACE must NOT be close to the camera and must NOT fill the frame — absolutely no tight selfie or head-and-shoulders portrait crop. Frame it like a friend a few steps away taking a full-body or half-body travel photo, so the person AND the place both read. A face too close to the camera instantly looks AI-generated — keep the distance.`;
 
 // Curated, fully-clothed outfit vocabulary per style pack (analyzed from the
 // aspirational references, swimwear/shirtless excluded). Used to auto-dress the
@@ -325,7 +329,7 @@ Deno.serve(async (request) => {
     let realismRefCount = 0;
     if (REALISM_REFS_ENABLED && !matchReference) {
       try {
-        const wanted = Math.max(0, Math.min(REALISM_REF_COUNT, hasSubject ? 1 : 2));
+        const wanted = Math.max(0, Math.min(REALISM_REF_COUNT, hasSubject ? 2 : 3));
         if (wanted > 0) {
           const { data: files } = await supabase.storage
             .from("inspiration").list(REALISM_REFS_PREFIX, { limit: 100 });
@@ -401,6 +405,7 @@ Deno.serve(async (request) => {
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
+      (hasSubject ? `\n\n${FRAMING}` : "") +
       wardrobeBlock +
       autoWardrobeBlock +
       poseBlock +

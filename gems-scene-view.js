@@ -45,7 +45,11 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     photoId: null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
-    refs: [], inspiration: [], busy: false, resultUrl: "", faceNote: "",
+    count: 1,
+    refs: [], inspiration: [], busy: false,
+    // Generated images live here as { url, faceNote }. Multiple images are made
+    // as SEPARATE generations and swiped through; each has its own export.
+    results: [], resultIndex: 0, progress: "",
   };
 
   const overlay = document.createElement("div");
@@ -74,14 +78,31 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       </header>
       <div class="commit-body">
         ${
-          state.resultUrl
-            ? `<div class="commit-result">
-                 <img class="commit-result-img" src="${esc(state.resultUrl)}" alt="Your generated scene" />
-                 ${state.faceNote ? `<p class="commit-note">${esc(state.faceNote)}</p>` : ""}
-                 <div class="commit-actions">
-                   <button class="commit-btn" data-again type="button">Try again</button>
-                   <button class="commit-btn commit-btn--primary" data-save type="button">Save to my photos</button>
+          state.results.length
+            ? (() => {
+        const cur = state.results[state.resultIndex] || state.results[0];
+        const many = state.results.length > 1;
+        return `<div class="commit-result">
+                 <div class="scene-carousel">
+                   <div class="scene-carousel-view" data-carousel>
+                     <img class="commit-result-img" src="${esc(cur.url)}" alt="Generated scene ${state.resultIndex + 1}" />
+                   </div>
+                   ${many ? `<button class="scene-nav scene-nav--prev" data-prev type="button" aria-label="Previous"${state.resultIndex === 0 ? " disabled" : ""}>‹</button>
+                   <button class="scene-nav scene-nav--next" data-next type="button" aria-label="Next"${state.resultIndex === state.results.length - 1 ? " disabled" : ""}>›</button>` : ""}
                  </div>
+                 ${many ? `<div class="scene-dots">${state.results.map((_, i) => `<span class="scene-dot${i === state.resultIndex ? " is-active" : ""}"></span>`).join("")}</div>` : ""}
+                 ${state.busy ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>` : cur.faceNote ? `<p class="commit-note">${esc(cur.faceNote)}</p>` : ""}
+                 <div class="commit-actions">
+                   <button class="commit-btn" data-again type="button">New batch</button>
+                   <button class="commit-btn" data-export type="button">Export</button>
+                   <button class="commit-btn commit-btn--primary" data-save type="button">Save</button>
+                 </div>
+               </div>`;
+      })()
+            : state.busy
+            ? `<div class="commit-result">
+                 <div class="scene-generating"><span class="scene-spinner" aria-hidden="true"></span></div>
+                 <p class="commit-note">${esc(state.progress || "Creating your photo…")}</p>
                </div>`
             : (() => {
         const inMe = state.mode !== "background";
@@ -145,8 +166,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           ${ASPECTS.map((a) => `<button type="button" class="commit-chip${state.aspect === a.id ? " is-active" : ""}" data-aspect="${a.id}">${esc(a.label)}</button>`).join("")}
         </div>
 
+        <label class="commit-label">${inMe ? "7" : "5"} · How many</label>
+        <div class="commit-headlines">
+          ${[1, 4].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " photos"}</button>`).join("")}
+        </div>
+
         <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
-          ${state.busy ? "Generating…" : inMe ? "Generate my scene" : "Generate scene"}
+          ${state.busy ? "Generating…" : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
         </button>
         <p class="commit-note">${inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
         <p class="commit-status" data-status></p>`;
@@ -203,9 +229,39 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       }),
     );
     overlay.querySelector("[data-add-insp]")?.addEventListener("click", () => inspFileInput.click());
+    overlay.querySelectorAll("[data-count]").forEach((b) =>
+      b.addEventListener("click", () => { state.count = Number(b.dataset.count) || 1; render(); }),
+    );
     overlay.querySelector("[data-generate]")?.addEventListener("click", () => void generate());
-    overlay.querySelector("[data-again]")?.addEventListener("click", () => { state.resultUrl = ""; render(); });
+    overlay.querySelector("[data-again]")?.addEventListener("click", () => {
+      if (state.busy) return;
+      state.results = []; state.resultIndex = 0; render();
+    });
+    overlay.querySelector("[data-export]")?.addEventListener("click", () => {
+      const cur = state.results[state.resultIndex];
+      if (cur?.url) void exportImage(cur.url);
+    });
     overlay.querySelector("[data-save]")?.addEventListener("click", () => void saveResult());
+    overlay.querySelector("[data-prev]")?.addEventListener("click", () => {
+      if (state.resultIndex > 0) { state.resultIndex -= 1; render(); }
+    });
+    overlay.querySelector("[data-next]")?.addEventListener("click", () => {
+      if (state.resultIndex < state.results.length - 1) { state.resultIndex += 1; render(); }
+    });
+    // Swipe the carousel to move between generated images.
+    const carousel = overlay.querySelector("[data-carousel]");
+    if (carousel) {
+      let startX = null;
+      carousel.addEventListener("touchstart", (e) => { startX = e.touches[0]?.clientX ?? null; }, { passive: true });
+      carousel.addEventListener("touchend", (e) => {
+        if (startX == null) return;
+        const dx = (e.changedTouches[0]?.clientX ?? startX) - startX;
+        startX = null;
+        if (Math.abs(dx) < 40) return;
+        if (dx < 0 && state.resultIndex < state.results.length - 1) { state.resultIndex += 1; render(); }
+        else if (dx > 0 && state.resultIndex > 0) { state.resultIndex -= 1; render(); }
+      }, { passive: true });
+    }
   }
 
   inspFileInput.addEventListener("change", async () => {
@@ -238,11 +294,50 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     }
   }
 
+  function errorText(err) {
+    return err?.error === "signin" ? "Sign in to generate a scene."
+      : err?.error === "paywall" ? "You've used your free generations this month — Gems Plus unlocks more."
+      : err?.error === "refused" ? (err.reply || "Try a different prompt.")
+      : "That didn't generate — try again.";
+  }
+
+  // One image: generate + (if we can measure likeness) verify and reroll once.
+  // Returns { url, faceNote } on success, or the error object.
+  async function generateOne(opts, verify) {
+    const MAX_ATTEMPTS = verify ? 2 : 1;
+    const GOOD_DIST = 0.55; // < ~0.6 reads as "recognizably them"
+    let best = null;
+    let bestDist = Infinity;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const result = await generateScene(opts);
+      if (!result?.url) { best = best || result; break; }
+      if (!verify) { best = result; break; }
+      const dist = await scoreFace(result.url);
+      if (dist == null) { best = result; break; }
+      if (dist < bestDist) { bestDist = dist; best = result; }
+      if (dist <= GOOD_DIST) break;
+    }
+    if (best?.url) {
+      return {
+        url: best.url,
+        faceNote:
+          verify && bestDist < Infinity
+            ? bestDist <= GOOD_DIST
+              ? "Matched to your face ✓"
+              : "Closest match — swipe, or make a new batch if the face is off"
+            : "",
+      };
+    }
+    return best;
+  }
+
   async function generate() {
     const inMe = state.mode !== "background";
     if (state.busy || (inMe && !state.photoId)) return;
     state.busy = true;
-    state.faceNote = "";
+    state.results = [];
+    state.resultIndex = 0;
+    state.progress = "";
     render();
     const matchReference = inMe && state.refs.length === 1 && state.matchReference;
 
@@ -275,49 +370,59 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       quality: matchReference ? "pro" : "standard",
     };
 
-    const MAX_ATTEMPTS = verify ? 2 : 1; // only reroll when we can measure likeness
-    const GOOD_DIST = 0.55; // < ~0.6 reads as "recognizably them"
-    let best = null;
-    let bestDist = Infinity;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const statusEl = overlay.querySelector("[data-status]");
-      if (statusEl && attempt > 0) statusEl.textContent = "Improving the likeness…";
-      const result = await generateScene(opts);
-      if (!result?.url) { best = best || result; break; }
-      if (!verify) { best = result; break; }
-      const dist = await scoreFace(result.url);
-      if (dist == null) { best = result; break; } // couldn't verify → accept
-      if (dist < bestDist) { bestDist = dist; best = result; }
-      if (dist <= GOOD_DIST) break; // good enough, stop early
+    // Numerous images are generated SEPARATELY, one call each, and pushed in as
+    // they arrive so the user can start swiping before the batch finishes.
+    const N = Math.max(1, Math.min(8, state.count | 0));
+    let lastError = null;
+    for (let n = 0; n < N; n++) {
+      state.progress = N > 1 ? `Generating ${n + 1} of ${N}…` : "Creating your photo…";
+      render();
+      const r = await generateOne(opts, verify);
+      if (r?.url) {
+        state.results.push({ url: r.url, faceNote: r.faceNote });
+        state.resultIndex = state.results.length - 1;
+        render();
+      } else {
+        lastError = r;
+      }
     }
 
     state.busy = false;
-    if (best?.url) {
-      state.resultUrl = best.url;
-      state.faceNote =
-        verify && bestDist < Infinity
-          ? bestDist <= GOOD_DIST
-            ? "Matched to your face ✓"
-            : "Closest match — hit Try again if the face is off"
-          : "";
-      render();
-      return;
-    }
+    state.progress = "";
     render();
-    const msg = overlay.querySelector("[data-status]");
-    if (msg) {
-      msg.textContent =
-        best?.error === "signin" ? "Sign in to generate a scene."
-        : best?.error === "paywall" ? "You've used your free generations this month — Gems Plus unlocks more."
-        : best?.error === "refused" ? (best.reply || "Try a different prompt.")
-        : "That didn't generate — try again.";
+    if (!state.results.length) {
+      const msg = overlay.querySelector("[data-status]");
+      if (msg) msg.textContent = errorText(lastError);
+    }
+  }
+
+  // Export (share/download) any generated image — always available per image.
+  async function exportImage(url) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const file = new File([blob], `gems-scene-${state.resultIndex + 1}.jpg`, { type: blob.type || "image/jpeg" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "My Gems scene" });
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = file.name;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (error) {
+      console.info("export failed", error);
     }
   }
 
   async function saveResult() {
-    if (!state.resultUrl) return;
+    const cur = state.results[state.resultIndex];
+    if (!cur?.url) return;
     try {
-      const res = await fetch(state.resultUrl);
+      const res = await fetch(cur.url);
       const blob = await res.blob();
       await importPhotoFiles([new File([blob], "scene.jpg", { type: blob.type || "image/jpeg" })]);
       const btn = overlay.querySelector("[data-save]");
