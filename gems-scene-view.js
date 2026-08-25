@@ -13,12 +13,16 @@ function esc(v) {
 
 const PROMPT_HINTS = {
   "euro-summer": "walking through a sunlit European old town",
+  "dubai": "by a rooftop infinity pool at sunset, Burj Khalifa behind me",
+  "boat": "on a boat in turquoise water, coastline behind me",
   "dark-luxe": "in a penthouse at dusk, city skyline through the glass",
   "after-dark": "on a rooftop at night, city lights behind me",
 };
 
 const BG_HINTS = {
   "euro-summer": "a sunlit cobblestone alley in an Italian old town",
+  "dubai": "a rooftop infinity pool at sunset over the Dubai skyline",
+  "boat": "a day-yacht on clear turquoise water, coastline in the distance",
   "dark-luxe": "a dark infinity pool at dusk framed by tropical foliage",
   "after-dark": "a moody city skyline at blue hour from a high window",
 };

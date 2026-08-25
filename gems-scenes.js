@@ -10,6 +10,8 @@ const FN_URL = `${SUPABASE_URL}/functions/v1/generate-scene`;
 
 export const STYLE_PACKS = Object.freeze([
   { id: "euro-summer", label: "Euro Summer" },
+  { id: "dubai", label: "Dubai Luxe" },
+  { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
 ]);
