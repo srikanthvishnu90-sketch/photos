@@ -12,6 +12,7 @@ export const STYLE_PACKS = Object.freeze([
   { id: "euro-summer", label: "Euro Summer" },
   { id: "dubai", label: "Dubai Luxe" },
   { id: "old-money", label: "Old Money" },
+  { id: "luxury-cars", label: "Luxury Cars" },
   { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
@@ -29,6 +30,13 @@ export const ASPECTS = Object.freeze([
 // `value` is written as the phrase that slots into the prompt ("the user is …",
 // "dress the user in …"). Keep them candid and phone-real, never posed-perfect.
 const POSE_OPTIONS = Object.freeze({
+  "luxury-cars": [
+    { label: "Leaning on the hood", value: "leaning back against the hood of the supercar, arms loosely crossed, sunglasses on, looking off-camera" },
+    { label: "Hand on the door", value: "standing beside the open driver's door with a hand resting on it, mid-motion about to get in" },
+    { label: "In the driver's seat", value: "sitting in the driver's seat with one hand on the wheel, looking out through the windscreen, relaxed" },
+    { label: "Walking to the car", value: "walking toward the parked supercar with the keys in hand, glancing off to the side, candid" },
+    { label: "By the car (night)", value: "standing beside the car under warm street lights at night, one hand in a pocket, reflections sliding along the paint" },
+  ],
   "old-money": [
     { label: "Crossing the hairpin", value: "walking across the Monaco Grand-Prix hairpin road with its red-and-white kerb, mid-stride, sunglasses on, glancing off-camera" },
     { label: "By a classic car (night)", value: "standing beside a classic cream convertible outside the lit Casino de Monte-Carlo at night, one hand in a pocket, relaxed" },
@@ -74,6 +82,12 @@ const POSE_OPTIONS = Object.freeze({
 // (long/short sleeve, color by location) with linen pants, or a tight good-fitting
 // tee with good pants. Plus pack-appropriate alternates. No swimwear/shirtless.
 const OUTFIT_OPTIONS = Object.freeze({
+  "luxury-cars": [
+    { label: "Black tee & pants", value: "a fitted black tee with sharp tailored trousers, a good watch and sunglasses" },
+    { label: "White linen shirt", value: "a crisp white linen shirt with tailored stone trousers and loafers" },
+    { label: "Navy polo", value: "a fitted navy polo with grey tailored trousers and sunglasses" },
+    { label: "Light bomber", value: "a fitted light bomber jacket over a plain tee with dark tailored trousers" },
+  ],
   "old-money": [
     { label: "Blue shirt & white trousers", value: "a pale-blue linen shirt with white wide-leg pleated trousers, leather loafers, a good watch and sunglasses — the signature Monaco look" },
     { label: "Black shirt (night)", value: "a black silky shirt with white pleated trousers, elegant and cinematic for a Monaco evening" },
