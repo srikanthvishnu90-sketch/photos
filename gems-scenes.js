@@ -11,6 +11,7 @@ const FN_URL = `${SUPABASE_URL}/functions/v1/generate-scene`;
 export const STYLE_PACKS = Object.freeze([
   { id: "euro-summer", label: "Euro Summer" },
   { id: "dubai", label: "Dubai Luxe" },
+  { id: "old-money", label: "Old Money" },
   { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
@@ -28,6 +29,13 @@ export const ASPECTS = Object.freeze([
 // `value` is written as the phrase that slots into the prompt ("the user is …",
 // "dress the user in …"). Keep them candid and phone-real, never posed-perfect.
 const POSE_OPTIONS = Object.freeze({
+  "old-money": [
+    { label: "By a classic car", value: "leaning against a vintage sports car on a cobbled Monaco street, one hand in a pocket, looking off" },
+    { label: "Walking the street", value: "walking mid-stride down a cobbled Belle-Époque street lined with palms, glancing off-camera" },
+    { label: "Terrace overlook", value: "sitting on a hotel terrace overlooking the yacht harbor, relaxed, taking in the view" },
+    { label: "At the balustrade", value: "standing at a stone balustrade looking out over the bay full of yachts, seen from behind and to the side" },
+    { label: "Hand on watch", value: "standing on a palm-lined street adjusting the watch on their wrist, between-takes candid" },
+  ],
   "euro-summer": [
     { label: "Walking a lane", value: "walking mid-stride down a narrow cobblestone alley, glancing off to the side, not at the camera" },
     { label: "Café table", value: "sitting at a marble café table with an espresso, leaning back relaxed, caught mid-conversation" },
@@ -66,6 +74,12 @@ const POSE_OPTIONS = Object.freeze({
 // (long/short sleeve, color by location) with linen pants, or a tight good-fitting
 // tee with good pants. Plus pack-appropriate alternates. No swimwear/shirtless.
 const OUTFIT_OPTIONS = Object.freeze({
+  "old-money": [
+    { label: "Linen button-down", value: "a well-fitted linen or fine-cotton button-down in white, cream, pale blue or navy with tailored trousers and leather loafers" },
+    { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee or fine polo in white, navy or cream with sharp tailored trousers" },
+    { label: "Navy blazer", value: "a navy blazer over a crisp white shirt with tailored cream trousers, understated old-money" },
+    { label: "White shirt & trousers", value: "a tailored white shirt with cream wide-leg trousers and delicate gold jewelry" },
+  ],
   "euro-summer": [
     { label: "Linen button-down", value: "a well-fitted linen button-down (long or short sleeve) in beige, white or olive with matching linen trousers and leather sandals" },
     { label: "Fitted tee & pants", value: "a tight, good-fitting plain tee in a warm neutral with well-fitted tailored trousers or clean chinos" },
