@@ -76,7 +76,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
   const render = () => {
     overlay.innerHTML = `
       <header class="commit-topbar">
-        <h2 class="commit-title">Put me in a scene</h2>
+        <h2 class="commit-title">${state.pack === "dating" ? "Your dating photos" : "Put me in a scene"}</h2>
         <button class="commit-close" type="button" aria-label="Close">✕</button>
       </header>
       <div class="commit-body">
@@ -112,6 +112,27 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
         const isDating = inMe && state.pack === "dating";
         const canGenerate = !state.busy && (inMe ? !!state.photoId : true);
         const oneRefSelected = state.refs.length === 1;
+        // Dating gets a CLEAN, dedicated mobile screen: photo → build → generate.
+        // None of the scene controls (vibe/prompt/pose/inspiration/outfit/aspect)
+        // apply, so they're hidden to keep it simple on a phone.
+        if (isDating) {
+          const subset = state.datingRecipes;
+          return `
+        <p class="commit-note">6 varied dating photos — a real mix, tailored to you. Pick a clear photo of yourself; I keep your face and your real build.</p>
+        <label class="commit-label">A photo of you</label>
+        ${
+          photos.length
+            ? `<div class="commit-photos">${photos.slice(0, 24).map((p) => `<button type="button" class="commit-photo${state.photoId === p.id ? " is-active" : ""}" data-photo="${esc(p.id)}"><img src="${esc(p.url)}" alt="" loading="lazy"></button>`).join("")}</div>`
+            : `<p class="commit-hint">Import a photo of yourself first (Home → Import), then come back.</p>`
+        }
+        <label class="commit-label">Your build <span style="font-weight:400;color:var(--color-mauve)">(optional · gets your proportions right)</span></label>
+        <input class="commit-input" data-build type="text" maxlength="120" placeholder="e.g. 5'10, 150 lbs, slim build" value="${esc(state.build)}" />
+        <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
+          ${state.busy ? "Generating…" : subset ? `Fill ${subset.length} gap${subset.length === 1 ? "" : "s"}` : "Make my dating set (6)"}
+        </button>
+        <p class="commit-note">${subset ? `Generates the ${subset.length} missing shot${subset.length === 1 ? "" : "s"}` : "6 varied dating photos, one at a time"} · keeps your face · uses AI. Sign in required.</p>
+        <p class="commit-status" data-status></p>`;
+        }
         return `
         <div class="commit-headlines scene-mode">
           <button type="button" class="commit-chip${inMe ? " is-active" : ""}" data-mode="me">Put me in it</button>
