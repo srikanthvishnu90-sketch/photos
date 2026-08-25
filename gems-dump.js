@@ -17,6 +17,7 @@
 import { listPhotos } from "./gems-photolib.js";
 import { rankPhotos, ensureDescriptions } from "./gems-ranker.js";
 import { assembleDump } from "./gems-rank-assembly.js";
+import { similarityLookup } from "./gems-embeddings.js";
 import { recordTasteEvent } from "./gems-supabase.js";
 
 // The controlled vibe vocabulary (mirrors rank-photos/prompts.js). Used by the
@@ -170,10 +171,20 @@ export async function buildDumpOptions({ request = "a photo dump", dateRange = n
       }
     }
 
+    // On-device CLIP similarity for true perceptual dedup (skip near-identical
+    // burst frames). Null when no index → assembleDump falls back to captions.
+    let simLookup = null;
+    try {
+      simLookup = await similarityLookup();
+    } catch (error) {
+      console.info("dump dedup lookup skipped", error);
+    }
+
     const options = DUMP_STYLES.map((style) => {
       const assembled = assembleDump(style.tune(scored.map((item) => ({ ...item }))), {
         slots: style.slots,
         dupeThreshold: style.dupeThreshold,
+        simLookup,
       });
       const photos = (Array.isArray(assembled) ? assembled : [])
         .map((item) => item?.record)

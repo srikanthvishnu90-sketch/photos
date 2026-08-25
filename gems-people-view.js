@@ -9,6 +9,7 @@ import {
   canRecognizeFaces, enrollBatch, listPeople, namePerson, markMe,
   photoIdsForPerson, clearFaceData,
 } from "./gems-faces.js";
+import { indexBatch, indexedCount, canEmbed } from "./gems-embeddings.js";
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -68,6 +69,17 @@ export async function openPeopleStudio() {
       state.scanned += result.scanned;
       await refreshPeople();
       state.done = true;
+      // Second on-device pass: build the CLIP search index (semantic search +
+      // burst dedup) over the same photos. Best-effort — never blocks faces.
+      if (canEmbed()) {
+        if (status) status.textContent = "Building smart search index…";
+        try {
+          const idx = await indexBatch(ids, async (id) => getPhotoBlob(id), SCAN_BATCH);
+          state.indexed = (state.indexed || 0) + idx.indexed;
+        } catch (error) {
+          console.info("search index skipped", error);
+        }
+      }
     } catch (error) {
       console.info("face scan failed", error);
     }
@@ -83,7 +95,7 @@ export async function openPeopleStudio() {
         <button class="commit-close" type="button" aria-label="Close">✕</button>
       </header>
       <div class="commit-body">
-        <p class="commit-hint">Gems finds the faces in your photos <strong>on your device</strong> and groups them into people. Nothing about your face ever leaves your phone. Tag yourself once and "best photos of me" just works.</p>
+        <p class="commit-hint">Gems finds the faces in your photos <strong>on your device</strong> and groups them into people, and builds a private search index so you can search your roll by what's in it ("red dress at the lake"). Nothing about your face or photos ever leaves your phone. Tag yourself once and "best photos of me" just works.</p>
 
         ${
           hasPeople
@@ -104,7 +116,7 @@ export async function openPeopleStudio() {
           ${state.scanning ? "Scanning…" : hasPeople ? "Scan more photos" : "Scan my photos for faces"}
         </button>
         ${hasPeople ? `<button class="commit-btn" data-clear type="button">Clear all face data</button>` : ""}
-        <p class="commit-status" data-people-status>${esc(note || (state.scanned ? `Scanned ${state.scanned} photos.` : ""))}</p>
+        <p class="commit-status" data-people-status>${esc(note || (state.scanned ? `Scanned ${state.scanned} photos${state.indexed ? ` · ${state.indexed} indexed for search` : ""}.` : ""))}</p>
         <p class="commit-note">Requires sign-in and your real photos imported. Faces are matched with a model that runs in your browser.</p>
       </div>
     `;

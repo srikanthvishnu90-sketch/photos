@@ -11,6 +11,17 @@
 import { getPhotoBlob, listPhotos, updatePhotoDerived } from "./gems-photolib.js";
 import { getSession, getSupabase, recordTasteEvent } from "./gems-supabase.js";
 import { photoIdsForQuery } from "./gems-faces.js";
+import { searchPhotos } from "./gems-embeddings.js";
+
+// A descriptive "what's in the photo" query (semantic search helps) vs. a generic
+// quality/mode ask ("best photos", "dating picks") where content search doesn't apply.
+function isContentQuery(request) {
+  const t = String(request || "").trim().toLowerCase();
+  if (t.length < 3) return false;
+  if (/^(best|top|favou?rite|good|nice|great)\b/.test(t)) return false;
+  if (/\b(dating|profile|cover|dump|carousel|graphic)\b/.test(t)) return false;
+  return true;
+}
 
 // Keep in sync with gems-supabase.js, which declares these but does not
 // export them (client-safe by design — RLS does the real gatekeeping).
@@ -251,6 +262,26 @@ export async function rankPhotos({ request, purpose = "general" } = {}) {
       }
     } catch (error) {
       console.info("face filter skipped", error);
+    }
+
+    // Semantic pre-filter: for a content query, order/limit candidates by
+    // on-device CLIP similarity BEFORE the LLM rank — real "red dress at the
+    // lake" search, and far fewer candidates for the model. Uses the local index
+    // if the user has built one; otherwise a no-op (searchPhotos returns null).
+    try {
+      if (isContentQuery(request)) {
+        const semantic = await searchPhotos(request, 60);
+        if (semantic && semantic.length) {
+          const order = new Map(semantic.map((s, i) => [s.photoId, i]));
+          const inSemantic = records.filter((r) => order.has(r.id));
+          if (inSemantic.length >= 3) {
+            inSemantic.sort((a, b) => order.get(a.id) - order.get(b.id));
+            records = inSemantic;
+          }
+        }
+      }
+    } catch (error) {
+      console.info("semantic pre-filter skipped", error);
     }
 
     const described = await ensureDescriptions(records);

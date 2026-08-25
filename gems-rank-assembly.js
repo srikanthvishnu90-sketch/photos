@@ -34,7 +34,16 @@ export function descriptionSimilarity(a, b) {
  * @param {{slots?: number, dupeThreshold?: number}} options
  * @returns {Array} the assembled set, slot order = presentation order.
  */
-export function assembleDump(scored, { slots = DEFAULT_SLOTS, dupeThreshold = DUPE_THRESHOLD } = {}) {
+// Embedding cosine ≥ this = the same shot / burst frame (perceptual, not text).
+const EMB_DUPE_THRESHOLD = 0.93;
+
+// simLookup(idA, idB) -> cosine|null lets callers pass an on-device CLIP
+// similarity function (gems-embeddings.similarityLookup) for true perceptual
+// dedup; when absent or a pair isn't indexed, we fall back to caption overlap.
+export function assembleDump(
+  scored,
+  { slots = DEFAULT_SLOTS, dupeThreshold = DUPE_THRESHOLD, simLookup = null } = {},
+) {
   const pool = [...scored]
     .filter((item) => item?.description && Number.isFinite(item.score))
     .sort((a, b) => b.score - a.score)
@@ -43,9 +52,13 @@ export function assembleDump(scored, { slots = DEFAULT_SLOTS, dupeThreshold = DU
 
   const picked = [];
   const isDupe = (candidate) =>
-    picked.some(
-      (existing) => descriptionSimilarity(existing.description, candidate.description) > dupeThreshold,
-    );
+    picked.some((existing) => {
+      if (simLookup && existing.id && candidate.id) {
+        const sim = simLookup(existing.id, candidate.id);
+        if (typeof sim === "number") return sim >= EMB_DUPE_THRESHOLD;
+      }
+      return descriptionSimilarity(existing.description, candidate.description) > dupeThreshold;
+    });
 
   // Slot 1: highest-scoring cover.
   const coverIndex = pool.findIndex((item) =>
