@@ -4,7 +4,7 @@
 import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
-  poseOptionsFor, outfitOptionsFor, datingShots,
+  poseOptionsFor, outfitOptionsFor, settingOptionsFor, datingShots,
 } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
@@ -52,6 +52,10 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     matchReference: false, wardrobe: "", pose: "", build: "",
     // Fill-gaps: only generate these dating recipe labels (else the full set of 6).
     datingRecipes: Array.isArray(prefill.datingRecipes) && prefill.datingRecipes.length ? prefill.datingRecipes : null,
+    // Quick questionnaire mode (from a homepage pack button): a clean stepped
+    // "which kind of photo?" flow + a describe box. `setting` = the chosen scene.
+    questionnaire: prefill.questionnaire === true,
+    setting: "",
     photoId: typeof prefill.photoId === "string" ? prefill.photoId : null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
@@ -86,7 +90,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
   const render = () => {
     overlay.innerHTML = `
       <header class="commit-topbar">
-        <h2 class="commit-title">${state.pack === "dating" ? "Your dating photos" : "Put me in a scene"}</h2>
+        <h2 class="commit-title">${state.pack === "dating" ? "Your dating photos" : state.questionnaire ? esc((STYLE_PACKS.find((s) => s.id === state.pack) || {}).label || "Make a photo") : "Put me in a scene"}</h2>
         <button class="commit-close" type="button" aria-label="Close">✕</button>
       </header>
       <div class="commit-body">
@@ -159,6 +163,43 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           ${state.busy ? "Generating…" : subset ? `Fill ${subset.length} gap${subset.length === 1 ? "" : "s"}` : "Make my dating set (6)"}
         </button>
         <p class="commit-note">${subset ? `Generates the ${subset.length} missing shot${subset.length === 1 ? "" : "s"}` : "6 varied dating photos, one at a time"} · keeps your face · uses AI. Sign in required.</p>
+        <p class="commit-status" data-status></p>`;
+        }
+        // Quick questionnaire mode (homepage pack button): a clean stepped flow —
+        // your photo → which kind → doing what → wearing → or describe your own.
+        if (inMe && state.questionnaire) {
+          const settings = settingOptionsFor(state.pack);
+          const packLabel = (STYLE_PACKS.find((s) => s.id === state.pack) || {}).label || "scene";
+          return `
+        <p class="commit-note">A few quick picks and I'll make your ${esc(packLabel)} photo — or just describe your own below.</p>
+        <label class="commit-label">A photo of you</label>
+        ${
+          photos.length
+            ? `<div class="commit-photos">${photos.slice(0, 24).map((p) => `<button type="button" class="commit-photo${state.photoId === p.id ? " is-active" : ""}" data-photo="${esc(p.id)}"><img src="${esc(p.url)}" alt="" loading="lazy"></button>`).join("")}</div>`
+            : `<p class="commit-hint">Import a photo of yourself first (Home → Import), then come back.</p>`
+        }
+        ${
+          settings.length
+            ? `<label class="commit-label">Which kind?</label>
+        <div class="commit-headlines scene-settings">
+          ${settings.map((s) => `<button type="button" class="commit-chip${state.setting === s.value ? " is-active" : ""}" data-setting="${esc(s.value)}">${esc(s.label)}</button>`).join("")}
+        </div>`
+            : ""
+        }
+        <label class="commit-label">Doing what?</label>
+        <div class="commit-headlines scene-poses">
+          ${poseOptionsFor(state.pack).map((p) => `<button type="button" class="commit-chip${state.pose === p.value ? " is-active" : ""}" data-pose="${esc(p.value)}">${esc(p.label)}</button>`).join("")}
+        </div>
+        <label class="commit-label">Wearing?</label>
+        <div class="commit-headlines scene-outfits">
+          ${outfitOptionsFor(state.pack).map((o) => `<button type="button" class="commit-chip${state.wardrobe === o.value ? " is-active" : ""}" data-outfit="${esc(o.value)}">${esc(o.label)}</button>`).join("")}
+        </div>
+        <label class="commit-label">Or describe your own</label>
+        <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc(PROMPT_HINTS[state.pack] || "describe your photo")}" value="${esc(state.prompt)}" />
+        <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
+          ${state.busy ? "Generating…" : "Make my photo"}
+        </button>
+        <p class="commit-note">Keeps your face · uses AI. Or type in the chat on Home to generate. Sign in required.</p>
         <p class="commit-status" data-status></p>`;
         }
         return `
@@ -250,6 +291,12 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       b.addEventListener("click", () => {
         if (state.pack !== b.dataset.pack) state.pose = ""; // poses are pack-specific
         state.pack = b.dataset.pack;
+        render();
+      }),
+    );
+    overlay.querySelectorAll("[data-setting]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.setting = state.setting === b.dataset.setting ? "" : b.dataset.setting; // toggle
         render();
       }),
     );
@@ -403,6 +450,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       inMe && state.pack === "dating"
         ? "your dating photos"
         : state.prompt ||
+          state.setting ||
           (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene");
     render();
     const matchReference = inMe && state.refs.length === 1 && state.matchReference;
@@ -449,10 +497,11 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           wardrobe: state.wardrobe || s.wardrobe,
           aspect: s.aspect || state.aspect,
         }))
-      : Array.from({ length: Math.max(1, Math.min(8, state.count | 0)) }, () => ({
+      : Array.from({ length: state.questionnaire ? 1 : Math.max(1, Math.min(8, state.count | 0)) }, () => ({
           ...baseOpts,
           prompt:
             state.prompt ||
+            state.setting ||
             (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
           wardrobe: inMe ? state.wardrobe : undefined,
           pose: inMe ? state.pose : undefined,

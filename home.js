@@ -1105,7 +1105,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         return;
       }
       if (action === "Euro Summer") {
-        void import("./gems-scene-view.js").then((m) => m.openSceneStudio("euro-summer"));
+        // Quick questionnaire → generate (with the reveal animation). The Home
+        // chatbox stays available for free-form generation when they close it.
+        void import("./gems-scene-view.js").then((m) => m.openSceneStudio("euro-summer", { questionnaire: true }));
         return;
       }
       setChatPrompt(action);

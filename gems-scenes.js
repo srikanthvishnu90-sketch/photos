@@ -159,6 +159,24 @@ const OUTFIT_OPTIONS = Object.freeze({
   ],
 });
 
+// "Which kind of photo?" setting options for the quick questionnaire, per pack.
+// Each value slots straight into the generation prompt as the scene.
+const SETTING_OPTIONS = Object.freeze({
+  "euro-summer": [
+    { label: "Amalfi cliffside", value: "on an Amalfi/Positano cliffside terrace above a turquoise sea at golden hour, bougainvillea cascading nearby" },
+    { label: "Cinque Terre alley", value: "in a narrow Cinque Terre alley of colorful stacked houses perched over clear teal water" },
+    { label: "Lemon café", value: "at a lemon-draped Capri café terrace with marble bistro tables and iron lanterns" },
+    { label: "Cobblestone street", value: "on a cobblestone alley of ochre and butter-yellow buildings with green shutters, geraniums in terracotta pots" },
+    { label: "Riviera cove", value: "at a French-Riviera cove with cypress trees, honey-stone houses and moored wooden boats" },
+    { label: "Seaside steps", value: "on worn stone steps down to a Mediterranean harbor, whitewashed walls and blue shutters around" },
+  ],
+});
+
+/** "Which kind of photo?" options for a pack (empty if the pack has no set). */
+export function settingOptionsFor(stylePackId) {
+  return SETTING_OPTIONS[stylePackId] || [];
+}
+
 /** Candid pose options for a style pack (or a small generic set). */
 export function poseOptionsFor(stylePackId) {
   return POSE_OPTIONS[stylePackId] || [
