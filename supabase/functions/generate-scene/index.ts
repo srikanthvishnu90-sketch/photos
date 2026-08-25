@@ -66,6 +66,27 @@ FAILURE-DERIVED RULES (these are the tells that survive even excellent generatio
 
 BANNED AI TELLS: plastic/waxy/poreless skin, perfect facial or scene symmetry, over-smooth gradients, hyper-saturated HDR flatness, shadowless studio-everywhere lighting, warped/gibberish text, impossible or mismatched reflections, extra or fused fingers, melted object boundaries, dreamy optically-perfect bokeh, floating/pasted-on subjects, and the overall "too polished to be real" look.`;
 
+// The subject is ALWAYS fully and tastefully clothed — never swimwear or shirtless,
+// in any setting. Appended whenever a real person is in the output.
+const MODESTY = `WARDROBE MODESTY (required): the user is always fully and tastefully clothed in real, on-theme outfits. NEVER depict them shirtless, in a bikini/swim trunks/swimwear, or in any revealing state — even in pool, boat, or beach scenes (in those, dress them in linen, resortwear, or a cover-up over clothing). Keep it modest and realistic.`;
+
+// Curated, fully-clothed outfit vocabulary per style pack (analyzed from the
+// aspirational references, swimwear/shirtless excluded). Used to auto-dress the
+// subject when the user names a scene but no outfit. The model sees the person and
+// picks a gender-appropriate option.
+const PACK_WARDROBE: Record<string, string> = {
+  "euro-summer":
+    "for a man: a relaxed linen button-down (white/cream/olive/terracotta) with cream or stone linen trousers or tailored shorts and leather sandals; for a woman: a white halter or ribbed linen top with white wide-leg linen trousers or a cream silky maxi skirt, or an oversized white linen shirt with tailored white shorts and a slim brown leather belt, finished with delicate gold jewelry, a small leather bag and sunglasses",
+  "dubai":
+    "for a man: a crisp fitted white or pastel shirt with tailored stone/beige trousers and a good watch, or an elegant all-black shirt and dark trousers; for a woman: a flowing cream/white maxi dress, or a linen co-ord (fitted top and wide-leg trousers), or a chic white shirt with tailored trousers — elegant resort luxury",
+  "boat":
+    "for a man: a light-blue or white linen shirt (buttoned, or only lightly open) with white linen trousers or tailored stone shorts and sunglasses; for a woman: a white or striped linen shirt with tailored shorts, or a breezy cream sundress — relaxed, FULLY-CLOTHED boat-day resortwear (never swimwear)",
+  "dark-luxe":
+    "for a man: a navy or charcoal suit worn with an open collar and no tie, or a fine black knit with dark tailored trousers, or a white dress shirt with a tailored vest; for a woman: an elegant black slip dress, a silk co-ord, or a white shirt with black tailored trousers — quiet, expensive eveningwear",
+  "after-dark":
+    "for a man: a matte black bomber or overshirt over a plain tee with dark trousers, or a fitted black shirt with dark trousers; for a woman: a sleek black slip dress, or a fitted top with tailored trousers — sharp, understated night-out",
+};
+
 const IDENTITY_BLOCK = `The attached photo(s) at the START are all the SAME person — the user. Study them together to lock their exact facial identity, then render that same person in the scene with their skin tone, hair, and build preserved — recognizably them, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
 
 // The single most important block for "don't make me look AI". Appended whenever a
@@ -98,7 +119,7 @@ const STYLE_PACKS: Record<string, string> = {
   "dubai":
     "STYLE — Dubai Luxe (aspirational Gulf luxury): the look of Dubai's finest hotels and residences. SETTINGS (pick what fits the request): a rooftop INFINITY POOL on a high floor at blue-hour/sunset overlooking the Burj Khalifa and the lit Downtown skyline, with teak sun-loungers, cabanas and date palms, warm path-lights glowing along the pool; a marble-and-warm-wood penthouse living room with a floor-to-ceiling window framing the Burj Khalifa at dusk, warm cove lighting, a brass lantern and a low travertine coffee table; a chic BEACH CLUB with rows of striped umbrellas and day-beds on raked sand, palms and red bougainvillea, calm Gulf water; a golden-hour rooftop TERRACE with a low modern cream sofa, lanterns and a folded throw, overlooking Dubai Marina and the sea; the Burj Al Arab or Madinat Jumeirah waterways framed by date palms and Arabesque lamps; Atlantis The Palm glowing across still water at dusk; the Dubai Fountain boardwalk and curved Address-hotel terraces lit warm at night. LIGHT: warm sunset / blue-hour with a peach-to-navy gradient sky, glowing city lights and warm practical lamps; or bright hazy Gulf daylight. COLOR: warm gold + teal water + navy dusk — rich but CONTROLLED, never garish or candy-HDR. MOOD: serene, expensive, aspirational — quiet wealth with a skyline.",
   "boat":
-    "STYLE — On the Water (men's boat day): a candid summer boat-day photograph, film-like and effortless. SETTING: a small motorboat or day-yacht on clear turquoise/teal Mediterranean or lake water — teak swim platform, a bimini top, chrome grab-rails, cream upholstery; a Greek/Italian coastline, a whitewashed hillside village or a pine-covered shore in the background, a bright wake trailing behind at speed. SUBJECT (the user): shirtless and tanned, or in an open white linen shirt and swim shorts, relaxed — driving the boat shot from behind over the shoulder, sitting on the bow looking out at the coast, leaning forearms on the gunwale, climbing the chrome swim-ladder out of the water, toweling off with a dive watch on the wrist, or mid-jump into the sea. FRAMING mid or wide, candid, never a posed studio shot. LIGHT: bright hard midday sun, sparkling water, strong natural contrast and real sun flare; or warm late-afternoon gold. LOOK: shot on a phone / 35mm — natural skin with real sheen and water droplets, gentle grain, salt-and-sunscreen realism, never glossy or airbrushed.",
+    "STYLE — On the Water (boat day): a candid summer boat-day photograph, film-like and effortless. SETTING: a small motorboat or day-yacht on clear turquoise/teal Mediterranean or lake water — teak deck, a bimini top, chrome grab-rails, cream upholstery; a Greek/Italian coastline, a whitewashed hillside village or a pine-covered shore in the background, a bright wake trailing behind at speed. SUBJECT (the user): FULLY CLOTHED in relaxed resortwear (linen shirt and linen trousers or tailored shorts, or a breezy sundress) — driving the boat shot from behind over the shoulder, sitting on the bow looking out at the coast, leaning forearms on the gunwale, or seated on the deck taking in the view. Never shirtless, never in swimwear. FRAMING mid or wide, candid, never a posed studio shot. LIGHT: bright hard midday sun, sparkling water, strong natural contrast and real sun flare; or warm late-afternoon gold. LOOK: shot on a phone / 35mm — natural skin with real sheen, gentle grain, salt-and-sun realism, never glossy or airbrushed.",
   "euro-summer":
     "STYLE — Euro Summer (men): a warm, film-like European summer travel photograph. WARDROBE: a relaxed linen button-down shirt (white, cream, olive, or terracotta/rust), loose tailored trousers or chinos in cream/stone/olive/grey, leather sandals or espadrilles, optionally a canvas tote and a simple watch — effortless old-money Mediterranean menswear, never flashy, no big logos. SETTING (draw from these real Mediterranean scenes, pick what fits): an Amalfi/Positano cliffside town tumbling to a turquoise sea at golden hour with warm window-lights and cascading bougainvillea; the colorful stacked houses of Cinque Terre / Portofino / Manarola perched over clear teal water; a lemon-draped café terrace (Capri/Amalfi) with wrought-iron bistro tables, majolica-tiled tabletops and iron lanterns; a narrow cobblestone alley of ochre, coral and butter-yellow buildings with green and teal shutters, geraniums in terracotta pots, and laundry strung overhead; a French-Riviera cove with cypress trees, honey-stone houses and moored wooden boats. Recurring notes: magenta bougainvillea, wisteria, lemon trees, marble café tables, worn stone stairs, whitewashed walls and terracotta roofs. LIGHT: warm golden-hour or bright Mediterranean midday with long soft shadows and clear teal water. LOOK: shot on 35mm film (Kodak Portra warmth, gentle grain, soft highlight rolloff) — warm and analog, NEVER the oversaturated candy-HDR Pinterest look. Candid and relaxed — walking, leaning, mid-stride, glancing off-camera — an editorial travel snapshot, never a stiff studio pose.",
 };
@@ -327,6 +348,14 @@ Deno.serve(async (request) => {
       hasSubject && wardrobe
         ? `\n\nWARDROBE: dress the user in ${wardrobe}. This replaces whatever they are wearing in the reference photo — restyle the clothing to match, but keep their exact face, body, and identity unchanged.`
         : "";
+    // Auto-wardrobe: when the user names a scene but no outfit, dress them in a
+    // tasteful, fully-clothed, on-theme outfit from the analyzed pack vocabulary —
+    // the model sees the person and picks a gender-appropriate option.
+    const packWardrobe = body.stylePackId ? PACK_WARDROBE[body.stylePackId] : undefined;
+    const autoWardrobeBlock =
+      hasSubject && !wardrobe
+        ? `\n\nWARDROBE (choose one that suits the subject): dress the user in a tasteful, fully-clothed, on-theme outfit${packWardrobe ? ` — ${packWardrobe}` : " appropriate to the setting"}. Pick the option that best fits the person you see; keep their face and identity unchanged.`
+        : "";
     const pose = String(body.pose ?? "").trim().slice(0, 200);
     const poseBlock =
       hasSubject && pose
@@ -348,7 +377,9 @@ Deno.serve(async (request) => {
       realismRefBlock +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
+      (hasSubject ? `\n\n${MODESTY}` : "") +
       wardrobeBlock +
+      autoWardrobeBlock +
       poseBlock +
       `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
     parts.push({ text: promptText });

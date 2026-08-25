@@ -46,8 +46,8 @@ const POSE_OPTIONS = Object.freeze({
     { label: "Driving the boat", value: "at the wheel driving the boat, shot from behind over the shoulder, wake trailing behind" },
     { label: "On the bow", value: "sitting on the bow looking out at the coastline, one knee up, relaxed and candid" },
     { label: "Leaning on the rail", value: "leaning forearms on the chrome gunwale rail looking out over turquoise water" },
-    { label: "Off the swim ladder", value: "climbing the chrome swim-ladder out of the water, dripping, mid-motion" },
-    { label: "Toweling off", value: "sitting on the teak swim platform toweling off with a dive watch on the wrist, squinting in the sun" },
+    { label: "Seated on deck", value: "sitting back on the teak deck taking in the view, relaxed, glancing off-camera" },
+    { label: "Standing at the stern", value: "standing at the stern looking out over the wake, one hand on the rail, sunglasses on" },
   ],
   "dark-luxe": [
     { label: "By the window", value: "standing at a dark penthouse window against a blue-hour cityscape, lit by a single warm lamp, half in shadow" },
@@ -76,10 +76,10 @@ const OUTFIT_OPTIONS = Object.freeze({
     { label: "Polo & chinos", value: "a navy knit polo with beige chinos and leather loafers, sharp but easy" },
   ],
   boat: [
-    { label: "Shirtless & tan", value: "shirtless and tanned in swim shorts, a dive watch on the wrist" },
-    { label: "Open linen", value: "an open white linen shirt over bare chest with swim shorts, effortless" },
-    { label: "Polo & shorts", value: "a navy polo with white swim shorts and sunglasses pushed up" },
-    { label: "Tee & board shorts", value: "a plain fitted white tee with board shorts, salt-and-sun casual" },
+    { label: "Blue linen shirt", value: "a light-blue linen shirt buttoned with white linen trousers and sunglasses" },
+    { label: "White linen set", value: "a white linen shirt with tailored stone shorts and sunglasses, relaxed resortwear" },
+    { label: "Navy polo", value: "a navy knit polo with white tailored shorts and sunglasses pushed up" },
+    { label: "Cream sundress", value: "a breezy cream sundress with sunglasses, easy boat-day resortwear" },
   ],
   "dark-luxe": [
     { label: "Black knit", value: "a fine black knit sweater with dark tailored trousers, quiet and expensive" },

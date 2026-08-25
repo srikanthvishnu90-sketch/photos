@@ -102,6 +102,38 @@ LIGHT + GRADE only (composition/subject unchanged).
 
 ---
 
+## OUTFIT LIBRARY (fully-clothed only — no swimwear, no shirtless)
+Analyzed from the clothed references. Used to AUTO-DRESS the subject when a user asks
+for a scene without naming an outfit ("create me a photo in Dubai" → the model dresses
+them in an appropriate on-theme outfit that suits them). NEVER swimwear/shirtless.
+
+**Euro Summer**
+- Women: white halter/ribbed linen top + white wide-leg linen trousers or cream silky
+  maxi skirt; oversized white linen shirt + tailored white shorts + slim brown belt;
+  light-blue ribbed tank + cream cargo shorts + brown belt. Add: delicate gold jewelry,
+  small leather/cream shoulder bag, slide sandals, sunglasses.
+- Men: relaxed linen button-down (white/cream/olive/terracotta) + cream/stone linen
+  trousers or tailored shorts + leather sandals; light-blue linen shirt + white linen
+  trousers; cream knit polo + beige tailored shorts + loafers. No logos.
+
+**Dubai (elegant resort luxury)**
+- Women: flowing cream/white maxi dress; linen co-ord (fitted top + wide-leg trousers);
+  chic white shirt + tailored trousers.
+- Men: crisp fitted white/pastel shirt + tailored stone trousers + good watch; elegant
+  all-black shirt + dark trousers; navy polo + beige chinos + loafers.
+
+**On the Water / Boat (fully-clothed resortwear — NOT swimwear)**
+- Women: white or striped linen shirt + tailored shorts; breezy cream sundress.
+- Men: light-blue or white linen shirt (buttoned or only lightly open) + white linen
+  trousers or tailored stone shorts + sunglasses. NO shirtless, NO trunks.
+
+**Dark Luxe / After Dark (eveningwear)**
+- Women: elegant black slip dress; silk co-ord; white shirt + black tailored trousers.
+- Men: navy/charcoal suit, open collar no tie; fine black knit + dark trousers; white
+  dress shirt + tailored vest; matte black bomber/overshirt + tee + dark trousers.
+
+---
+
 ## How the auto-edit uses this
 `edit-photo` (auto-aesthetic mode): the model looks at the imported photo, matches it to
 the nearest recipe by its setting cues, and applies THAT recipe's light + grade —
