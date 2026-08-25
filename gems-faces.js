@@ -377,14 +377,57 @@ export async function photoIdsForQuery(text) {
   return null;
 }
 
-/** For future identity-locked generation: the boxes + photo ids of the me cluster. */
+/** For identity-locked generation: the photo ids (+ boxes) of the me cluster. */
 export async function getMeReferences(limit = 6) {
   const db = await openDb();
   const me = await getMePersonId();
   if (!db || !me) return [];
   const idx = tx(db, "faces", "readonly").index("personId");
   const faces = (await reqToPromise(idx.getAll(me))) || [];
-  return faces.slice(0, limit).map((f) => ({ photoId: f.photoId, box: f.box }));
+  // Prefer distinct photos (varied angles help identity fidelity).
+  const seen = new Set();
+  const out = [];
+  for (const f of faces) {
+    if (seen.has(f.photoId)) continue;
+    seen.add(f.photoId);
+    out.push({ photoId: f.photoId, box: f.box });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** The "me" cluster's mean descriptor (its identity centroid), or null. */
+export async function getMeCentroid() {
+  const db = await openDb();
+  if (!db) return null;
+  const all = (await getAll(tx(db, "people", "readonly"))) || [];
+  const me = all.find((p) => p.isMe);
+  return Array.isArray(me?.rep) ? me.rep : null;
+}
+
+/**
+ * How close is the face in a generated image to the user's real face? Returns
+ * the euclidean distance from the best-matching detected face to the "me"
+ * centroid (lower = more like the real user; < ~0.6 is "recognizably them"), or
+ * null when there's no "me" tagged or no face detected. Used to auto-reroll
+ * generations whose identity drifted.
+ */
+export async function faceDistanceToMe(bitmap) {
+  const centroidVec = await getMeCentroid();
+  if (!centroidVec) return null;
+  const faces = await detectAndEmbed(bitmap);
+  if (!faces.length) return null;
+  let best = Infinity;
+  for (const f of faces) {
+    const d = euclidean(f.descriptor, centroidVec);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/** Is on-device identity verification usable (a "me" cluster exists)? */
+export async function hasMeIdentity() {
+  return (await getMeCentroid()) != null;
 }
 
 /** Wipe all face data (privacy control). */

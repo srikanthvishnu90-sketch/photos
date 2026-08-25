@@ -113,10 +113,28 @@ export async function generateScene(opts) {
     if (!session) return { error: "signin" };
     const mode = opts.mode === "background" ? "background" : "me";
     let subjectBase64;
+    let subjectImages;
     if (mode !== "background") {
       let blob = opts.subjectBlob;
       if (!blob && opts.subjectPhotoId) blob = await getPhotoBlob(opts.subjectPhotoId);
       if (blob) subjectBase64 = await blobToBase64(blob);
+      // Extra identity references (the user's tagged face cluster) — more angles
+      // of the SAME person → much stronger identity fidelity. Skip the primary.
+      const extraIds = Array.isArray(opts.identityPhotoIds)
+        ? opts.identityPhotoIds.filter((id) => id && id !== opts.subjectPhotoId).slice(0, 4)
+        : [];
+      if (extraIds.length) {
+        const imgs = [];
+        for (const id of extraIds) {
+          try {
+            const b = await getPhotoBlob(id);
+            if (b) imgs.push(await blobToBase64(b));
+          } catch (error) {
+            console.info("identity ref skipped", error);
+          }
+        }
+        if (imgs.length) subjectImages = imgs;
+      }
     }
     const res = await fetch(FN_URL, {
       method: "POST",
@@ -130,6 +148,7 @@ export async function generateScene(opts) {
         stylePackId: opts.stylePackId ?? null,
         referenceAssetIds: Array.isArray(opts.referenceAssetIds) ? opts.referenceAssetIds.slice(0, 3) : [],
         subjectBase64: subjectBase64 ?? undefined,
+        subjectImages: subjectImages ?? undefined,
         aspect: opts.aspect ?? "4:5",
         quality: opts.quality ?? "standard",
         mode,

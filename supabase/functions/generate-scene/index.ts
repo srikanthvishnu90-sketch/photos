@@ -17,12 +17,12 @@ const MAX_REFS = 3;
 const REALISM_LAYER = `REALISM REQUIREMENTS — this must read as a real smartphone photograph, not AI art:
 Rendered as if shot on a recent iPhone: natural sensor behavior, believable dynamic range, slight highlight rolloff. Composition slightly imperfect and casual — a real person's framing, not a tripod or drone-perfect shot; small amounts of tilt or off-center placement are good. Natural micro-imperfections: subtle lens softness toward edges, faint noise in shadows, real-world clutter and asymmetry in the environment (cords, smudges, uneven objects). Physically consistent lighting with one believable light logic and correct shadows and reflections. Materials must have true texture: fabric weave, skin pores, fingerprints on glass, wear on surfaces. ABSOLUTELY AVOID the AI tells: plastic or waxy skin, perfect symmetry, over-smooth gradients, hyper-saturated HDR look, warped or gibberish text, impossible reflections, extra fingers, melted object boundaries, dreamlike depth of field.`;
 
-const IDENTITY_BLOCK = `The person in the first attached image must appear in the scene with their exact facial identity, skin tone, hair, and build preserved — recognizably the same person, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
+const IDENTITY_BLOCK = `The attached photo(s) at the START are all the SAME person — the user. Study them together to lock their exact facial identity, then render that same person in the scene with their skin tone, hair, and build preserved — recognizably them, naturally integrated into the scene's lighting and perspective. Do not beautify, restyle, or alter their face or body.`;
 
 // The single most important block for "don't make me look AI". Appended whenever a
 // real person is in the output. Stops the model from beautifying/airbrushing the
 // face — the #1 cause of the synthetic look.
-const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. The face in the output must be the EXACT face from the user's attached photo — not a lookalike, not an "improved" version:
+const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. The face in the output must be the EXACT face from the user's attached reference photo(s) — not a lookalike, not an "improved" version:
 - Copy their real facial geometry precisely: eye shape and spacing, nose, mouth, lips, jawline, cheekbones, brow, hairline, ears, and every mole, freckle, scar, facial hair and natural asymmetry.
 - KEEP REAL SKIN: visible pores, fine lines, natural texture, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age, or beautify. Apply NO beauty filter.
 - Match their real skin tone and complexion exactly, including any redness or unevenness.
@@ -115,6 +115,7 @@ Deno.serve(async (request) => {
     referenceAssetIds?: string[];
     stylePackId?: string;
     subjectBase64?: string;
+    subjectImages?: string[]; // extra identity reference photos of the SAME user
     aspect?: string;
     quality?: string;
     mode?: string;          // "me" (default) | "background"
@@ -139,8 +140,17 @@ Deno.serve(async (request) => {
   const aspect = ASPECTS.has(body.aspect ?? "") ? (body.aspect as string) : "4:5";
   const mode = body.mode === "background" ? "background" : "me";
   const matchReference = body.mode !== "background" && body.matchReference === true;
-  const hasSubjectInput =
-    mode !== "background" && typeof body.subjectBase64 === "string" && body.subjectBase64.length > 0;
+  // Identity images = the primary subject photo plus any extra reference photos
+  // of the SAME user (from their tagged face cluster). More angles → far stronger
+  // identity fidelity than a single selfie.
+  const identityImages =
+    mode === "background"
+      ? []
+      : [
+          ...(typeof body.subjectBase64 === "string" && body.subjectBase64 ? [body.subjectBase64] : []),
+          ...(Array.isArray(body.subjectImages) ? body.subjectImages.filter((s) => typeof s === "string" && s) : []),
+        ].slice(0, 5);
+  const hasSubjectInput = identityImages.length > 0;
   // Anything with a REAL PERSON in it uses Pro — flash models beautify faces into
   // the AI look, and identity/skin fidelity is the whole point here. Empty
   // aesthetic backgrounds (no face to get wrong) stay on the cheaper standard model.
@@ -192,12 +202,9 @@ Deno.serve(async (request) => {
     // then the text prompt (references BEFORE text per the spec).
     const parts: Array<Record<string, unknown>> = [];
     // Background mode is an empty scene — ignore any subject photo entirely.
-    const hasSubject =
-      mode !== "background" &&
-      typeof body.subjectBase64 === "string" &&
-      body.subjectBase64.length > 0;
-    if (hasSubject) {
-      parts.push({ inline_data: { mime_type: "image/jpeg", data: body.subjectBase64 } });
+    const hasSubject = identityImages.length > 0;
+    for (const img of identityImages) {
+      parts.push({ inline_data: { mime_type: "image/jpeg", data: img } });
     }
     if (refIds.length) {
       // Only the caller's own inspiration assets, downloaded from the private bucket.

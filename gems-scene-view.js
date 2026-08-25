@@ -5,6 +5,7 @@ import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
 } from "./gems-scenes.js";
+import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -30,7 +31,7 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
     mode: "me", // "me" = put the user in it · "background" = empty aesthetic scene
     matchReference: false, wardrobe: "",
     photoId: null, pack: defaultPack, prompt: "", aspect: "4:5",
-    refs: [], inspiration: [], busy: false, resultUrl: "",
+    refs: [], inspiration: [], busy: false, resultUrl: "", faceNote: "",
   };
 
   const overlay = document.createElement("div");
@@ -62,6 +63,7 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
           state.resultUrl
             ? `<div class="commit-result">
                  <img class="commit-result-img" src="${esc(state.resultUrl)}" alt="Your generated scene" />
+                 ${state.faceNote ? `<p class="commit-note">${esc(state.faceNote)}</p>` : ""}
                  <div class="commit-actions">
                    <button class="commit-btn" data-again type="button">Try again</button>
                    <button class="commit-btn commit-btn--primary" data-save type="button">Save to my photos</button>
@@ -180,15 +182,47 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
     render();
   });
 
+  // Score a generated image against the user's real face (on-device). Returns a
+  // euclidean distance (lower = more like them) or null if it can't be checked.
+  async function scoreFace(url) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      const d = await faceDistanceToMe(bmp);
+      bmp.close?.();
+      return d;
+    } catch (error) {
+      console.info("face verify skipped", error);
+      return null;
+    }
+  }
+
   async function generate() {
     const inMe = state.mode !== "background";
     if (state.busy || (inMe && !state.photoId)) return;
     state.busy = true;
+    state.faceNote = "";
     render();
     const matchReference = inMe && state.refs.length === 1 && state.matchReference;
-    const result = await generateScene({
+
+    // Identity-lock: if the user has tagged their face, attach several real
+    // reference photos AND verify the output likeness (auto-reroll if it drifts).
+    let identityPhotoIds = [];
+    let verify = false;
+    if (inMe) {
+      try {
+        if (await hasMeIdentity()) {
+          verify = true;
+          identityPhotoIds = (await getMeReferences(4)).map((r) => r.photoId);
+        }
+      } catch { /* no identity → skip */ }
+    }
+
+    const opts = {
       mode: state.mode,
       subjectPhotoId: inMe ? state.photoId : undefined,
+      identityPhotoIds,
       prompt:
         state.prompt ||
         (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
@@ -197,18 +231,44 @@ export async function openSceneStudio(defaultPack = "euro-summer") {
       matchReference,
       wardrobe: inMe ? state.wardrobe : undefined,
       aspect: state.aspect,
-      // Face-swap forces Pro server-side; otherwise standard is plenty.
       quality: matchReference ? "pro" : "standard",
-    });
+    };
+
+    const MAX_ATTEMPTS = verify ? 2 : 1; // only reroll when we can measure likeness
+    const GOOD_DIST = 0.55; // < ~0.6 reads as "recognizably them"
+    let best = null;
+    let bestDist = Infinity;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const statusEl = overlay.querySelector("[data-status]");
+      if (statusEl && attempt > 0) statusEl.textContent = "Improving the likeness…";
+      const result = await generateScene(opts);
+      if (!result?.url) { best = best || result; break; }
+      if (!verify) { best = result; break; }
+      const dist = await scoreFace(result.url);
+      if (dist == null) { best = result; break; } // couldn't verify → accept
+      if (dist < bestDist) { bestDist = dist; best = result; }
+      if (dist <= GOOD_DIST) break; // good enough, stop early
+    }
+
     state.busy = false;
-    if (result?.url) { state.resultUrl = result.url; render(); return; }
+    if (best?.url) {
+      state.resultUrl = best.url;
+      state.faceNote =
+        verify && bestDist < Infinity
+          ? bestDist <= GOOD_DIST
+            ? "Matched to your face ✓"
+            : "Closest match — hit Try again if the face is off"
+          : "";
+      render();
+      return;
+    }
     render();
     const msg = overlay.querySelector("[data-status]");
     if (msg) {
       msg.textContent =
-        result?.error === "signin" ? "Sign in to generate a scene."
-        : result?.error === "paywall" ? "You've used your free generations this month — Gems Plus unlocks more."
-        : result?.error === "refused" ? (result.reply || "Try a different prompt.")
+        best?.error === "signin" ? "Sign in to generate a scene."
+        : best?.error === "paywall" ? "You've used your free generations this month — Gems Plus unlocks more."
+        : best?.error === "refused" ? (best.reply || "Try a different prompt.")
         : "That didn't generate — try again.";
     }
   }
