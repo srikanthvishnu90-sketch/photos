@@ -83,3 +83,26 @@ watermark.
 Sources: CHI 2025 diffusion-artifact taxonomy (arXiv 2502.11989); Hany Farid / Content
 Authenticity Initiative face-forensics (eye alignment, lighting/reflection/vanishing-point,
 corneal-reflection mismatch, neck-up framing); practitioner prompt guides.
+
+---
+
+## iPhone pipeline (deep systems report, founder-supplied 2026-08-25) — validation + borrows
+
+Confirms and extends the Apple-signature spec already encoded. Its own key rule matches
+ours: **encode OUTPUT descriptors, not process verbs** — a prompt can evoke the signature
+(24mm framing, deep DoF, lifted-shadow/HDR-flat tone, warm protected skin, mild oversharpen,
+low-light NR smoothness, synthetic bokeh w/ imperfect edges) but cannot run the physics
+(multi-frame fusion, LiDAR/phase depth, per-pixel frequency-band selection, instance-accurate
+segmentation). What the current REALISM_LAYER already captures: segmented exposure (sky+skin
+exposed independently), flat lifted-shadow HDR, protected warm skin, over-sharpen halos,
+deep DoF, trace luminance noise, 24mm distance.
+
+New architectural borrows (not yet built — future levers, not prompt lines):
+- **Semantic per-region grading** as the filter engine: segment sky/skin/hair/subject/bg,
+  grade each differently, protect skin tone + an undertone axis. (Apple's biggest tell.)
+- **Multi-variant generate → learned selection** as a "fusion/ranking" analog — we have batch
+  generation; wiring the photo-ranker as the "best-of-N selector" is the next step.
+- **Deferred-processing UX**: instant low-cost proxy, finish the heavy render in background.
+- **"Process Zero" toggle**: an optional minimal-processing, natural-grain mode for authenticity.
+Caveat from the report: only iPhone 7 / A13 / A16 have Apple-confirmed "ops per photo"
+figures; don't cite a per-photo number for iPhone 16/17.

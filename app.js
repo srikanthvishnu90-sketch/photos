@@ -640,6 +640,17 @@ window.visualViewport?.addEventListener("scroll", syncAppHeight);
 window.addEventListener("scroll", () => {
   if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
 });
+// Re-pin when an input gains/loses focus. iOS fires the keyboard's visualViewport
+// events a beat late, so a few delayed snaps guarantee the composer never drifts
+// or "drags down" while typing — on Safari, Chrome, macOS or iPhone.
+window.addEventListener("focusin", () => {
+  syncAppHeight();
+  window.setTimeout(syncAppHeight, 100);
+  window.setTimeout(syncAppHeight, 300);
+});
+window.addEventListener("focusout", () => {
+  window.setTimeout(syncAppHeight, 100);
+});
 
 syncAppHeight();
 syncThemeColor();

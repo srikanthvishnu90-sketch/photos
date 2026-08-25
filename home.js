@@ -755,6 +755,25 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       // No photos yet — fall through so the user gets a helpful reply.
     }
 
+    // Fast path: a dating-profile request opens the dating flow DIRECTLY — no
+    // server round-trip, so it always works even if the orchestrator hiccups.
+    // "create/make me photos" → generate a set; "from my photos/pick/build" →
+    // the select-first lineup.
+    if (/\b(dating profile|dating pics|dating photos|profile pics?|photos? for (hinge|tinder|bumble|my dating|dating))\b/i.test(prompt)) {
+      chatInput.value = "";
+      syncChat();
+      const openFailed = (err) => { console.info("dating open failed", err); showReply("Couldn't open that just now — try again in a sec."); };
+      const selectPhrasing = /\b(from my (photos|library|camera roll|pictures)|pick|choose|which|organi[sz]e|build my (dating )?profile|select my)\b/i.test(prompt);
+      if (selectPhrasing) {
+        showReply("Building your dating profile from your photos…");
+        import("./gems-dating-view.js").then((m) => m.openDatingProfile()).catch(openFailed);
+      } else {
+        showReply("Opening the studio to make your dating photos — pick a photo of yourself and hit generate.");
+        import("./gems-scene-view.js").then((m) => m.openSceneStudio("dating", { mode: "me" })).catch(openFailed);
+      }
+      return;
+    }
+
     chatInFlight = true;
     chatSend.disabled = true;
     void homeActions.sendPrompt(prompt);
@@ -816,18 +835,27 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       if (data?.intent === "generate" && data?.generate) {
         const g = data.generate;
         chatHistory = [];
+        const openFailed = (err) => {
+          console.info("studio open failed", err);
+          showReply("Couldn't open that just now — try again in a sec.");
+        };
         if (g.kind === "commitment") {
-          void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+          import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio()).catch(openFailed);
         } else if (g.stylePack === "dating") {
-          // Founder model: select from the user's own photos first, then fill gaps.
-          void import("./gems-dating-view.js").then((m) => m.openDatingProfile());
+          // "create/make me photos" → generate a set; "pick/from my photos/build my
+          // profile" → the select-first lineup. Default to generate (the common ask).
+          const selectPhrasing = /\b(from my (photos|library|camera roll|pictures)|pick|choose|which|organi[sz]e|build my (dating )?profile|select my)\b/i.test(prompt);
+          const open = selectPhrasing
+            ? import("./gems-dating-view.js").then((m) => m.openDatingProfile())
+            : import("./gems-scene-view.js").then((m) => m.openSceneStudio("dating", { mode: "me" }));
+          open.catch(openFailed);
         } else {
-          void import("./gems-scene-view.js").then((m) =>
+          import("./gems-scene-view.js").then((m) =>
             m.openSceneStudio(g.stylePack || "euro-summer", {
               prompt: g.prompt || "",
               mode: g.mode || "me",
             }),
-          );
+          ).catch(openFailed);
         }
         return;
       }
