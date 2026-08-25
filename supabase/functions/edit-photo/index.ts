@@ -28,6 +28,29 @@ const AFTER_DARK_STYLE = `
 
 STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not regenerate it. Pull overall exposure down roughly one stop so the scene reads dusk-like even if shot in daylight. Compress highlights: skies become steel-blue or navy with retained gradient detail, never white and never clipped. Deepen shadows and blacks but keep them CLEAN and keep the subject's silhouette readable — deliberate low-key, not underexposure. Desaturate globally about 25%, pushing greens toward dark emerald and blues toward navy; protect skin tones, muting them only slightly. Slightly cool color temperature. No added grain, no matte/faded lift, no vignette heavier than subtle. Preserve the subject's exact facial identity, pose, clothing, and composition. Mood: quiet, expensive, cinematic — a lone figure against light, wealth in shadow. Do not crush shadow detail into pure black. Do not add film grain. Do not blow or tint highlights orange. Do not brighten the sky.`;
 
+// Auto-aesthetic ("edit this for me"): the model looks at the imported photo,
+// matches it to the CLOSEST founder-defined setting, and applies ONLY that
+// setting's light + color grade — never changing the subject, framing, or content.
+// The recipes mirror eval/references/aspirational/NOTES.md.
+const AUTO_AESTHETIC_TRIGGERS =
+  /\b(edit this for me|edit it for me|match the vibe|match the look|make it (look )?(good|aesthetic|better)|make this look good|auto[- ]?edit|best edit|fix the (lighting|colors?|grade)|give it the vibe)\b/i;
+
+const AUTO_AESTHETIC_PREAMBLE = `You are the photo colorist inside Gems. RE-GRADE this photo — do NOT regenerate it. Keep the subject, faces, identity, pose, framing, background, and every object EXACTLY as-is; change ONLY lighting, color, contrast, and mood.
+
+STEP 1 — look at the photo and identify which of these real-world settings it is CLOSEST to (by its content and existing light). STEP 2 — apply that setting's LIGHT + GRADE recipe. If it clearly matches none, apply a tasteful, natural, true-to-life grade (gentle contrast, honest color, protected skin) rather than forcing a look.
+
+RECIPES:
+- MEDITERRANEAN VILLAGE, GOLDEN HOUR (stone/plaster walls, shutters, cobbles, alley, warm low sun): warm golden side-light, long soft shadows, Kodak Portra warmth, lifted warm shadows, soft highlight rolloff, teal-and-tan, honey midtones, gentle grain. Never oversaturated.
+- COLORFUL ITALIAN STREET, BRIGHT DAY (yellow/ochre buildings, narrow lane, arch/tunnel): keep the subject in soft even light while the background stays bright; warm clean ochre/yellow, a clear blue-sky slice, mild film warmth, controlled saturation, natural vignette from any arch.
+- ELEVATED COAST/BAY VISTA (high vantage, vast sea, distant headland, yachts): warm foreground with a COOL, slightly-hazy, desaturated blue distance (atmospheric perspective); soft contrast, elegant and muted, never punchy.
+- BOAT / OPEN SEA, MIDDAY (teak deck, chrome, deep blue water, wake, clear sky): bright hard sun with sea-reflected fill, true vivid blues (navy sea, azure sky), warm teak brown, clean whites, crisp high-clarity, keep sun-sparkle on water.
+- CRYSTAL WATER / SWIM (transparent teal-green water over reef, wet tanned skin): make the water GLOW aqua-to-emerald with caustic sun-dapple, high-key and luminous, warm protected skin, specular sheen on wet skin.
+- LUXURY SIGNIFIER / GRAND ARCHITECTURE or CLASSIC CAR (ornate facade, boutique, Riviera street): warm gold, muted elegant film-like grade, low saturation, gentle contrast, hazy warm air — "quiet wealth," never neon or HDR.
+- FRAMED LAKE / VILLA VISTA (arch or window onto lake, mountains, styled interior foreground): keep the interior foreground a touch darker so the view beyond GLOWS; warm creams, lush greens, lake blue, serene and soft.
+- WARM NIGHT / DIM INTERIOR (string lights, tungsten lamps, lit facade, dim lobby): warm amber highlights, deep shadows kept clean, protected skin, muted — do NOT brighten it into daylight; embrace the low-key mood.
+
+HARD RULES: this is a GRADE, not a new image. Preserve exact facial identity, pose, clothing, composition, and all content. Do not add or remove anything, do not relight the geometry, do not beautify or reshape the face, do not add heavy grain or vignette. Return the re-graded image at the same dimensions.`;
+
 // Transformative "Looks" — unlike a precise edit, these reimagine the photo as a
 // polished professional shot (relight, retouch, restyle) while keeping the exact
 // person. Built for the athlete "college commitment / signing-day" use case.
@@ -173,8 +196,14 @@ Deno.serve(async (request) => {
     // A transformative "Look" (agency headshot, commitment/signing-day, editorial…)
     // uses the permissive, identity-preserving studio prompt; everything else
     // stays a precise single-change edit.
-    const look = detectLook(instruction);
-    let promptText = look
+    // Auto-aesthetic ("edit this for me"): classify the photo to the nearest
+    // founder aesthetic and apply only its light + grade. Takes priority over the
+    // precise-edit / Look paths. Triggered by phrase or by kind "auto-aesthetic".
+    const auto = kind === "auto-aesthetic" || AUTO_AESTHETIC_TRIGGERS.test(instruction);
+    const look = auto ? null : detectLook(instruction);
+    let promptText = auto
+      ? AUTO_AESTHETIC_PREAMBLE
+      : look
       ? `${TRANSFORM_PREAMBLE}\n\nTarget look: ${LOOKS[look]}\n\nUser request: ${instruction}`
       : `${EDIT_PREAMBLE}\n\nInstruction: ${instruction}`;
     if (kind === "reroll") {

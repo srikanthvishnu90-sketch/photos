@@ -152,6 +152,7 @@ const RETOUCH_OPS = Object.freeze([
 ]);
 
 const SUGGESTIONS = Object.freeze([
+  "✨ Edit this for me",
   "Make it darker",
   "Make it brighter",
   "More contrast",
@@ -159,6 +160,13 @@ const SUGGESTIONS = Object.freeze([
   "Black and white",
   "Remove the ship in the background",
 ]);
+
+// "Edit this for me" — the auto-aesthetic grade: the server looks at the photo,
+// matches it to the nearest founder aesthetic, and applies that light + grade.
+// Routed to edit-photo with kind "auto-aesthetic" (deterministic), bypassing the
+// per-instruction interpreter.
+const AUTO_AESTHETIC_RE =
+  /\b(edit this for me|edit it for me|match the vibe|match the look|make it (look )?(good|aesthetic|better)|fix the (lighting|colou?rs?|grade)|give it the vibe)\b/i;
 
 function beachSceneMarkup() {
   return `
@@ -3931,6 +3939,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     const prompt = rawPrompt.trim();
     if (!prompt || processing) return;
     if (photo) {
+      // "Edit this for me" → auto-aesthetic grade (nearest-look match), server-side.
+      if (AUTO_AESTHETIC_RE.test(prompt)) {
+        void requestRealEdit(prompt, "auto-aesthetic");
+        return;
+      }
       void runInterpretedEdit(prompt);
       return;
     }
