@@ -1117,6 +1117,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
         void import("./gems-scene-view.js").then((m) => m.openSceneStudio("euro-summer", { questionnaire: true }));
         return;
       }
+      if (action === "Find my best photos") {
+        // Actually run it — rank + show the best, not just pre-fill the chat.
+        void sendChatMessage("find my best photos of me");
+        return;
+      }
+      if (action === "Edit a photo") {
+        // Open Photos to pick a photo to edit.
+        goTo("Photos");
+        return;
+      }
       setChatPrompt(action);
     });
   });
