@@ -1744,6 +1744,38 @@
 .scene-insert-btn svg { width: 18px; height: 18px; }
 .scene-insert-thumbs { margin-top: 8px; }
 
+/* Result page: what you asked → images → small chatbox → Edit/Export/Save. */
+.scene-asked {
+  font: italic 500 14px/1.4 Georgia, "Times New Roman", serif;
+  color: var(--color-ink);
+  text-align: center;
+  margin: 0 4px;
+}
+.scene-refine { display: flex; align-items: center; gap: 8px; }
+.scene-refine .commit-input { flex: 1 1 auto; min-width: 0; }
+.scene-refine-send {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-ink);
+  color: var(--color-white);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.scene-refine-send:disabled { opacity: 0.4; cursor: default; }
+.scene-newbatch {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--color-mauve);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Scene studio: "swap my face in" checkbox line */
 .scene-swap {
   display: flex;

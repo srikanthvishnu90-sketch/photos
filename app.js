@@ -657,6 +657,11 @@ window.addEventListener("focusin", () => {
 window.addEventListener("focusout", () => {
   window.setTimeout(syncAppHeight, 100);
 });
+// "Edit" on a generated result saves it to the library and opens it in the editor.
+window.addEventListener("gems:open-editor", (event) => {
+  const photoId = event.detail?.photoId;
+  if (photoId) navigateAuthenticated("Editor", { mode: "describe", photoId });
+});
 
 syncAppHeight();
 syncThemeColor();

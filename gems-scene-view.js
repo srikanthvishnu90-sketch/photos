@@ -111,7 +111,9 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
             ? (() => {
         const cur = state.results[state.resultIndex] || state.results[0];
         const many = state.results.length > 1;
+        // Result page: what you asked → the images → a small chatbox → Edit + Export.
         return `<div class="commit-result">
+                 ${state.revealText ? `<p class="scene-asked">“${esc(state.revealText)}”</p>` : ""}
                  <div class="scene-carousel">
                    <div class="scene-carousel-view" data-carousel>
                      <img class="commit-result-img" src="${esc(cur.url)}" alt="Generated scene ${state.resultIndex + 1}" />
@@ -121,11 +123,16 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                  </div>
                  ${many ? `<div class="scene-dots">${state.results.map((_, i) => `<span class="scene-dot${i === state.resultIndex ? " is-active" : ""}"></span>`).join("")}</div>` : ""}
                  ${state.busy ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>` : cur.faceNote ? `<p class="commit-note">${esc(cur.faceNote)}</p>` : ""}
+                 <form class="scene-refine" data-refine>
+                   <input class="commit-input" data-refine-input type="text" maxlength="200" placeholder="Change something… e.g. make it sunset, change my outfit" />
+                   <button class="scene-refine-send" type="submit" aria-label="Regenerate"${state.busy ? " disabled" : ""}>↑</button>
+                 </form>
                  <div class="commit-actions">
-                   <button class="commit-btn" data-again type="button">New batch</button>
+                   <button class="commit-btn" data-edit type="button">Edit</button>
                    <button class="commit-btn" data-export type="button">Export</button>
                    <button class="commit-btn commit-btn--primary" data-save type="button">Save</button>
                  </div>
+                 <button class="scene-newbatch" data-again type="button">Start over</button>
                </div>`;
       })()
             : state.busy
@@ -358,6 +365,18 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       if (cur?.url) void exportImage(cur.url);
     });
     overlay.querySelector("[data-save]")?.addEventListener("click", () => void saveResult());
+    // Result-page small chatbox: describe a change → regenerate.
+    overlay.querySelector("[data-refine]")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (state.busy) return;
+      const val = overlay.querySelector("[data-refine-input]")?.value?.trim();
+      if (!val) return;
+      state.prompt = val;
+      state.setting = "";
+      void generate();
+    });
+    // Edit: save this image to the library and open it in the editor.
+    overlay.querySelector("[data-edit]")?.addEventListener("click", () => void editResult());
     overlay.querySelector("[data-prev]")?.addEventListener("click", () => {
       if (state.resultIndex > 0) { state.resultIndex -= 1; render(); }
     });
@@ -614,6 +633,25 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       if (btn) btn.textContent = "Saved ✓";
     } catch (error) {
       console.info("save scene failed", error);
+    }
+  }
+
+  // Edit: save this generated image to the library, close, and open it in the
+  // editor (via a global event the app listens for).
+  async function editResult() {
+    const cur = state.results[state.resultIndex];
+    if (!cur?.url) return;
+    try {
+      const res = await fetch(cur.url);
+      const blob = await res.blob();
+      const imported = await importPhotoFiles([new File([blob], "scene.jpg", { type: blob.type || "image/jpeg" })]);
+      const id = imported?.[0]?.id;
+      close();
+      if (id && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gems:open-editor", { detail: { photoId: id } }));
+      }
+    } catch (error) {
+      console.info("edit result failed", error);
     }
   }
 
