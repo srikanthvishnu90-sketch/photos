@@ -995,6 +995,15 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     renderGrid();
   });
 
+  // "Find photos like this" from Discover hands a search query here.
+  window.addEventListener("gems:search-photos", (event) => {
+    const q = (event.detail && event.detail.query) || "";
+    if (!search) return;
+    search.value = q;
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    search.dispatchEvent(new Event("search", { bubbles: true }));
+  });
+
   search.addEventListener("search", () => {
     const trimmed = query.trim();
     photosActions.search(trimmed);

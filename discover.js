@@ -331,6 +331,27 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
         if (button.dataset.discoverAction === "Apply this aesthetic") {
           applyAestheticToBestPhoto(card);
         }
+        if (button.dataset.discoverAction === "Recreate this") {
+          // Open the quick questionnaire pre-filled with this look → generate.
+          const packMap = {
+            "Euro Summer": "euro-summer", Travel: "euro-summer", Nightlife: "after-dark",
+            "Dark Gym": "dark-luxe", "Golden Hour": "euro-summer", Dating: "dating",
+          };
+          const cat = (card.categories || []).find((c) => packMap[c]);
+          const pack = packMap[cat] || "euro-summer";
+          void import("./gems-scene-view.js").then((m) =>
+            m.openSceneStudio(pack, { questionnaire: true, prompt: card.title || "" }),
+          ).catch((err) => console.info("recreate open failed", err));
+        }
+        if (button.dataset.discoverAction === "Find photos like this in my library") {
+          // Hand a search query to the Photos screen (it runs the search).
+          try {
+            window.dispatchEvent(new CustomEvent("gems:search-photos", {
+              detail: { query: card.title || (card.categories || [])[0] || "" },
+            }));
+          } catch { /* ignore */ }
+          onNavigate("Photos");
+        }
         if (button.dataset.discoverAction === "Save to moodboard") {
           // Pin to the on-device board (works signed-out) AND sync to Supabase.
           void pinToBoard({
