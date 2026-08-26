@@ -1256,19 +1256,15 @@
   transform: none;
 }
 
+/* Snappy, uniform fade — no per-element transform or long stagger, so the home
+   feels instant instead of trickling in (the "lag" was the staggered rise). */
 .home-screen.is-entering .home-entrance {
-  animation: home-rise 420ms var(--ease-gems) var(--home-delay, 180ms) both;
+  animation: home-rise 200ms ease both;
 }
 
 @keyframes home-rise {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (max-width: 359px) {

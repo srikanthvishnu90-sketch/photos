@@ -163,6 +163,26 @@ function homeMarkup() {
         </div>
       </header>
 
+      <section class="home-section home-trends-section" aria-labelledby="trendsTitle">
+        <div class="home-section-heading home-section-heading-padded">
+          <h2 id="trendsTitle" class="home-section-title home-entrance">Make a photo</h2>
+          <button id="discoverVibes" class="home-section-link home-entrance" type="button">Discover</button>
+        </div>
+        <div class="trend-strip home-scroll" aria-label="Generate a photo in a style">
+          ${TRENDS.map(
+            (trend) => `
+              <button
+                class="trend-card trend-${trend.id} home-entrance"
+                type="button"
+                data-pack-scene="${trend.id}"
+              >
+                ${trend.label}
+              </button>
+            `,
+          ).join("")}
+        </div>
+      </section>
+
       <section class="home-section home-gems-section" aria-labelledby="bestPhotosTitle">
         <div class="home-section-heading">
           <h2 id="bestPhotosTitle" class="home-section-title home-entrance">Your best photos right now</h2>
@@ -245,27 +265,6 @@ function homeMarkup() {
             <span class="hidden-gem-action">Do something with it</span>
           </span>
         </button>
-      </section>
-
-      <section class="home-section home-trends-section" aria-labelledby="trendsTitle">
-        <div class="home-section-heading home-section-heading-padded">
-          <h2 id="trendsTitle" class="home-section-title home-entrance">Make a photo in a style</h2>
-          <button id="discoverVibes" class="home-section-link home-entrance" type="button">Discover</button>
-        </div>
-        <div class="trend-strip home-scroll" aria-label="Generate a photo in a style">
-          ${TRENDS.map(
-            (trend, index) => `
-              <button
-                class="trend-card trend-${trend.id} home-entrance"
-                type="button"
-                data-pack-scene="${trend.id}"
-                style="--home-delay: ${360 + index * 35}ms"
-              >
-                ${trend.label}
-              </button>
-            `,
-          ).join("")}
-        </div>
       </section>
 
       <div class="home-scroll-tail" aria-hidden="true"></div>
