@@ -1724,6 +1724,26 @@
 /* Scene studio: mode toggle ("Put me in it" / "Just the scene") */
 .scene-mode { margin-bottom: 4px; }
 
+/* Scene studio: describe box + inline image-insert button (every generation input
+   has an image-insert, like the Home chatbox). */
+.scene-describe-row { display: flex; align-items: center; gap: 8px; }
+.scene-describe-row .commit-input { flex: 1 1 auto; min-width: 0; }
+.scene-insert-btn {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-mauve);
+  cursor: pointer;
+}
+.scene-insert-btn:active { transform: scale(0.96); }
+.scene-insert-btn svg { width: 18px; height: 18px; }
+.scene-insert-thumbs { margin-top: 8px; }
+
 /* Scene studio: "swap my face in" checkbox line */
 .scene-swap {
   display: flex;

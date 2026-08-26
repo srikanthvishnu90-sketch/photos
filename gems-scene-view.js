@@ -195,7 +195,17 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           ${outfitOptionsFor(state.pack).map((o) => `<button type="button" class="commit-chip${state.wardrobe === o.value ? " is-active" : ""}" data-outfit="${esc(o.value)}">${esc(o.label)}</button>`).join("")}
         </div>
         <label class="commit-label">Or describe your own</label>
-        <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc(PROMPT_HINTS[state.pack] || "describe your photo")}" value="${esc(state.prompt)}" />
+        <div class="scene-describe-row">
+          <input class="commit-input" data-prompt type="text" maxlength="200" placeholder="${esc(PROMPT_HINTS[state.pack] || "describe your photo")}" value="${esc(state.prompt)}" />
+          <button type="button" class="scene-insert-btn" data-add-insp aria-label="Insert a reference image">
+            <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M12.8 5.2 6.6 11.4a1.9 1.9 0 1 0 2.7 2.7l6-6a3.6 3.6 0 0 0-5.1-5.1L4 9.2a5.3 5.3 0 0 0 7.5 7.5l5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>
+          </button>
+        </div>
+        ${
+          state.refs.length
+            ? `<div class="commit-photos scene-insert-thumbs">${state.refs.map((id) => { const insp = state.inspiration.find((i) => i.id === id); return `<button type="button" class="commit-photo is-active" data-insp="${esc(id)}">${insp?.url ? `<img src="${esc(insp.url)}" alt="">` : ""}</button>`; }).join("")}</div>`
+            : ""
+        }
         <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
           ${state.busy ? "Generating…" : "Make my photo"}
         </button>
@@ -375,12 +385,19 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     inspFileInput.value = "";
     if (!files.length) return;
     const status = overlay.querySelector("[data-status]");
-    if (status) status.textContent = `Uploading ${files.length} reference${files.length === 1 ? "" : "s"}…`;
+    if (status) status.textContent = `Adding ${files.length} image${files.length === 1 ? "" : "s"}…`;
+    const newIds = [];
     for (const f of files.slice(0, 20)) {
       const r = await uploadInspiration(f, state.pack);
-      if (r?.error === "signin") { if (status) status.textContent = "Sign in to upload inspiration."; return; }
+      if (r?.error === "signin") { if (status) status.textContent = "Sign in to insert an image."; return; }
+      if (r?.id) newIds.push(r.id);
     }
     state.inspiration = await listInspiration();
+    // Auto-select the just-inserted images so they're actually USED as references.
+    for (const id of newIds) {
+      if (state.refs.length < 3 && !state.refs.includes(id)) state.refs.push(id);
+    }
+    if (status) status.textContent = "";
     render();
   });
 
