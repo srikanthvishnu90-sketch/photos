@@ -710,6 +710,17 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
               ? "Already on your board"
               : "Pinned to your board ✓";
           });
+        } else if (action === "Use in chat") {
+          // Hand the photo to the Home chat so they can build a post/dump around
+          // it (the chat picks it up via the event and attaches it).
+          const record = libraryPhotos.find((entry) => entry.id === photoId);
+          closeSheet();
+          try {
+            window.dispatchEvent(new CustomEvent("gems:attach-to-chat", {
+              detail: { id: photoId, url: record?.url ?? null },
+            }));
+          } catch { /* ignore */ }
+          onNavigate("Home", {});
         }
       });
     });

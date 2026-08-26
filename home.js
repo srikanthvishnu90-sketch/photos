@@ -1161,6 +1161,15 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     void sendChatMessage(chatInput.value);
   });
 
+  // "Use in chat" from the Photos sheet hands a photo to the chatbox here.
+  window.addEventListener("gems:attach-to-chat", (event) => {
+    const detail = event.detail || {};
+    if (!detail.id) return;
+    void attachPhotoById(detail.id, detail.url);
+    showReply("Added your photo — tell me what to build around it (a post, a dump, an edit).");
+    try { chatInput.focus({ preventScroll: true }); } catch { /* ignore */ }
+  });
+
   syncChat();
 
   return Object.freeze({
