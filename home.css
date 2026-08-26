@@ -897,26 +897,15 @@
   transform: scale(0.97);
 }
 
-.trend-euro {
-  background: linear-gradient(160deg, var(--trend-euro-start), var(--trend-euro-end));
-}
-
-.trend-concert {
-  color: var(--color-white);
-  background: radial-gradient(
-    circle at 40% 25%,
-    var(--trend-concert-glow) 0%,
-    var(--trend-concert-night) 75%
-  );
-}
-
-.trend-y2k {
-  background: linear-gradient(160deg, var(--trend-y2k-start), var(--trend-y2k-end));
-}
-
-.trend-golden {
-  background: linear-gradient(160deg, var(--trend-golden-start), var(--trend-golden-end));
-}
+/* Per-pack scene gradients for the "make a photo in a style" cards. */
+.trend-euro-summer { background: linear-gradient(160deg, #f7d9a0, #e2986a); color: var(--color-ink); }
+.trend-dubai { background: linear-gradient(160deg, #f3cf9a, #3f6f8f); color: #fff; }
+.trend-old-money { background: linear-gradient(160deg, #e9dfc6, #8a6b3f); color: var(--color-ink); }
+.trend-luxury-cars { background: linear-gradient(160deg, #4a4a4d, #121214); color: #fff; }
+.trend-beach-club { background: linear-gradient(160deg, #c3e8ec, #3aa6c6); color: var(--color-ink); }
+.trend-boat { background: linear-gradient(160deg, #93d5e2, #1e5f82); color: #fff; }
+.trend-dark-luxe { background: linear-gradient(160deg, #2c303b, #0e1016); color: #fff; }
+.trend-after-dark { background: linear-gradient(160deg, #26303f, #0a0d14); color: #fff; }
 
 .home-scroll-tail {
   height: 18px;

@@ -170,6 +170,35 @@ const SETTING_OPTIONS = Object.freeze({
     { label: "Riviera cove", value: "at a French-Riviera cove with cypress trees, honey-stone houses and moored wooden boats" },
     { label: "Seaside steps", value: "on worn stone steps down to a Mediterranean harbor, whitewashed walls and blue shutters around" },
   ],
+  dubai: [
+    { label: "Infinity pool", value: "at a rooftop infinity pool at blue-hour overlooking the Burj Khalifa and the lit Downtown skyline" },
+    { label: "Penthouse window", value: "in a marble penthouse living room with a floor-to-ceiling window framing the Burj Khalifa at dusk" },
+    { label: "Beach club", value: "at a chic beach club with striped umbrellas and day-beds on raked sand, calm Gulf water" },
+    { label: "Rooftop terrace", value: "on a golden-hour rooftop terrace with a low cream sofa overlooking Dubai Marina and the sea" },
+  ],
+  "old-money": [
+    { label: "Place du Casino", value: "on the Place du Casino outside the Belle-Époque Casino de Monte-Carlo with parked supercars" },
+    { label: "Grand-Prix hairpin", value: "crossing the Monaco Grand-Prix hairpin road by the Fairmont with its red-and-white kerb" },
+    { label: "Belle-Époque street", value: "on a cobbled Belle-Époque Monaco street with cream facades, red-and-white flags and palms" },
+    { label: "Over the harbor", value: "at a railing under a pine tree looking over the Fontvieille harbor full of white yachts" },
+  ],
+  "luxury-cars": [
+    { label: "Hotel forecourt", value: "beside a gleaming supercar at the valet forecourt of a grand Belle-Époque hotel" },
+    { label: "Cobbled street", value: "beside a parked supercar on a cobbled European street at golden hour" },
+    { label: "In the driver's seat", value: "sitting in the driver's seat of a supercar with a hand on the wheel" },
+    { label: "Night garage", value: "beside the car under warm garage/street lights at night, reflections on the paint" },
+  ],
+  "beach-club": [
+    { label: "Striped day-bed", value: "on a teak day-bed under a striped umbrella on raked white sand by turquoise water" },
+    { label: "Beach bar", value: "at a beachfront pool bar with rattan stools and a cocktail, turquoise water beyond" },
+    { label: "Cabana", value: "at a shaded white cabana with billowing curtains, palms and calm sea beyond" },
+    { label: "Boardwalk", value: "walking a wooden boardwalk toward the sand, striped parasols and boats in the distance" },
+  ],
+  boat: [
+    { label: "Driving the boat", value: "at the wheel of a day-yacht on clear turquoise water, a bright wake trailing behind" },
+    { label: "On the bow", value: "sitting on the bow of a boat looking out at a Greek/Italian coastline over teal water" },
+    { label: "At the stern", value: "at the teak stern of a yacht over sparkling deep-blue water, coastline in the distance" },
+  ],
 });
 
 /** "Which kind of photo?" options for a pack (empty if the pack has no set). */

@@ -41,11 +41,18 @@ const ACTIONS = Object.freeze([
   { label: "Find my best photos", icon: "search" },
 ]);
 
+// Homepage style-pack buttons. Each opens the quick questionnaire → generates an
+// image in that style (same flow + reveal animation as Euro Summer). The `id` is
+// the real style pack; the CSS class is trend-<id>.
 const TRENDS = Object.freeze([
-  { name: "Euro Summer", style: "euro" },
-  { name: "Concert", style: "concert" },
-  { name: "Y2K", style: "y2k" },
-  { name: "Golden Hour", style: "golden" },
+  { id: "euro-summer", label: "Euro Summer" },
+  { id: "dubai", label: "Dubai Luxe" },
+  { id: "old-money", label: "Old Money" },
+  { id: "luxury-cars", label: "Luxury Cars" },
+  { id: "beach-club", label: "Beach Club" },
+  { id: "boat", label: "On the Water" },
+  { id: "dark-luxe", label: "Dark Luxe" },
+  { id: "after-dark", label: "After Dark" },
 ]);
 
 function sceneMarkup(scene) {
@@ -242,19 +249,19 @@ function homeMarkup() {
 
       <section class="home-section home-trends-section" aria-labelledby="trendsTitle">
         <div class="home-section-heading home-section-heading-padded">
-          <h2 id="trendsTitle" class="home-section-title home-entrance">Trending vibes this week</h2>
+          <h2 id="trendsTitle" class="home-section-title home-entrance">Make a photo in a style</h2>
           <button id="discoverVibes" class="home-section-link home-entrance" type="button">Discover</button>
         </div>
-        <div class="trend-strip home-scroll" aria-label="Trending aesthetics">
+        <div class="trend-strip home-scroll" aria-label="Generate a photo in a style">
           ${TRENDS.map(
             (trend, index) => `
               <button
-                class="trend-card trend-${trend.style} home-entrance"
+                class="trend-card trend-${trend.id} home-entrance"
                 type="button"
-                data-trend="${trend.name}"
+                data-pack-scene="${trend.id}"
                 style="--home-delay: ${360 + index * 35}ms"
               >
-                ${trend.name}
+                ${trend.label}
               </button>
             `,
           ).join("")}
@@ -1114,8 +1121,16 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     });
   });
 
-  mount.querySelectorAll("[data-trend]").forEach((button) => {
-    button.addEventListener("click", () => homeActions.openTrend(button.dataset.trend));
+  // Style-pack buttons: open the quick questionnaire → generate (image generation
+  // is their proper ability), same clean flow + reveal animation as Euro Summer.
+  mount.querySelectorAll("[data-pack-scene]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const pack = button.dataset.packScene;
+      homeActions.openTrend(pack);
+      import("./gems-scene-view.js")
+        .then((m) => m.openSceneStudio(pack, { questionnaire: true }))
+        .catch((err) => { console.info("pack studio open failed", err); });
+    });
   });
 
   mount.querySelectorAll("[data-app-tab]").forEach((button) => {
