@@ -1120,8 +1120,12 @@
   outline: none;
   color: var(--color-ink);
   background: transparent;
-  font-size: 16px;
+  /* Small, professional sizing (Spar-style). Safe from iOS focus-zoom because the
+     viewport pins maximum-scale=1. */
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1;
+  letter-spacing: 0.01em;
   caret-color: var(--color-deep-petal);
 }
 
@@ -1435,14 +1439,14 @@
 
 .commit-input {
   width: 100%;
-  min-height: 48px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1.5px solid var(--color-border);
   border-radius: 12px;
   color: var(--color-ink);
   background: var(--color-surface);
   font-family: var(--font-ui);
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .commit-school-results {
