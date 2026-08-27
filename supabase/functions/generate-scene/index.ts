@@ -281,6 +281,7 @@ Deno.serve(async (request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  try {
     const requestId = String(body.requestId ?? "").slice(0, 64);
     try {
       // ---- Free tier = ONE generation request (a "prompt"). Hard-enforced, so
