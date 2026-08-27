@@ -44,6 +44,28 @@ export const ASPECTS = Object.freeze([
   { id: "9:16", label: "Story" },
 ]);
 
+// Editing-style "templates" — the grades/looks we've built. When a user asks for
+// several images, each one is rendered in a DIFFERENT editing style so they get a
+// varied set to choose from and edit. Each `grade` is appended to the generation.
+export const EDIT_STYLES = Object.freeze([
+  { name: "Golden hour", grade: "warm golden-hour film grade — Kodak Portra warmth, soft lifted shadows, gentle grain" },
+  { name: "After dark", grade: "moody low-key after-dark grade — underexposed, deep protected shadows, muted cool color" },
+  { name: "Bright & airy", grade: "bright high-key clean grade — soft even light, gentle contrast, natural color" },
+  { name: "Film warm", grade: "warm analog 35mm film grade — soft highlight rolloff, real grain, honey midtones" },
+  { name: "Black & white", grade: "classic black-and-white film — rich tonal range, real grain, no color" },
+  { name: "Cinematic", grade: "cinematic teal-and-orange grade — controlled contrast, filmic, protected skin" },
+  { name: "Muted matte", grade: "muted matte grade — desaturated, soft faded shadows, understated" },
+  { name: "Blue hour", grade: "cool blue-hour grade — steel-blue shadows, calm and moody, clean blacks" },
+  { name: "Sun-kissed", grade: "warm sun-kissed grade — golden glow, gentle lens flare, sunny" },
+  { name: "Editorial", grade: "clean editorial grade — natural true color, crisp and premium but realistic" },
+]);
+
+/** N editing styles (rotating through the catalog), for an N-image request. */
+export function editStyles(n) {
+  const list = EDIT_STYLES;
+  return Array.from({ length: Math.max(1, n) }, (_, i) => list[i % list.length]);
+}
+
 // Pose + outfit option catalogs, per style pack. When a user picks a scene we
 // surface a few candid poses and a few on-theme outfits as tappable chips, then
 // pass the chosen `value` strings to generate-scene as `pose` / `wardrobe`.

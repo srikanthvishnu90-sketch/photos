@@ -4,7 +4,7 @@
 import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
-  poseOptionsFor, outfitOptionsFor, settingOptionsFor, datingShots,
+  poseOptionsFor, outfitOptionsFor, settingOptionsFor, datingShots, editStyles,
 } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
@@ -59,7 +59,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     photoId: typeof prefill.photoId === "string" ? prefill.photoId : null, pack: defaultPack,
     prompt: typeof prefill.prompt === "string" ? prefill.prompt : "",
     aspect: "4:5",
-    count: 1,
+    count: Number.isFinite(prefill.count) && prefill.count > 0 ? Math.min(10, Math.round(prefill.count)) : 1,
     refs: [], inspiration: [], busy: false,
     // Generated images live here as { url, faceNote }. Multiple images are made
     // as SEPARATE generations and swiped through; each has its own export.
@@ -122,6 +122,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                    <button class="scene-nav scene-nav--next" data-next type="button" aria-label="Next"${state.resultIndex === state.results.length - 1 ? " disabled" : ""}>›</button>` : ""}
                  </div>
                  ${many ? `<div class="scene-dots">${state.results.map((_, i) => `<span class="scene-dot${i === state.resultIndex ? " is-active" : ""}"></span>`).join("")}</div>` : ""}
+                 ${cur.styleName ? `<p class="scene-style-tag">${esc(cur.styleName)}${many ? ` · ${state.resultIndex + 1} of ${state.results.length}` : ""}</p>` : ""}
                  ${state.busy ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>` : cur.faceNote ? `<p class="commit-note">${esc(cur.faceNote)}</p>` : ""}
                  <form class="scene-refine" data-refine>
                    <input class="commit-input" data-refine-input type="text" maxlength="200" placeholder="Change something… e.g. make it sunset, change my outfit" />
@@ -281,14 +282,14 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           isDating
             ? `<label class="commit-label">Your build <span style="font-weight:400;color:var(--color-mauve)">(optional · gets your proportions right)</span></label>
         <input class="commit-input" data-build type="text" maxlength="120" placeholder="e.g. 5'10, 150 lbs, slim build" value="${esc(state.build)}" />`
-            : `<label class="commit-label">${inMe ? "7" : "5"} · How many</label>
+            : `<label class="commit-label">${inMe ? "7" : "5"} · How many <span style="font-weight:400;color:var(--color-mauve)">(each in a different editing style)</span></label>
         <div class="commit-headlines">
-          ${[1, 4].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " photos"}</button>`).join("")}
+          ${[1, 4, 10].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " styles"}</button>`).join("")}
         </div>`
         }
 
         <button class="commit-btn commit-btn--primary commit-generate" data-generate type="button" ${canGenerate ? "" : "disabled"}>
-          ${state.busy ? "Generating…" : isDating ? (state.datingRecipes ? `Fill ${state.datingRecipes.length} gap${state.datingRecipes.length === 1 ? "" : "s"}` : "Make my dating set (6)") : state.count > 1 ? `Generate ${state.count} photos` : inMe ? "Generate my scene" : "Generate scene"}
+          ${state.busy ? "Generating…" : isDating ? (state.datingRecipes ? `Fill ${state.datingRecipes.length} gap${state.datingRecipes.length === 1 ? "" : "s"}` : "Make my dating set (6)") : state.count > 1 ? `Generate ${state.count} styles` : inMe ? "Generate my scene" : "Generate scene"}
         </button>
         <p class="commit-note">${isDating ? (state.datingRecipes ? `Generates the ${state.datingRecipes.length} missing shot${state.datingRecipes.length === 1 ? "" : "s"} · keeps your face` : "6 varied dating photos — a real mix, tailored to you · keeps your face") : inMe ? "Puts YOU in the scene · keeps your face" : "An aesthetic background · no people"} · uses AI. Sign in required.</p>
         <p class="commit-status" data-status></p>`;
@@ -533,16 +534,24 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
           wardrobe: state.wardrobe || s.wardrobe,
           aspect: s.aspect || state.aspect,
         }))
-      : Array.from({ length: state.questionnaire ? 1 : Math.max(1, Math.min(8, state.count | 0)) }, () => ({
-          ...baseOpts,
-          prompt:
+      : (() => {
+          const N = state.questionnaire ? 1 : Math.max(1, Math.min(10, state.count | 0));
+          const base =
             state.prompt ||
             state.setting ||
-            (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene"),
-          wardrobe: inMe ? state.wardrobe : undefined,
-          pose: inMe ? state.pose : undefined,
-          aspect: state.aspect,
-        }));
+            (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene");
+          // Multiple images → each rendered in a DIFFERENT editing style, so the
+          // user gets varied "templates" to choose from and edit.
+          const styles = N > 1 ? editStyles(N) : [null];
+          return styles.map((style) => ({
+            ...baseOpts,
+            prompt: base + (style ? ` Color/edit style: ${style.grade}.` : ""),
+            styleName: style?.name || null,
+            wardrobe: inMe ? state.wardrobe : undefined,
+            pose: inMe ? state.pose : undefined,
+            aspect: state.aspect,
+          }));
+        })();
 
     const N = jobs.length;
     let lastError = null;
@@ -551,7 +560,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       if (!state.revealing) render(); // don't disturb the reveal mid-animation
       const r = await generateOne(jobs[n], verify);
       if (r?.url) {
-        state.results.push({ url: r.url, faceNote: r.faceNote });
+        state.results.push({ url: r.url, faceNote: r.faceNote, styleName: jobs[n].styleName || null });
         state.resultIndex = state.results.length - 1;
         if (state.results.length === 1) startReveal(); // first image → play the reveal
         else if (!state.revealing) render();

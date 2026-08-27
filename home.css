@@ -1775,6 +1775,13 @@
   font-weight: 600;
   cursor: pointer;
 }
+.scene-style-tag {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: -4px 0 0;
+}
 
 /* Scene studio: "swap my face in" checkbox line */
 .scene-swap {

@@ -899,10 +899,14 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
             : import("./gems-scene-view.js").then((m) => m.openSceneStudio("dating", { mode: "me" }));
           open.catch(openFailed);
         } else {
+          // "print/make me N images" → generate N, each in a different editing style.
+          const numMatch = prompt.match(/\b(\d{1,2})\s*(images|photos|pics|pictures|styles|versions)\b/i);
+          const count = numMatch ? Math.min(10, Math.max(1, Number(numMatch[1]))) : undefined;
           import("./gems-scene-view.js").then((m) =>
             m.openSceneStudio(g.stylePack || "euro-summer", {
               prompt: g.prompt || "",
               mode: g.mode || "me",
+              ...(count ? { count } : {}),
             }),
           ).catch(openFailed);
         }
