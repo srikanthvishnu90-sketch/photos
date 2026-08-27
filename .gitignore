@@ -17,3 +17,4 @@ eval/expected.json
 node_modules/
 www/
 ios/
+supabase/.temp/

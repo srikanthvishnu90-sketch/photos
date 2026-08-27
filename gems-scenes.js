@@ -338,6 +338,13 @@ export async function generateScene(opts) {
   try {
     const session = await getSession();
     if (!session) return { error: "signin" };
+    // The server requires a requestId to meter the free tier (no id → 402), so
+    // every caller gets one even if it didn't pass its own batch id.
+    let requestId = opts.requestId;
+    if (!requestId) {
+      try { requestId = crypto.randomUUID(); }
+      catch { requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+    }
     const mode = opts.mode === "background" ? "background" : "me";
     let subjectBase64;
     let subjectImages;
@@ -383,7 +390,7 @@ export async function generateScene(opts) {
         wardrobe: opts.wardrobe ?? undefined,
         pose: opts.pose ?? undefined,
         build: opts.build ?? undefined,
-        requestId: opts.requestId ?? undefined,
+        requestId,
       }),
     });
     const data = await res.json().catch(() => null);

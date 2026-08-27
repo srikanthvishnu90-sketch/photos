@@ -10,6 +10,9 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const STANDARD_MODEL = Deno.env.get("GEMINI_IMAGE_MODEL") ?? "gemini-3.1-flash-image";
 const PRO_MODEL = Deno.env.get("GEMINI_PRO_IMAGE_MODEL") ?? "gemini-3-pro-image";
 const FREE_SCENE_UNITS_PER_MONTH = Number(Deno.env.get("FREE_SCENE_UNITS_PER_MONTH") ?? "30");
+// Free tier = ONE generation request, capped to this many images total so reusing
+// a requestId can't mint unlimited free images.
+const MAX_FREE_IMAGES = Number(Deno.env.get("MAX_FREE_IMAGES") ?? "10");
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_REFS = 3;
 
@@ -280,9 +283,13 @@ Deno.serve(async (request) => {
 
     const requestId = String(body.requestId ?? "").slice(0, 64);
     try {
-      // ---- Free tier = ONE generation request (a "prompt"). That one request may
-      // produce many images (one requestId, N images). A DIFFERENT request means
-      // the free prompt is spent → paywall until they subscribe. Fails OPEN on error.
+      // ---- Free tier = ONE generation request (a "prompt"). Hard-enforced, so
+      // reusing a requestId can't game it:
+      //   • ANY prior generation from a DIFFERENT request (or a legacy no-id one)
+      //     means the free prompt is already spent → paywall.
+      //   • Even within the same requestId, the free request is capped at
+      //     MAX_FREE_IMAGES total images, so id reuse can't mint unlimited images.
+      // Fails OPEN on a DB error (never blocks a paying flow on infra hiccup).
       const { data: profile } = await supabase
         .from("profiles").select("plan").eq("id", userId).maybeSingle();
       if ((profile?.plan ?? "free") === "free") {
@@ -292,17 +299,20 @@ Deno.serve(async (request) => {
           .eq("profile_id", userId)
           .eq("event_type", "scene_generated");
         const prior = rows ?? [];
-        // Allowed while there are NO prior generations, or every prior generation
-        // belongs to THIS same batch (requestId). Any prior generation from a
-        // different request means they've already used their one free prompt.
-        const sharesThisRequest =
-          !!requestId && prior.some((r: { subject?: { request_id?: string } }) => r.subject?.request_id === requestId);
-        if (prior.length > 0 && !sharesThisRequest) {
+        // Prior images that belong to a DIFFERENT request than this one (legacy
+        // events with no request_id count as "another request").
+        const fromAnotherRequest = prior.filter(
+          (r: { subject?: { request_id?: string } }) => (r.subject?.request_id || "__legacy__") !== requestId,
+        ).length;
+        // Images already produced under THIS request id.
+        const imagesThisRequest = prior.filter(
+          (r: { subject?: { request_id?: string } }) => r.subject?.request_id === requestId,
+        ).length;
+        if (!requestId || fromAnotherRequest > 0 || imagesThisRequest >= MAX_FREE_IMAGES) {
           return json(402, {
             error: "free_prompt_used",
             paywall: true,
-            cap: 1,
-            used: 1,
+            cap: MAX_FREE_IMAGES,
           });
         }
       }
