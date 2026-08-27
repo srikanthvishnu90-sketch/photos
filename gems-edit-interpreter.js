@@ -110,6 +110,29 @@ const BG_TARGET_RE = /\b(background|behind me|the back)\b/i;
 // ("blur the background and make it darker") would silently drop the content op.
 const CONTENT_VERB_RE = /\b(remove|erase|delete|replace|swap|add|put|insert|blur|clean up|get rid of|take out|change .* (to|into))\b/i;
 
+/**
+ * Does this text ask for anything BEYOND a named look — a content change, a
+ * scenario, a crop/zoom/rotate, a named region, or a global adjust? The editor's
+ * named-look fast path asks this about the leftovers after the look's name is
+ * removed, so a compound instruction ("remove the guy and make it moodier",
+ * "crop it square and make it after dark") keeps the half a grade can't do
+ * instead of silently dropping it. Same regexes localInterpret routes on, so the
+ * two can never disagree about what counts as an op.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function hasEditOp(text) {
+  const t = String(text || "");
+  if (!t.trim()) return false;
+  return (
+    CONTENT_VERB_RE.test(t) || SCENARIO_RE.test(t) ||
+    ZOOM_IN_RE.test(t) || ZOOM_OUT_RE.test(t) || CROP_RE.test(t) || ROTATE_RE.test(t) ||
+    SKY_RE.test(t) || FACE_TARGET_RE.test(t) || BG_TARGET_RE.test(t) ||
+    absoluteAspect(t) != null || absoluteRotate(t) != null ||
+    BW_RE.test(t) || POP_RE.test(t) || buildAdjust(t) != null
+  );
+}
+
 // Does this instruction clearly name a global adjust? Returns a merged adjust map or null.
 function buildAdjust(text) {
   if (POP_RE.test(text)) {

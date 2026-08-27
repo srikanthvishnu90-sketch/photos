@@ -1080,6 +1080,59 @@ export const FILTER_GRADES = Object.freeze([
   },
 ]);
 
+/**
+ * Match a described NAMED LOOK ("make it moodier", "after dark", "golden hour")
+ * against FILTER_GRADES — labels, keys, and aliases, which are the single source
+ * of truth for what a look is called. Returns { grade, rest } where `rest` is the
+ * instruction with the matched name removed, so the caller can see whether the
+ * user asked for anything BESIDES the look; null when nothing matches.
+ *
+ * Word forms: a single-word name also matches its plural and (for -y names) its
+ * comparatives, so the alias "moody" catches "moodier"/"moodiest" — but never the
+ * bare stem ("mood"). Multi-word looks must appear verbatim. Always word-bounded,
+ * so "gloomy" never hits "moody".
+ * @param {string} text
+ * @returns {{grade: object, rest: string}|null}
+ */
+export function matchNamedGrade(text) {
+  const t = String(text || "");
+  if (!t.trim()) return null;
+  let best = null;
+  for (const grade of FILTER_GRADES) {
+    const names = [grade.label, grade.key.replace(/-/g, " "), ...(grade.aliases || [])];
+    for (const name of names) {
+      const n = String(name || "").toLowerCase();
+      if (!n) continue;
+      const esc = (word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let forms;
+      if (/\s/.test(n)) {
+        forms = [n];
+      } else if (n.endsWith("y")) {
+        const stem = n.slice(0, -1);
+        forms = [n, `${stem}ier`, `${stem}iest`];
+      } else {
+        forms = [n, `${n}s`];
+      }
+      const re = new RegExp(`\\b(?:${forms.map(esc).join("|")})\\b`, "i");
+      const m = t.match(re);
+      // Longest name wins, so "dark gym" beats a bare "dark" alias.
+      if (m && (!best || n.length > best.name.length)) {
+        best = { grade, name: n, matched: m[0], index: m.index };
+      }
+    }
+  }
+  if (!best) return null;
+  // What's LEFT of the instruction once the look's name is taken out. Tidied so
+  // the leftovers read as an instruction on their own ("crop it square and make
+  // it" → "crop it square") — the caller may hand them to the model.
+  const rest = `${t.slice(0, best.index)} ${t.slice(best.index + best.matched.length)}`
+    .replace(/\s+/g, " ")
+    .replace(/(?:\s*\b(?:and|then|plus|also|but|make|it|this|that)\b|\s*[,;])+\s*$/i, "")
+    .replace(/^(?:\s*\b(?:and|then|plus|also|but)\b|\s*[,;])+\s*/i, "")
+    .trim();
+  return { grade: best.grade, rest };
+}
+
 // Which adjust keys require the full per-pixel pipeline (paintFull) rather than
 // the cheap 4-key paintAdjust — so richer grades like After Dark render fully.
 const RICH_ADJUST_KEYS = Object.freeze([

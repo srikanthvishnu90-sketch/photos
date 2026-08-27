@@ -5,8 +5,9 @@
 // interpret-edit function when a session token is available.
 //   run:  node tool/edit-interpreter-eval.mjs
 import {
-  localInterpret, magnitudeFor, zoomInRetain, zoomOutGrow, cropRectFor,
+  localInterpret, magnitudeFor, zoomInRetain, zoomOutGrow, cropRectFor, hasEditOp,
 } from "../gems-edit-interpreter.js";
+import { matchNamedGrade } from "../gems-canvas.js";
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => {
@@ -138,6 +139,59 @@ ok("zoomOutGrow 'whole room' big", zoomOutGrow("show the whole room") >= 0.6);
   // crop rect with aspect 1:1 from a 1000x800 retain 1 → 800x800
   const rect = cropRectFor({ retain: 1, aspect: "1:1", center: "center" }, 1000, 800);
   ok("cropRect 1:1 → 800x800", rect.w === 800 && rect.h === 800, JSON.stringify(rect));
+}
+
+// Named looks — the on-device fast path. A look the app already owns must match
+// (aliases and comparatives included), tonal words must NOT, and a compound ask
+// must leave the rest of the instruction behind for the interpreter to finish.
+console.log("\n  named looks (fast path)");
+{
+  const hits = [
+    ["make it moodier", "after-dark"],
+    ["after dark", "after-dark"],
+    ["give it that moody look", "after-dark"],
+    ["golden hour please", "golden-hour"],
+    ["make it dark gym", "dark-gym"],
+    ["clean editorial", "clean-editorial"],
+    ["make it look like film", "film"],
+  ];
+  for (const [text, key] of hits) {
+    const m = matchNamedGrade(text);
+    ok(`named '${text}' → ${key}`, m?.grade.key === key, `got ${m?.grade.key ?? "null"}`);
+  }
+  // Tonal words own the slider path — a grade must never swallow them.
+  for (const text of ["brighter", "make it darker", "warmer", "more contrast", "set the mood"]) {
+    ok(`tonal '${text}' is NOT a named look`, matchNamedGrade(text) === null,
+      `got ${matchNamedGrade(text)?.grade.key}`);
+  }
+  // Longest name wins over a shorter alias inside it.
+  ok("'dark gym' beats 'dark' aliases", matchNamedGrade("shoot it dark gym")?.grade.key === "dark-gym");
+}
+
+// The compound guard: whatever is LEFT after the look's name is removed decides
+// whether the grade alone finished the job.
+console.log("\n  compound instructions");
+{
+  const cases = [
+    ["make it moodier", false],
+    ["after dark", false],
+    ["golden hour vibes", false],
+    ["remove the guy in the background and make it moodier", true],
+    ["crop it square and make it after dark", true],
+    ["make it moodier and brighter", true],
+    ["blur the background, golden hour", true],
+    ["put me in tokyo, after dark", true],
+  ];
+  for (const [text, expected] of cases) {
+    const m = matchNamedGrade(text);
+    ok(`compound '${text}' → ${expected ? "rest remains" : "look only"}`,
+      !!m && hasEditOp(m.rest) === expected, `rest='${m?.rest}' op=${m && hasEditOp(m.rest)}`);
+  }
+  // hasEditOp on its own: it is the same vocabulary localInterpret routes on.
+  ok("hasEditOp('') false", hasEditOp("") === false);
+  ok("hasEditOp('make it ') false", hasEditOp("make it ") === false);
+  ok("hasEditOp('crop it square') true", hasEditOp("crop it square") === true);
+  ok("hasEditOp('remove the sign') true", hasEditOp("remove the sign") === true);
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);

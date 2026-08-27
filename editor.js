@@ -20,11 +20,12 @@ import {
   HSL_BANDS,
   cssFilterFor,
   FILTER_GRADES,
+  matchNamedGrade,
 } from "./gems-canvas.js";
 
 import { loadPresets, savePresetsList } from "./gems-presets.js";
 import { segmentPerson } from "./gems-segment.js";
-import { interpretEdit, pushSessionOp, cropRectFor, prewarmInterpreter } from "./gems-edit-interpreter.js";
+import { interpretEdit, pushSessionOp, cropRectFor, prewarmInterpreter, hasEditOp } from "./gems-edit-interpreter.js";
 import { createGenProgress } from "./gems-gen-progress.js";
 import { generateScene, matchPackForText } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
@@ -3949,33 +3950,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   // The Describe-It entrypoint (real-photo mode): interpret, then execute the plan.
   // A described NAMED LOOK ("make it moodier", "after dark", "golden hour") is a
-  // grade we already own — match it against FILTER_GRADES (the single source of
-  // truth, aliases included) and apply it on-device: instant, free, works
-  // offline, and always exactly the look asked for. Returns the grade or null.
-  function matchNamedGrade(text) {
-    const t = String(text || "").toLowerCase();
-    if (!t) return null;
-    let best = null;
-    for (const grade of FILTER_GRADES) {
-      const names = [grade.label, grade.key.replace(/-/g, " "), ...(grade.aliases || [])];
-      for (const name of names) {
-        const n = String(name || "").toLowerCase();
-        if (!n) continue;
-        const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        // Single words tolerate comparative/plural endings so the alias "moody"
-        // also catches "moodier"/"moodiest"; multi-word looks ("after dark")
-        // must match exactly. Word-bounded, so "gloomy" never hits "moody".
-        const pattern = /\s/.test(n)
-          ? `\\b${esc}\\b`
-          : `\\b${esc.replace(/y$/, "")}(?:y|ier|iest|ies|s|er)?\\b`;
-        if (new RegExp(pattern).test(t)) {
-          if (!best || n.length > best.n.length) best = { grade, n };
-        }
-      }
-    }
-    return best?.grade ?? null;
-  }
-
+  // grade we already own, so matchNamedGrade() (over FILTER_GRADES, the single
+  // source of truth) applies it on-device: instant, free, offline, and always
+  // exactly the look asked for.
   async function runInterpretedEdit(prompt) {
     if (processing) return;
     clearClarify();
@@ -3984,18 +3961,28 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     lastInstruction = prompt;
     status.textContent = "Reading your edit…";
 
-    // Named-look fast path — no network at all.
-    const namedGrade = matchNamedGrade(prompt);
-    if (namedGrade) {
+    // Named-look fast path — no network at all. When the instruction asks for
+    // ANYTHING besides the look ("remove the guy and make it moodier", "crop it
+    // square and make it after dark"), the grade is only half the ask: apply it
+    // here, then carry the REST on to the interpreter. Stopping at the grade
+    // would silently drop the part the user probably cared about most.
+    let instruction = prompt;
+    const named = matchNamedGrade(prompt);
+    if (named) {
       try {
         const bitmap = await activeBitmap();
-        const blob = bitmap ? applyGrade(bitmap, namedGrade) : null;
+        const blob = bitmap ? applyGrade(bitmap, named.grade) : null;
         if (blob) {
-          recordSessionOp({ op: "style", params: { grade: namedGrade.key } });
-          commitManualVersion(namedGrade.label, blob, "Describe");
+          const rest = hasEditOp(named.rest) ? named.rest.trim() : "";
+          recordSessionOp({ op: "style", params: { grade: named.grade.key } });
+          commitManualVersion(named.grade.label, blob, "Describe");
           editorActions.requestEdit(prompt, currentVersion());
-          status.textContent = `${namedGrade.label} applied.`;
-          return;
+          if (!rest) {
+            status.textContent = `${named.grade.label} applied.`;
+            return;
+          }
+          instruction = rest;
+          status.textContent = `${named.grade.label} applied — now: ${rest}`;
         }
       } catch (error) {
         console.info("named grade failed, falling through to the interpreter", error);
@@ -4004,13 +3991,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     let result;
     try {
       result = await interpretEdit({
-        instruction: prompt,
+        instruction,
         sessionState: editSession,
         photoMeta: photoMetaForInterpreter(),
       });
     } catch (error) {
       console.info("interpret failed, using generative fallback", error);
-      void requestRealEdit(prompt, "describe");
+      void requestRealEdit(instruction, "describe");
       return;
     }
     if (result?.clarify && (!result.plan || !result.plan.length)) {
@@ -4019,7 +4006,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
     const plan = Array.isArray(result?.plan) ? result.plan : [];
     if (!plan.length) {
-      void requestRealEdit(prompt, "describe");
+      // The model sees only what's LEFT to do — the grade is already applied,
+      // and re-sending its name would have the model grade it a second time.
+      void requestRealEdit(instruction, "describe");
       return;
     }
     // Execute ops in order. Generative/scenario ops manage their own status.

@@ -775,10 +775,10 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   //   3. the only photo in the library
   //   4. otherwise ASK, with tappable thumbnails (hidden gem first)
   // Returns true when the message was handled (routed or awaiting a tap).
-  async function routeEditToPhoto(prompt, { preferredPhotoId = null } = {}) {
+  async function routeEditToPhoto(prompt, { preferredPhotoId = null, logPrompt = true } = {}) {
     const openEditor = (photoId, note) => {
       lastEditTargetId = photoId;
-      void homeActions.sendPrompt(prompt);
+      if (logPrompt) void homeActions.sendPrompt(prompt);
       chatInput.value = "";
       syncChat();
       showReply(note || "Opening the editor to make that change…");
@@ -820,7 +820,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const gem = candidates.find((p) => p.id === hiddenGemPhotoId);
       if (gem) candidates = [gem, ...candidates.filter((p) => p.id !== hiddenGemPhotoId)];
     }
-    void homeActions.sendPrompt(prompt);
+    if (logPrompt) void homeActions.sendPrompt(prompt);
     chatInput.value = "";
     syncChat();
     pendingEditInstruction = prompt;
@@ -966,7 +966,13 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
             chatHistory = [];
             // The attachments were cleared when the request was sent, so hand
             // over the id captured at send time — an explicit attach still wins.
-            if (await routeEditToPhoto(routed.payload.instruction, { preferredPhotoId: attachedIdAtSend })) return;
+            // logPrompt:false — this send was already counted before the
+            // request went out; counting it again would inflate chat_prompt_sent
+            // for every server-routed edit.
+            if (await routeEditToPhoto(routed.payload.instruction, {
+              preferredPhotoId: attachedIdAtSend,
+              logPrompt: false,
+            })) return;
           } else {
             // The server named a photo: that becomes the session's edit target,
             // so a follow-up ("now warmer") stays on it rather than the old one.
