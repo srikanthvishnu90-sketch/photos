@@ -346,6 +346,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   const MAX_ATTACH = 3;
   // A fast-path edit waiting on the user to pick WHICH photo (reply thumbnails).
   let pendingEditInstruction = "";
+  // The photo the user last confirmed/edited this session — follow-up edits
+  // ("now make it warmer") stick to it instead of re-asking or guessing.
+  let lastEditTargetId = null;
   const chatSend = mount.querySelector("#homeChatSend");
   const chatStatus = mount.querySelector("#homeChatStatus");
   const replyStrip = mount.querySelector("#homeReplyStrip");
@@ -766,19 +769,63 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     return EDIT_LEAD_RE.test(t) || EDIT_WORD_RE.test(t);
   }
 
-  // Which photo should a Home-chat edit act on? Prefer today's hidden gem (the
-  // one already surfaced on screen), else the most recent import. Null when the
-  // library is empty — the editor then just prefills the instruction.
-  async function editTargetPhotoId() {
-    if (hiddenGemPhotoId) return hiddenGemPhotoId;
+  // Send an edit instruction to the right photo, in priority order:
+  //   1. an ATTACHED photo — an explicit choice is never second-guessed
+  //   2. the photo this session already edited — follow-ups ("now warmer") stick
+  //   3. the only photo in the library
+  //   4. otherwise ASK, with tappable thumbnails (hidden gem first)
+  // Returns true when the message was handled (routed or awaiting a tap).
+  async function routeEditToPhoto(prompt, { preferredPhotoId = null } = {}) {
+    const openEditor = (photoId, note) => {
+      lastEditTargetId = photoId;
+      void homeActions.sendPrompt(prompt);
+      chatInput.value = "";
+      syncChat();
+      showReply(note || "Opening the editor to make that change…");
+      goTo("Editor", { mode: "describe", instruction: prompt, photoId });
+      return true;
+    };
+    // "a different photo" / "another one" explicitly drops the sticky target.
+    if (/\b(different|another|other|new) (photo|one|picture|image|pic)\b/i.test(prompt)) {
+      lastEditTargetId = null;
+    }
+
+    // An explicitly attached photo always wins. On the server-routed path the
+    // attachments were already cleared when the request was sent, so the caller
+    // passes the id it captured then.
+    const attachedId = chatAttachments[0]?.id ?? preferredPhotoId;
+    if (attachedId) {
+      if (chatAttachments.length) clearAttachments();
+      return openEditor(attachedId);
+    }
+
+    let candidates = [];
     try {
       const all = await listPhotos();
-      if (!Array.isArray(all) || !all.length) return null;
-      // listPhotos already returns newest-first (sorted by addedAt).
-      return all[0]?.id ?? null;
+      candidates = (Array.isArray(all) ? all : []).filter((p) => p?.id && p?.url);
     } catch {
-      return null;
+      candidates = [];
     }
+    if (!candidates.length) return false; // empty library → let the chat reply
+
+    // A follow-up edit stays on the photo we just worked on — said out loud, so
+    // it's correctable ("a different photo" resets it above).
+    if (lastEditTargetId && candidates.some((p) => p.id === lastEditTargetId)) {
+      return openEditor(lastEditTargetId, "Same photo as before — say “a different photo” to switch.");
+    }
+    if (candidates.length === 1) return openEditor(candidates[0].id);
+
+    // Ambiguous → ask. Today's hidden gem leads the thumbnails.
+    if (hiddenGemPhotoId) {
+      const gem = candidates.find((p) => p.id === hiddenGemPhotoId);
+      if (gem) candidates = [gem, ...candidates.filter((p) => p.id !== hiddenGemPhotoId)];
+    }
+    void homeActions.sendPrompt(prompt);
+    chatInput.value = "";
+    syncChat();
+    pendingEditInstruction = prompt;
+    showReply("Which photo should I edit? Tap one.", null, candidates.slice(0, 6));
+    return true;
   }
 
   // The real Gems orchestrator call. Every failure path degrades to a gentle
@@ -794,47 +841,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     // background", "crop this") opens the editor on the user's photo and applies
     // it right away — no server round-trip, so it works offline and in demo too.
     pendingEditInstruction = "";
-    if (looksLikeEdit(prompt)) {
-      // 1) An attached photo IS the target — never guess past an explicit attach.
-      if (chatAttachments.length) {
-        const target = chatAttachments[0];
-        void homeActions.sendPrompt(prompt);
-        chatInput.value = "";
-        syncChat();
-        clearAttachments();
-        showReply("Opening the editor to make that change…");
-        goTo("Editor", { mode: "describe", instruction: prompt, photoId: target.id });
-        return;
-      }
-      // 2) One photo in the library → no ambiguity. Several → CONFIRM with
-      // tappable thumbnails instead of guessing (the #1 fast-path complaint).
-      let candidates = [];
-      try {
-        const all = await listPhotos();
-        candidates = (Array.isArray(all) ? all : []).filter((p) => p?.id && p?.url);
-        if (hiddenGemPhotoId) {
-          const gem = candidates.find((p) => p.id === hiddenGemPhotoId);
-          if (gem) candidates = [gem, ...candidates.filter((p) => p.id !== hiddenGemPhotoId)];
-        }
-      } catch { candidates = []; }
-      if (candidates.length === 1) {
-        void homeActions.sendPrompt(prompt);
-        chatInput.value = "";
-        syncChat();
-        showReply("Opening the editor to make that change…");
-        goTo("Editor", { mode: "describe", instruction: prompt, photoId: candidates[0].id });
-        return;
-      }
-      if (candidates.length > 1) {
-        void homeActions.sendPrompt(prompt);
-        chatInput.value = "";
-        syncChat();
-        pendingEditInstruction = prompt;
-        showReply("Which photo should I edit? Tap one.", null, candidates.slice(0, 6));
-        return;
-      }
-      // No photos yet — fall through so the user gets a helpful reply.
-    }
+    if (looksLikeEdit(prompt) && (await routeEditToPhoto(prompt))) return;
 
     // Fast path: a dating-profile request opens the dating flow DIRECTLY — no
     // server round-trip, so it always works even if the orchestrator hiccups.
@@ -860,6 +867,9 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     void homeActions.sendPrompt(prompt);
     chatStatus.textContent = `Sent: ${prompt}`;
     chatInput.value = "";
+    // Remember any attached photo BEFORE the request clears the attachments —
+    // if the server routes this to the Editor, that attach is still the target.
+    const attachedIdAtSend = chatAttachments[0]?.id ?? null;
 
     try {
       const session = await getSession();
@@ -948,15 +958,20 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const routed = chatActionPayload(data);
       if (routed) {
         // An edit routed to the Editor needs a photo to act on. If the server
-        // didn't name one, target the photo the user is most likely to mean:
-        // today's hidden gem, else their most recent import.
-        if (
-          routed.navigate === "Editor" &&
-          routed.payload?.instruction &&
-          routed.payload.photoId == null
-        ) {
-          const targetId = await editTargetPhotoId();
-          if (targetId) routed.payload.photoId = targetId;
+        // didn't name one, use the SAME resolution the fast path uses (attached
+        // → this session's photo → the only photo → ask with thumbnails) rather
+        // than silently guessing.
+        if (routed.navigate === "Editor" && routed.payload?.instruction) {
+          if (routed.payload.photoId == null) {
+            chatHistory = [];
+            // The attachments were cleared when the request was sent, so hand
+            // over the id captured at send time — an explicit attach still wins.
+            if (await routeEditToPhoto(routed.payload.instruction, { preferredPhotoId: attachedIdAtSend })) return;
+          } else {
+            // The server named a photo: that becomes the session's edit target,
+            // so a follow-up ("now warmer") stays on it rather than the old one.
+            lastEditTargetId = routed.payload.photoId;
+          }
         }
         // The ask was fulfilled and we're leaving Home — end this thread.
         chatHistory = [];
@@ -1131,9 +1146,11 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   replyPhotos?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-reply-photo]");
     if (!btn) return;
-    // A pending fast-path edit rides along: the tapped photo becomes its target.
+    // A pending fast-path edit rides along: the tapped photo becomes its target,
+    // and it's remembered so follow-up edits don't ask again.
     const instruction = pendingEditInstruction;
     pendingEditInstruction = "";
+    lastEditTargetId = btn.dataset.replyPhoto;
     goTo("Editor", {
       mode: "describe",
       photoId: btn.dataset.replyPhoto,

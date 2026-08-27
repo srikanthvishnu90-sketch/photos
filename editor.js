@@ -24,7 +24,8 @@ import {
 
 import { loadPresets, savePresetsList } from "./gems-presets.js";
 import { segmentPerson } from "./gems-segment.js";
-import { interpretEdit, pushSessionOp, cropRectFor } from "./gems-edit-interpreter.js";
+import { interpretEdit, pushSessionOp, cropRectFor, prewarmInterpreter } from "./gems-edit-interpreter.js";
+import { createGenProgress } from "./gems-gen-progress.js";
 import { generateScene, matchPackForText } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
@@ -315,6 +316,28 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const canvas = mount.querySelector("#editorCanvas");
   const photoView = mount.querySelector("#editorPhotoView");
   const processingOverlay = mount.querySelector("#editorProcessing");
+  // Model edits show the shared staged generation lifecycle inside the
+  // processing overlay; instant on-device ops keep the plain "Working on it…".
+  const defaultProcessingHTML = processingOverlay.innerHTML;
+  let genDriver = null;
+  // Each run owns its overlay: a late finisher must not stop or replace the
+  // overlay a NEWER run already put up, so teardown is keyed on the run id.
+  let genRunId = 0;
+  function showGenLifecycle(request) {
+    genDriver?.stop();
+    genRunId += 1;
+    genDriver = createGenProgress({ request, packLabel: "Gems", count: 1 });
+    processingOverlay.innerHTML = genDriver.html();
+    genDriver.attach(processingOverlay);
+    return genRunId;
+  }
+  function endGenLifecycle(runId) {
+    if (!genDriver) return;
+    if (runId != null && runId !== genRunId) return; // a newer run owns it now
+    genDriver.stop();
+    genDriver = null;
+    processingOverlay.innerHTML = defaultProcessingHTML;
+  }
   const reroll = mount.querySelector("#editorReroll");
   const versionsRoot = mount.querySelector("#editorVersions");
   const describePanel = mount.querySelector("#editorDescribePanel");
@@ -3497,6 +3520,10 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       if (processing || versions.length > 1) return;
       photo = record;
       loadEditSession();
+      // Warm the edit endpoints (TLS + edge cold start) so the FIRST described
+      // edit doesn't pay them. Fire-and-forget, free.
+      prewarmInterpreter();
+      try { void fetch(EDIT_FUNCTION_URL, { method: "OPTIONS" }).catch(() => {}); } catch { /* ignore */ }
       photoView.alt = record.name || "Photo being edited";
       versions = [{ id: 0, label: "Original", url: record.url }];
       activeVersionId = 0;
@@ -3543,9 +3570,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     if (kind === "describe") lastInstruction = instruction;
     promptInput.value = "";
     processing = true;
+    reroll.classList.remove("is-attention");
     syncPrompt();
     renderVersions();
     syncCanvas();
+    const genRun = showGenLifecycle(instruction);
     status.textContent = `Applying edit: ${instruction}`;
     abortController = new AbortController();
     let succeeded = false;
@@ -3588,7 +3617,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         succeeded = true;
         status.textContent = `Version ${nextId} is ready.`;
         editorActions.editResultShown(data.kind ?? kind, data.model ?? "unknown");
-        void verifyEditIdentity(data.url, token);
+        void verifyEditIdentity(data.url, token, nextId);
       } else if (response.status === 402) {
         const cap = Number(data?.cap);
         status.textContent = Number.isFinite(cap)
@@ -3604,6 +3633,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       console.info("Edit request failed", error);
       status.textContent = "That edit didn't go through — try again.";
     } finally {
+      endGenLifecycle(genRun);
       if (token === activationToken) {
         processing = false;
         renderVersions({ focusActive: succeeded });
@@ -3617,7 +3647,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // tagged identity (on-device, same check scenes use). A drifted face gets a
   // warning + the Reroll hint instead of silently shipping a stranger. Never
   // blocks, never spends another credit on its own.
-  async function verifyEditIdentity(url, token) {
+  async function verifyEditIdentity(url, token, versionId) {
     try {
       if (!(await hasMeIdentity())) return;
       const res = await fetch(url);
@@ -3625,9 +3655,12 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const bitmap = await createImageBitmap(blob);
       const dist = await faceDistanceToMe(bitmap);
       bitmap.close?.();
-      if (token !== activationToken || dist == null) return;
+      // A slow check must not speak for a version the user has already moved
+      // past — it would warn about (and point Reroll at) the wrong edit.
+      if (token !== activationToken || versionId !== activeVersionId || dist == null) return;
       if (dist > 0.62) {
         status.textContent = "Heads up — the face drifted from you in that edit. Tap Reroll to try again.";
+        reroll.classList.add("is-attention");
       }
     } catch (error) {
       console.info("edit identity check skipped", error);
@@ -3853,6 +3886,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // Scenario placement: put the user into a generated scene via generate-scene.
   async function applyScenario(params) {
     const token = activationToken;
+    let scenarioGenRun = null;
     processing = true;
     syncPrompt();
     renderVersions();
@@ -3861,6 +3895,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     try {
       const specParts = [params.scene_spec, params.camera, params.pose].filter(Boolean);
       const scenePrompt = specParts.join(". ").slice(0, 780) || "a photo of me in the scene";
+      scenarioGenRun = showGenLifecycle(scenePrompt);
       // Route the scenario into the nearest style pack so it inherits that
       // pack's REAL environment-reference conditioning (the anti-AI anchor),
       // and attach the user's tagged face cluster for identity fidelity.
@@ -3893,6 +3928,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       console.info("scenario generation failed", error);
       status.textContent = "That scene didn't generate — try again.";
     } finally {
+      endGenLifecycle(scenarioGenRun);
       if (token === activationToken) {
         processing = false;
         renderVersions({ focusActive: true });
@@ -3912,6 +3948,34 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   }
 
   // The Describe-It entrypoint (real-photo mode): interpret, then execute the plan.
+  // A described NAMED LOOK ("make it moodier", "after dark", "golden hour") is a
+  // grade we already own — match it against FILTER_GRADES (the single source of
+  // truth, aliases included) and apply it on-device: instant, free, works
+  // offline, and always exactly the look asked for. Returns the grade or null.
+  function matchNamedGrade(text) {
+    const t = String(text || "").toLowerCase();
+    if (!t) return null;
+    let best = null;
+    for (const grade of FILTER_GRADES) {
+      const names = [grade.label, grade.key.replace(/-/g, " "), ...(grade.aliases || [])];
+      for (const name of names) {
+        const n = String(name || "").toLowerCase();
+        if (!n) continue;
+        const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // Single words tolerate comparative/plural endings so the alias "moody"
+        // also catches "moodier"/"moodiest"; multi-word looks ("after dark")
+        // must match exactly. Word-bounded, so "gloomy" never hits "moody".
+        const pattern = /\s/.test(n)
+          ? `\\b${esc}\\b`
+          : `\\b${esc.replace(/y$/, "")}(?:y|ier|iest|ies|s|er)?\\b`;
+        if (new RegExp(pattern).test(t)) {
+          if (!best || n.length > best.n.length) best = { grade, n };
+        }
+      }
+    }
+    return best?.grade ?? null;
+  }
+
   async function runInterpretedEdit(prompt) {
     if (processing) return;
     clearClarify();
@@ -3919,6 +3983,24 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     syncPrompt();
     lastInstruction = prompt;
     status.textContent = "Reading your edit…";
+
+    // Named-look fast path — no network at all.
+    const namedGrade = matchNamedGrade(prompt);
+    if (namedGrade) {
+      try {
+        const bitmap = await activeBitmap();
+        const blob = bitmap ? applyGrade(bitmap, namedGrade) : null;
+        if (blob) {
+          recordSessionOp({ op: "style", params: { grade: namedGrade.key } });
+          commitManualVersion(namedGrade.label, blob, "Describe");
+          editorActions.requestEdit(prompt, currentVersion());
+          status.textContent = `${namedGrade.label} applied.`;
+          return;
+        }
+      } catch (error) {
+        console.info("named grade failed, falling through to the interpreter", error);
+      }
+    }
     let result;
     try {
       result = await interpretEdit({
@@ -4069,6 +4151,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       activationToken += 1;
       processing = false;
       manualBusy = false;
+      // Leaving the editor stops the lifecycle overlay's interval — an
+      // unabortable scenario request must not leave it ticking.
+      genRunId += 1;
+      endGenLifecycle(genRunId);
+      reroll.classList.remove("is-attention");
       teardownToolPanel();
       revokeManualUrls();
       bitmapCache.clear();

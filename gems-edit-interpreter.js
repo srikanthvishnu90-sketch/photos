@@ -104,6 +104,11 @@ const RELATIVE_MORE_RE = /^\s*(a little more|a bit more|more|again|even more)\s*
 const RELATIVE_LESS_RE = /\b(less|too much|dial it back|go back a bit|not so much|tone it down|back a bit)\b/i;
 const SKY_RE = /\bsky\b/i;
 const FACE_TARGET_RE = /\b(face|her face|his face|my face|their face)\b/i;
+const BG_TARGET_RE = /\b(background|behind me|the back)\b/i;
+// Content changes only a generative model can do. If one appears ANYWHERE in the
+// instruction, the whole thing defers — otherwise a tonal word riding along
+// ("blur the background and make it darker") would silently drop the content op.
+const CONTENT_VERB_RE = /\b(remove|erase|delete|replace|swap|add|put|insert|blur|clean up|get rid of|take out|change .* (to|into))\b/i;
 
 // Does this instruction clearly name a global adjust? Returns a merged adjust map or null.
 function buildAdjust(text) {
@@ -135,6 +140,9 @@ export function localInterpret(instruction, sessionState = {}) {
 
   // Scenario / content edits / anything with an explicit person placement → model.
   if (SCENARIO_RE.test(text)) return null;
+  // A content verb anywhere means the model has to run: resolving only the
+  // tonal half on-device would silently drop the part the user cared about.
+  if (CONTENT_VERB_RE.test(text)) return null;
 
   // ---- Relative follow-ups (session memory).
   if (RELATIVE_MORE_RE.test(text) && last) {
@@ -194,15 +202,33 @@ export function localInterpret(instruction, sessionState = {}) {
     steps.push({ op: "expand", engine: "generative", params: { grow: zoomOutGrow(text) }, say: `Showing more of the scene` });
   }
 
-  // Local adjust on the sky ("make the sky bluer", "brighten the sky").
+  // Local adjust on a NAMED REGION (sky / face / background) — a masked
+  // on-device op, never a global slide. When a region is named but nothing
+  // deterministic can be built, defer to the model rather than editing globally.
+  let regionTargeted = false;
   if (SKY_RE.test(text) && !ZOOM_IN_RE.test(text)) {
+    regionTargeted = true;
     const adj = buildAdjust(text) || (/blue/i.test(text) ? { saturation: Math.round(magnitudeFor(text) * 100) } : null);
     if (adj) steps.push({ op: "local_adjust", engine: "client", params: { target: "sky", adjust: adj }, say: `Bluing the sky` });
   } else if (FACE_TARGET_RE.test(text) && /(bright|light|even|glow)/i.test(text) && !SCENARIO_RE.test(text)) {
+    regionTargeted = true;
     const adj = buildAdjust(text) || { brightness: Math.round(magnitudeFor(text) * 100) };
     steps.push({ op: "local_adjust", engine: "client", params: { target: "face", adjust: adj }, say: `Brightening the face` });
-  } else {
-    // Global adjust (only if we didn't already make it a crop-only or sky op).
+  } else if (
+    // "darken the background", "make the background less colorful" — tonal only;
+    // content changes (remove/replace/blur/swap) still defer to the model.
+    BG_TARGET_RE.test(text) &&
+    !SCENARIO_RE.test(text) &&
+    !/\b(remove|replace|swap|blur|delete|erase|change the background to|new background)\b/i.test(text)
+  ) {
+    regionTargeted = true;
+    const adj = buildAdjust(text) || (/(dark|dim|mood)/i.test(text) ? { brightness: -Math.round(magnitudeFor(text) * 100) } : null);
+    if (adj) {
+      steps.push({ op: "local_adjust", engine: "client", params: { target: "background", adjust: adj }, say: "Adjusting the background" });
+    }
+  }
+  if (!regionTargeted) {
+    // Global adjust (only if we didn't already make it a region-scoped op).
     const adj = buildAdjust(text);
     if (adj) steps.push({ op: "adjust", engine: "client", params: adj, say: adjustSay(adj) });
   }
@@ -215,6 +241,14 @@ export function localInterpret(instruction, sessionState = {}) {
 
 function plan(steps) {
   return { plan: steps, source: "local" };
+}
+
+// Warm the interpreter path (TLS + edge cold start) the moment the editor opens
+// on a real photo, so the first described edit doesn't pay it. Fire-and-forget.
+export function prewarmInterpreter() {
+  try {
+    void fetch(FN_URL, { method: "OPTIONS" }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 // Scale an adjust map by a factor (for session "more"/"less"), clamped -100..100.

@@ -243,6 +243,16 @@
   border-radius: 11px 11px 5px 5px;
 }
 
+/* The face-drift warning points here: pulse the Reroll control until the next edit. */
+.editor-reroll.is-attention {
+  animation: editor-reroll-pulse 1.2s ease-in-out 5;
+}
+@keyframes editor-reroll-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) { .editor-reroll.is-attention { animation: none; } }
+
 .editor-processing {
   position: absolute;
   z-index: 3;
