@@ -5,6 +5,7 @@
 import { listPhotos, importPhotoFiles, getPhotoBlob } from "./gems-photolib.js";
 import { searchSchools, generateCommitment, SPORTS } from "./gems-commitment.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
+import { createGenProgress } from "./gems-gen-progress.js";
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -16,7 +17,7 @@ export async function openCommitmentStudio() {
   if (typeof document === "undefined") return;
   document.querySelector(".commit-overlay")?.remove();
 
-  const state = { photoId: null, school: null, sport: "football", name: "", headline: "COMMITTED", busy: false, resultUrl: "", faceNote: "" };
+  const state = { photoId: null, school: null, sport: "football", name: "", headline: "COMMITTED", busy: false, resultUrl: "", faceNote: "", gen: null };
 
   const overlay = document.createElement("div");
   overlay.className = "commit-overlay";
@@ -42,7 +43,16 @@ export async function openCommitmentStudio() {
       </header>
       <div class="commit-body">
         ${
-          state.resultUrl
+          state.busy
+            ? `<div class="commit-result">
+                 <div class="gen-stage">
+                   <div class="gen-pic"></div>
+                   <div class="gen-grain"></div>
+                   <span class="gen-tag">AI POST${state.school ? " · " + esc(state.school.display) : ""}</span>
+                   ${state.gen ? state.gen.html() : ""}
+                 </div>
+               </div>`
+            : state.resultUrl
             ? `<div class="commit-result">
                  <img class="commit-result-img" src="${esc(state.resultUrl)}" alt="Your commitment post" />
                  ${state.faceNote ? `<p class="commit-note">${esc(state.faceNote)}</p>` : ""}
@@ -87,6 +97,8 @@ export async function openCommitmentStudio() {
       </div>
     `;
     wire();
+    // Re-bind the staged lifecycle overlay after every innerHTML rebuild.
+    if (state.busy && state.gen) state.gen.attach(overlay);
   };
 
   function wire() {
@@ -175,6 +187,11 @@ export async function openCommitmentStudio() {
     if (state.busy || !state.photoId || !state.school) return;
     state.busy = true;
     state.faceNote = "";
+    state.gen = createGenProgress({
+      request: `${state.headline.toLowerCase()} — ${state.school.display}`,
+      packLabel: state.school.display,
+      count: 1,
+    });
     render();
     const status = overlay.querySelector("[data-status]");
 
@@ -215,6 +232,8 @@ export async function openCommitmentStudio() {
     }
 
     state.busy = false;
+    state.gen?.stop();
+    state.gen = null;
     if (best?.url) {
       state.resultUrl = best.url;
       state.faceNote =

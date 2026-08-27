@@ -390,6 +390,7 @@ export async function generateScene(opts) {
         wardrobe: opts.wardrobe ?? undefined,
         pose: opts.pose ?? undefined,
         build: opts.build ?? undefined,
+        environmentRef: Number.isFinite(opts.environmentRef) ? opts.environmentRef : undefined,
         requestId,
       }),
     });

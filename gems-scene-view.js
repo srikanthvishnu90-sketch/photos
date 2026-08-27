@@ -7,6 +7,7 @@ import {
   poseOptionsFor, outfitOptionsFor, settingOptionsFor, datingShots, editStyles,
 } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
+import { createGenProgress } from "./gems-gen-progress.js";
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -67,6 +68,8 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     // "describe → image" animation: revealing = the one-time reveal of the first
     // result; revealText = the words that dissolve into it.
     revealing: false, revealText: "",
+    // Staged lifecycle overlay (gems-gen-progress) + how many the batch will make.
+    gen: null, batchTotal: 0,
   };
 
   const overlay = document.createElement("div");
@@ -110,10 +113,24 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
             : state.results.length
             ? (() => {
         const cur = state.results[state.resultIndex] || state.results[0];
-        const many = state.results.length > 1;
-        // Result page: what you asked → the images → a small chatbox → Edit + Export.
-        return `<div class="commit-result">
-                 ${state.revealText ? `<p class="scene-asked">“${esc(state.revealText)}”</p>` : ""}
+        const total = Math.max(state.batchTotal, state.results.length);
+        const many = total > 1;
+        const pending = state.busy ? Math.max(0, total - state.results.length) : 0;
+        const packLabel = (STYLE_PACKS.find((s) => s.id === state.pack) || {}).label
+          || (state.pack ? state.pack.replace(/-/g, " ") : "Your scene");
+        // Result page, styled like an Instagram post: header → the image → an
+        // icon action row (Edit / Chat / Export / Save) → the other images from
+        // the batch as thumbnails (each its own scene + editing style) → refine.
+        return `<div class="commit-result scene-post">
+                 <div class="scene-post-head">
+                   <div class="scene-post-id">
+                     <span class="scene-post-mark" aria-hidden="true">G</span>
+                     <div>
+                       <b>${esc(packLabel)}</b>
+                       <span>AI SCENE${many ? ` · ${state.resultIndex + 1} of ${total}` : ""}${cur.styleName ? ` · ${esc(cur.styleName)}` : ""}</span>
+                     </div>
+                   </div>
+                 </div>
                  <div class="scene-carousel">
                    <div class="scene-carousel-view" data-carousel>
                      <img class="commit-result-img" src="${esc(cur.url)}" alt="Generated scene ${state.resultIndex + 1}" />
@@ -121,29 +138,50 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                    ${many ? `<button class="scene-nav scene-nav--prev" data-prev type="button" aria-label="Previous"${state.resultIndex === 0 ? " disabled" : ""}>‹</button>
                    <button class="scene-nav scene-nav--next" data-next type="button" aria-label="Next"${state.resultIndex === state.results.length - 1 ? " disabled" : ""}>›</button>` : ""}
                  </div>
-                 ${many ? `<div class="scene-dots">${state.results.map((_, i) => `<span class="scene-dot${i === state.resultIndex ? " is-active" : ""}"></span>`).join("")}</div>` : ""}
-                 ${cur.styleName ? `<p class="scene-style-tag">${esc(cur.styleName)}${many ? ` · ${state.resultIndex + 1} of ${state.results.length}` : ""}</p>` : ""}
+                 <div class="scene-actionrow">
+                   <button class="scene-icon" data-edit type="button">
+                     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 14.2 13.6 4.1a1.9 1.9 0 0 1 2.7 2.7L6.2 16.9l-3.6.9.9-3.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                     Edit
+                   </button>
+                   <button class="scene-icon" data-chat type="button">
+                     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.2c4 0 7 2.6 7 5.9s-3 5.9-7 5.9c-.8 0-1.6-.1-2.3-.3L4 16.4l.8-2.9C3.7 12.4 3 10.9 3 9.1c0-3.3 3-5.9 7-5.9Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                     Chat
+                   </button>
+                   <button class="scene-icon" data-export type="button">
+                     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 12.5V3.6m0 0L6.6 7m3.4-3.4L13.4 7M4.5 12.5v2.6a1.6 1.6 0 0 0 1.6 1.6h7.8a1.6 1.6 0 0 0 1.6-1.6v-2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                     Export
+                   </button>
+                   <button class="scene-icon is-primary" data-save type="button">
+                     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.4 3.5h9.2a1 1 0 0 1 1 1v12l-5.6-3.4L4.4 16.5v-12a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                     Save
+                   </button>
+                 </div>
+                 ${
+                   many || pending
+                     ? `<div class="scene-thumbs" role="tablist" aria-label="Generated images">
+                          ${state.results.map((r, i) => `<button type="button" role="tab" aria-selected="${i === state.resultIndex}" class="scene-thumb${i === state.resultIndex ? " is-active" : ""}" data-thumb="${i}"><img src="${esc(r.url)}" alt="" loading="lazy"><span>${esc(r.styleName || `Photo ${i + 1}`)}</span></button>`).join("")}
+                          ${Array.from({ length: pending }, () => `<div class="scene-thumb is-pending"><i></i><span>Making…</span></div>`).join("")}
+                        </div>`
+                     : ""
+                 }
                  ${state.busy ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>` : cur.faceNote ? `<p class="commit-note">${esc(cur.faceNote)}</p>` : ""}
                  <form class="scene-refine" data-refine>
                    <input class="commit-input" data-refine-input type="text" maxlength="200" placeholder="Change something… e.g. make it sunset, change my outfit" />
                    <button class="scene-refine-send" type="submit" aria-label="Regenerate"${state.busy ? " disabled" : ""}>↑</button>
                  </form>
-                 <div class="commit-actions">
-                   <button class="commit-btn" data-edit type="button">Edit</button>
-                   <button class="commit-btn" data-export type="button">Export</button>
-                   <button class="commit-btn commit-btn--primary" data-save type="button">Save</button>
-                 </div>
                  <button class="scene-newbatch" data-again type="button">Start over</button>
                </div>`;
       })()
             : state.busy
-            ? // ── The "describe" stage: words over a scene developing underneath.
+            ? // ── The generation lifecycle: a scene developing underneath, with the
+              // staged narration overlay (read → plan → match references → generate).
               `<div class="commit-result">
                  <div class="gen-stage">
                    <div class="gen-pic"></div>
                    ${GEN_GRAIN}
                    <span class="gen-tag">AI SCENE${state.pack ? " · " + esc(state.pack.replace(/-/g, " ")) : ""}</span>
                    <div class="gen-words">${genWords(state.revealText)}</div>
+                   ${state.gen ? state.gen.html() : ""}
                  </div>
                  <p class="commit-note">${esc(state.progress || "Painting your scene…")}</p>
                </div>`
@@ -298,6 +336,8 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       </div>
     `;
     wire();
+    // Re-bind the staged lifecycle overlay after every innerHTML rebuild.
+    if (state.busy && state.gen) state.gen.attach(overlay);
   };
 
   function wire() {
@@ -359,7 +399,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     overlay.querySelector("[data-generate]")?.addEventListener("click", () => void generate());
     overlay.querySelector("[data-again]")?.addEventListener("click", () => {
       if (state.busy) return;
-      state.results = []; state.resultIndex = 0; render();
+      state.results = []; state.resultIndex = 0; state.batchTotal = 0; render();
     });
     overlay.querySelector("[data-export]")?.addEventListener("click", () => {
       const cur = state.results[state.resultIndex];
@@ -378,6 +418,15 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     });
     // Edit: save this image to the library and open it in the editor.
     overlay.querySelector("[data-edit]")?.addEventListener("click", () => void editResult());
+    // Chat: hand this image to the Home chatbox (build a post/edit around it).
+    overlay.querySelector("[data-chat]")?.addEventListener("click", () => void chatResult());
+    // Thumbnail strip: jump straight to any image in the batch.
+    overlay.querySelectorAll("[data-thumb]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const i = Number(b.dataset.thumb);
+        if (Number.isFinite(i) && state.results[i]) { state.resultIndex = i; render(); }
+      }),
+    );
     overlay.querySelector("[data-prev]")?.addEventListener("click", () => {
       if (state.resultIndex > 0) { state.resultIndex -= 1; render(); }
     });
@@ -489,6 +538,12 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
         : state.prompt ||
           state.setting ||
           (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene");
+    // Staged lifecycle overlay: read → plan → match real references → generate.
+    state.gen = createGenProgress({
+      request: state.revealText,
+      packLabel: (STYLE_PACKS.find((s) => s.id === state.pack) || {}).label || state.pack,
+      count: state.pack === "dating" ? 6 : state.questionnaire ? 1 : state.count,
+    });
     render();
     const matchReference = inMe && state.refs.length === 1 && state.matchReference;
 
@@ -532,14 +587,19 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     const shots = state.datingRecipes
       ? datingShots().filter((s) => state.datingRecipes.includes(s.label))
       : datingShots();
+    // Each image in a batch recreates a DIFFERENT real reference photo of the
+    // place (the server's pack environment library) — a random start index so a
+    // new batch sees new places, then +1 per image so no two images share one.
+    const envStart = Math.floor(Math.random() * 1000);
     const jobs = isDating
-      ? shots.map((s) => ({
+      ? shots.map((s, i) => ({
           ...baseOpts,
           prompt: s.prompt,
           pose: s.pose,
           // A per-shot outfit unless the user typed their own.
           wardrobe: state.wardrobe || s.wardrobe,
           aspect: s.aspect || state.aspect,
+          environmentRef: envStart + i,
         }))
       : (() => {
           const N = state.questionnaire ? 1 : Math.max(1, Math.min(10, state.count | 0));
@@ -547,30 +607,41 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
             state.prompt ||
             state.setting ||
             (inMe ? PROMPT_HINTS[state.pack] || "a photo of me" : BG_HINTS[state.pack] || "an aesthetic scene");
-          // Multiple images → each rendered in a DIFFERENT editing style, so the
-          // user gets varied "templates" to choose from and edit.
+          // Multiple images → each is INDIVIDUAL: its own real environment
+          // reference (above), its own candid pose, and its own editing style —
+          // varied "templates" to choose from and edit, never near-duplicates.
           const styles = N > 1 ? editStyles(N) : [null];
-          return styles.map((style) => ({
+          const poses = poseOptionsFor(state.pack);
+          return styles.map((style, i) => ({
             ...baseOpts,
             prompt: base + (style ? ` Color/edit style: ${style.grade}.` : ""),
             styleName: style?.name || null,
             wardrobe: inMe ? state.wardrobe : undefined,
-            pose: inMe ? state.pose : undefined,
+            // The user's chosen pose everywhere, else rotate through the pack's
+            // candid poses so each image is a different moment.
+            pose: inMe ? state.pose || (N > 1 && poses.length ? poses[i % poses.length].value : "") : undefined,
             aspect: state.aspect,
+            environmentRef: envStart + i,
           }));
         })();
 
     const N = jobs.length;
+    state.batchTotal = N;
     let lastError = null;
     for (let n = 0; n < N; n++) {
       state.progress = N > 1 ? `Generating ${n + 1} of ${N}…` : "Creating your photo…";
+      state.gen?.setImage(n + 1, N);
       if (!state.revealing) render(); // don't disturb the reveal mid-animation
       const r = await generateOne(jobs[n], verify);
       if (r?.url) {
         state.results.push({ url: r.url, faceNote: r.faceNote, styleName: jobs[n].styleName || null });
-        state.resultIndex = state.results.length - 1;
-        if (state.results.length === 1) startReveal(); // first image → play the reveal
-        else if (!state.revealing) render();
+        // Don't yank the view — later images land in the thumb strip; the user
+        // stays on whichever image they're looking at.
+        if (state.results.length === 1) {
+          state.resultIndex = 0;
+          state.gen?.finish(); // the lifecycle overlay hands off to the reveal
+          startReveal(); // first image → play the reveal
+        } else if (!state.revealing) render();
       } else {
         lastError = r;
       }
@@ -578,6 +649,8 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
 
     state.busy = false;
     state.progress = "";
+    state.gen?.stop();
+    state.gen = null;
     if (!state.revealing) render(); // if still revealing, its timeout renders the carousel
     if (!state.results.length) {
       const msg = overlay.querySelector("[data-status]");
@@ -649,6 +722,26 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       if (btn) btn.textContent = "Saved ✓";
     } catch (error) {
       console.info("save scene failed", error);
+    }
+  }
+
+  // Chat: save this generated image to the library, attach it to the Home
+  // chatbox, and land on Home so the conversation continues around it.
+  async function chatResult() {
+    const cur = state.results[state.resultIndex];
+    if (!cur?.url) return;
+    try {
+      const res = await fetch(cur.url);
+      const blob = await res.blob();
+      const imported = await importPhotoFiles([new File([blob], "scene.jpg", { type: blob.type || "image/jpeg" })]);
+      const record = imported?.[0];
+      close();
+      if (record?.id && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("gems:attach-to-chat", { detail: { id: record.id, url: record.url || cur.url } }));
+        window.dispatchEvent(new CustomEvent("gems:go-home"));
+      }
+    } catch (error) {
+      console.info("chat result failed", error);
     }
   }
 

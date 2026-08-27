@@ -23,6 +23,14 @@ const MAX_REFS = 3;
 const REALISM_REFS_ENABLED = (Deno.env.get("REALISM_REFS_ENABLED") ?? "true") !== "false";
 const REALISM_REFS_PREFIX = Deno.env.get("REALISM_REFS_PREFIX") ?? "_global/realism";
 const REALISM_REF_COUNT = Number(Deno.env.get("REALISM_REF_COUNT") ?? "3");
+// Per-pack ENVIRONMENT reference libraries: real photographs of each style pack's
+// places, stored under `inspiration/_global/packs/<packId>/` (managed out-of-band).
+// Every pack generation recreates ONE of these real photos ~90% and inserts the
+// user into it — pixel-anchored scenes instead of prompt-imagined ones. The
+// caller's `environmentRef` index picks which photo, so a batch of N images gets
+// N DIFFERENT real environments.
+const PACK_REFS_ENABLED = (Deno.env.get("PACK_REFS_ENABLED") ?? "true") !== "false";
+const PACK_REFS_PREFIX = Deno.env.get("PACK_REFS_PREFIX") ?? "_global/packs";
 
 // Always appended so output reads as a real smartphone photo, not AI art.
 // This is the single most load-bearing block for "it looks too AI". The core
@@ -135,6 +143,12 @@ BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over
 // ("put me in this exact shot" / face-swap): reproduce the reference composition
 // but the subject is the user. The FIRST attached image is the user's face; the
 // LAST attached image is the reference to match.
+// Pack environment conditioning: the LAST attached image is a REAL photo of the
+// place. Recreate that environment ~90% and place the user into it — this is the
+// core anti-AI mechanism (a real scene anchors everything the prompt can't).
+const ENVIRONMENT_MATCH_BLOCK = `ENVIRONMENT REFERENCE — the LAST attached image is a REAL photograph of the exact kind of place this photo is taken. RECREATE THAT ENVIRONMENT AT ROUGHLY 90% FIDELITY: the same location and layout, the same perspective and depth, the same light direction and time of day, the same palette, materials and texture — as if this new photo were taken standing in the same spot a few minutes later. You may vary small details (exact crop, incidental people far in the background, minor weather) but NEVER swap to a different-looking place. If a person appears in the reference, IGNORE their identity completely — the person in the output is ONLY the user from the identity photo(s), placed naturally into that environment; their stance may echo the reference person's if it fits the requested pose. Match the reference's CAPTURE QUALITY too — its real phone-photo light, contrast, and imperfection are the quality target.`;
+const ENVIRONMENT_MATCH_BG_BLOCK = `ENVIRONMENT REFERENCE — the LAST attached image is a REAL photograph of the place. RECREATE THAT ENVIRONMENT AT ROUGHLY 90% FIDELITY as an EMPTY scene: same location, layout, perspective, light, palette and texture, with NO people in it. Remove any people present in the reference. Match its real phone-photo capture quality.`;
+
 const MATCH_REFERENCE_BLOCK = `RECREATE THE ATTACHED REFERENCE PHOTO, but the person in it is the user from the first attached image. Match the reference's composition, camera angle, framing, pose, distance, setting, lighting, color grade and overall mood as closely as possible — it should look like the same photograph, simply taken of the user instead. Keep the user's exact face and identity (this is a face/identity swap, not a lookalike). Preserve realistic body proportions consistent with the user.`;
 
 // Aesthetic-background mode: no person at all — just the place/scene.
@@ -232,6 +246,7 @@ Deno.serve(async (request) => {
     quality?: string;
     mode?: string;          // "me" (default) | "background"
     matchReference?: boolean; // recreate the reference photo AS the user (face swap)
+    environmentRef?: number;  // which pack environment reference to recreate (index into the library)
     wardrobe?: string;      // optional: change the user's outfit
     pose?: string;          // optional: how the user is posed / what they're doing
     build?: string;         // optional: real body type (e.g. "5'10, 150lbs, slim")
@@ -348,13 +363,50 @@ Deno.serve(async (request) => {
       }
     }
 
+    // ---- Pack ENVIRONMENT reference: pick ONE real photo from the pack's
+    // library to recreate ~90% (attached LAST, below). Skipped when the user
+    // supplied their own inspiration refs or asked for an exact match — their
+    // reference wins. Fails OPEN — packs without a library just skip this.
+    let envRefB64: string | null = null;
+    let envRefMime = "image/jpeg";
+    let envRefName: string | null = null;
+    if (PACK_REFS_ENABLED && !matchReference && !refIds.length && body.stylePackId) {
+      try {
+        const prefix = `${PACK_REFS_PREFIX}/${body.stylePackId}`;
+        const { data: files } = await supabase.storage
+          .from("inspiration").list(prefix, { limit: 200 });
+        const imgs = (files ?? [])
+          // Environment refs must be REAL photos — files marked RENDER are AI
+          // renders kept only for composition study, never pixel conditioning.
+          .filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name) && !/render/i.test(f.name))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        if (imgs.length) {
+          const idx = Number.isFinite(body.environmentRef)
+            ? Math.abs(Math.trunc(body.environmentRef as number)) % imgs.length
+            : Math.floor(Math.random() * imgs.length);
+          const pick = imgs[idx];
+          const { data: file } = await supabase.storage
+            .from("inspiration").download(`${prefix}/${pick.name}`);
+          if (file) {
+            envRefB64 = await bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+            envRefMime = file.type || "image/jpeg";
+            envRefName = pick.name;
+          }
+        }
+      } catch (error) {
+        console.info("pack environment ref unavailable", error);
+      }
+    }
+
     // ---- Global realism references (quality-only conditioning). Attached AFTER
     // identity + inspiration refs so they are the FINAL images the model sees.
     // Skipped for match-reference mode (its last image must stay the photo being
-    // recreated) and capped to 1 when a subject is present (so identity isn't
-    // diluted). Fails OPEN — realism refs are an enhancement, never a hard dep.
+    // recreated) and when a pack environment ref is attached (that real photo is
+    // already the pixel anchor for both scene and capture quality), and capped
+    // to 1 when a subject is present (so identity isn't diluted). Fails OPEN —
+    // realism refs are an enhancement, never a hard dep.
     let realismRefCount = 0;
-    if (REALISM_REFS_ENABLED && !matchReference) {
+    if (REALISM_REFS_ENABLED && !matchReference && !envRefB64) {
       try {
         const wanted = Math.max(0, Math.min(REALISM_REF_COUNT, hasSubject ? 2 : 3));
         if (wanted > 0) {
@@ -383,6 +435,14 @@ Deno.serve(async (request) => {
         console.info("realism refs unavailable", error);
       }
     }
+    // Attach the environment reference LAST so "the LAST attached image" in its
+    // prompt block is unambiguous.
+    if (envRefB64) {
+      parts.push({ inline_data: { mime_type: envRefMime, data: envRefB64 } });
+    }
+    const envRefBlock = envRefB64
+      ? `\n\n${mode === "background" ? ENVIRONMENT_MATCH_BG_BLOCK : ENVIRONMENT_MATCH_BLOCK}`
+      : "";
     const realismRefBlock =
       realismRefCount > 0
         ? `\n\nPHOTOGRAPHIC-QUALITY REFERENCES: the FINAL ${realismRefCount} attached photo(s) are REAL amateur iPhone snapshots, included ONLY as the target for PHOTOGRAPHIC QUALITY and REALISM. Study their imperfect exposure, grain and sensor noise, haze, harsh or dim natural light, muted color, and casual amateur feel, and make THIS image look like it was captured the same way — same real, slightly-worse phone-photo quality. Do NOT copy their people, faces, clothing, locations, objects, text, or composition; they are quality/texture references only. The subject and scene come solely from the instructions above.`
@@ -437,6 +497,7 @@ Deno.serve(async (request) => {
       styleBlock +
       `\n\n${REALISM_LAYER}` +
       realismRefBlock +
+      envRefBlock +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
@@ -507,6 +568,7 @@ Deno.serve(async (request) => {
           wardrobe: wardrobe || null,
           build: build || null,
           realism_refs: realismRefCount,
+          environment_ref: envRefName,
         },
       })
       .select("id")

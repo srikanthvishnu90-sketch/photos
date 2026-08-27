@@ -662,6 +662,11 @@ window.addEventListener("gems:open-editor", (event) => {
   const photoId = event.detail?.photoId;
   if (photoId) navigateAuthenticated("Editor", { mode: "describe", photoId });
 });
+// "Chat" on a generated result: land on Home so the chatbox (which the result
+// was just attached to via gems:attach-to-chat) is actually in front of the user.
+window.addEventListener("gems:go-home", () => {
+  navigateAuthenticated("Home", {});
+});
 
 syncAppHeight();
 syncThemeColor();
