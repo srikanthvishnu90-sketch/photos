@@ -20,6 +20,28 @@ export const STYLE_PACKS = Object.freeze([
   { id: "after-dark", label: "After Dark" },
 ]);
 
+// Match free text (an editor scenario, a chat ask) to the closest style pack so
+// the generation inherits that pack's REAL environment-reference conditioning.
+// Returns a pack id or null when nothing clearly matches.
+const PACK_MATCHERS = [
+  { id: "boat", re: /\b(boat|yacht|sail|deck|open (sea|water)|on the water|wake)\b/i },
+  { id: "beach-club", re: /\b(beach club|cabana|day.?bed|beach bar|umbrella|boardwalk)\b/i },
+  { id: "dubai", re: /\b(dubai|burj|marina|infinity pool|skyline pool|desert city)\b/i },
+  { id: "old-money", re: /\b(monaco|monte.?carlo|riviera|old money|harbou?r|cobbled|casino)\b/i },
+  { id: "luxury-cars", re: /\b(supercar|ferrari|lambo(rghini)?|porsche|rolls.?royce|luxury car|sports car)\b/i },
+  { id: "euro-summer", re: /\b(euro(pe|pean)?|ital(y|ian)|greece|greek|positano|amalfi|cinque|santorini|old town|alley(way)?|cobblestone|mediterranean)\b/i },
+  { id: "after-dark", re: /\b(rooftop|night|city lights|after dark|neon|blue hour|dusk skyline)\b/i },
+  { id: "dark-luxe", re: /\b(penthouse|dark pool|moody (pool|interior)|quiet wealth|dark luxe)\b/i },
+];
+export function matchPackForText(text) {
+  const t = String(text || "");
+  if (!t) return null;
+  for (const m of PACK_MATCHERS) {
+    if (m.re.test(t)) return m.id;
+  }
+  return null;
+}
+
 // A dating profile is a VARIED SET (~6) — a mix of settings, framings and camera
 // directions (looking at camera + away), stylish and fully clothed, like a real
 // person's best photos. Each shot is generated SEPARATELY from its own recipe.

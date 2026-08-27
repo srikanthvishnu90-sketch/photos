@@ -344,6 +344,8 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   // (vision critique/comparison). [{ id, url, base64, mimeType }], max 3.
   let chatAttachments = [];
   const MAX_ATTACH = 3;
+  // A fast-path edit waiting on the user to pick WHICH photo (reply thumbnails).
+  let pendingEditInstruction = "";
   const chatSend = mount.querySelector("#homeChatSend");
   const chatStatus = mount.querySelector("#homeChatStatus");
   const replyStrip = mount.querySelector("#homeReplyStrip");
@@ -791,14 +793,44 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     // Fast path: an obvious edit instruction ("make it brighter", "remove the
     // background", "crop this") opens the editor on the user's photo and applies
     // it right away — no server round-trip, so it works offline and in demo too.
+    pendingEditInstruction = "";
     if (looksLikeEdit(prompt)) {
-      const targetId = await editTargetPhotoId();
-      if (targetId) {
+      // 1) An attached photo IS the target — never guess past an explicit attach.
+      if (chatAttachments.length) {
+        const target = chatAttachments[0];
+        void homeActions.sendPrompt(prompt);
+        chatInput.value = "";
+        syncChat();
+        clearAttachments();
+        showReply("Opening the editor to make that change…");
+        goTo("Editor", { mode: "describe", instruction: prompt, photoId: target.id });
+        return;
+      }
+      // 2) One photo in the library → no ambiguity. Several → CONFIRM with
+      // tappable thumbnails instead of guessing (the #1 fast-path complaint).
+      let candidates = [];
+      try {
+        const all = await listPhotos();
+        candidates = (Array.isArray(all) ? all : []).filter((p) => p?.id && p?.url);
+        if (hiddenGemPhotoId) {
+          const gem = candidates.find((p) => p.id === hiddenGemPhotoId);
+          if (gem) candidates = [gem, ...candidates.filter((p) => p.id !== hiddenGemPhotoId)];
+        }
+      } catch { candidates = []; }
+      if (candidates.length === 1) {
         void homeActions.sendPrompt(prompt);
         chatInput.value = "";
         syncChat();
         showReply("Opening the editor to make that change…");
-        goTo("Editor", { mode: "describe", instruction: prompt, photoId: targetId });
+        goTo("Editor", { mode: "describe", instruction: prompt, photoId: candidates[0].id });
+        return;
+      }
+      if (candidates.length > 1) {
+        void homeActions.sendPrompt(prompt);
+        chatInput.value = "";
+        syncChat();
+        pendingEditInstruction = prompt;
+        showReply("Which photo should I edit? Tap one.", null, candidates.slice(0, 6));
         return;
       }
       // No photos yet — fall through so the user gets a helpful reply.
@@ -1099,7 +1131,14 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
   replyPhotos?.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-reply-photo]");
     if (!btn) return;
-    goTo("Editor", { mode: "describe", photoId: btn.dataset.replyPhoto });
+    // A pending fast-path edit rides along: the tapped photo becomes its target.
+    const instruction = pendingEditInstruction;
+    pendingEditInstruction = "";
+    goTo("Editor", {
+      mode: "describe",
+      photoId: btn.dataset.replyPhoto,
+      ...(instruction ? { instruction } : {}),
+    });
   });
 
   mount.querySelectorAll("[data-gem-id]").forEach((button) => {

@@ -79,7 +79,7 @@ OPERATION TYPES and their engine (use these exact op names and engines):
 - "rotate"   engine "client"      — params: { degrees: number (negative = counter-clockwise) }
 - "adjust"   engine "client"      — global sliders. params is a map of any of:
                                      brightness, contrast, saturation, warmth, vibrance, sharpness, shadows, highlights, structure (each -100..100)
-- "local_adjust" engine "client"  — a masked region. params: { target: "sky"|"subject"|"background"|"face", adjust: { ...sliders } }
+- "local_adjust" engine "client"  — a masked region. params: { target: "sky"|"subject"|"background"|"face"|"bright"|"dark", adjust: { ...sliders } } ("bright" = the brightest areas e.g. highlights/windows/sky glare, "dark" = the darkest areas e.g. shadows — use these for "tone down the highlights over there" / "lift just the shadows" style asks that name a REGION, not a global slider)
 - "expand"   engine "generative"  — zoom-out / uncrop / show more. params: { grow: 0..1 (canvas growth fraction) }
 - "generative_edit" engine "generative" — remove/add/replace/restyle content. params: { instruction: precise single-change instruction }
 - "style"    engine "client"      — named vibe / grade. params: { grade: "after-dark"|"euro-summer"|... , amount?: 0..1 } or { instruction } if it needs the model

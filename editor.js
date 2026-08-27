@@ -1,7 +1,6 @@
 import { editorActions } from "./editor-actions.js";
 import { getPhoto, getPhotoBlob, listPhotos } from "./gems-photolib.js";
 import { getSession } from "./gems-supabase.js";
-import { parseEditIntent } from "./gems-edit-intent.js";
 import {
   loadBitmap,
   applyAdjust,
@@ -26,7 +25,8 @@ import {
 import { loadPresets, savePresetsList } from "./gems-presets.js";
 import { segmentPerson } from "./gems-segment.js";
 import { interpretEdit, pushSessionOp, cropRectFor } from "./gems-edit-interpreter.js";
-import { generateScene } from "./gems-scenes.js";
+import { generateScene, matchPackForText } from "./gems-scenes.js";
+import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
 
 // Deployed editing edge function. The publishable key is client-safe by
 // design — the function authorizes every call with the user's session token.
@@ -3588,6 +3588,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         succeeded = true;
         status.textContent = `Version ${nextId} is ready.`;
         editorActions.editResultShown(data.kind ?? kind, data.model ?? "unknown");
+        void verifyEditIdentity(data.url, token);
       } else if (response.status === 402) {
         const cap = Number(data?.cap);
         status.textContent = Number.isFinite(cap)
@@ -3612,32 +3613,24 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
-  // A described edit that is pure tonal math (darker, lighter, more contrast,
-  // warmer, black & white, a named grade…) runs INSTANTLY on-device — no model
-  // call, no cost, and it always does exactly what was asked. Content edits
-  // fall through to the generative model.
-  async function applyDescribedAdjustment(intent, prompt) {
+  // After a generative edit lands, quietly check the face against the user's
+  // tagged identity (on-device, same check scenes use). A drifted face gets a
+  // warning + the Reroll hint instead of silently shipping a stranger. Never
+  // blocks, never spends another credit on its own.
+  async function verifyEditIdentity(url, token) {
     try {
-      const bitmap = await activeBitmap();
-      if (!bitmap) {
-        void requestRealEdit(prompt, "describe");
-        return;
+      if (!(await hasMeIdentity())) return;
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+      const dist = await faceDistanceToMe(bitmap);
+      bitmap.close?.();
+      if (token !== activationToken || dist == null) return;
+      if (dist > 0.62) {
+        status.textContent = "Heads up — the face drifted from you in that edit. Tap Reroll to try again.";
       }
-      const blob =
-        intent.kind === "grade"
-          ? applyGrade(bitmap, intent.grade)
-          : applyAdjust(bitmap, intent.adjust);
-      if (!blob) {
-        status.textContent = "That edit couldn't be applied — try again.";
-        return;
-      }
-      promptInput.value = "";
-      syncPrompt();
-      commitManualVersion(intent.summary, blob, "Describe");
-      editorActions.requestEdit(prompt, currentVersion());
     } catch (error) {
-      console.info("On-device described edit failed, trying the model", error);
-      void requestRealEdit(prompt, "describe");
+      console.info("edit identity check skipped", error);
     }
   }
 
@@ -3740,6 +3733,8 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // everything EXCEPT the person. Falls back to a heuristic mask, never a no-op.
   async function localMaskFor(bitmap, target) {
     if (target === "sky") return { mask: buildAutoMask(bitmap, "sky"), invert: false };
+    if (target === "bright") return { mask: buildAutoMask(bitmap, "bright"), invert: false };
+    if (target === "dark") return { mask: buildAutoMask(bitmap, "dark"), invert: false };
     if (target === "background") {
       const person = await segmentPerson(bitmap);
       if (person) return { mask: person, invert: true };
@@ -3865,10 +3860,21 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     status.textContent = "Placing you in the scene…";
     try {
       const specParts = [params.scene_spec, params.camera, params.pose].filter(Boolean);
+      const scenePrompt = specParts.join(". ").slice(0, 780) || "a photo of me in the scene";
+      // Route the scenario into the nearest style pack so it inherits that
+      // pack's REAL environment-reference conditioning (the anti-AI anchor),
+      // and attach the user's tagged face cluster for identity fidelity.
+      let identityPhotoIds = [];
+      try {
+        if (await hasMeIdentity()) identityPhotoIds = (await getMeReferences(4)).map((r) => r.photoId);
+      } catch { /* no identity → single reference */ }
       const result = await generateScene({
         mode: "me",
         subjectPhotoId: photo.id,
-        prompt: specParts.join(". ").slice(0, 780) || "a photo of me in the scene",
+        identityPhotoIds,
+        stylePackId: matchPackForText(scenePrompt) || undefined,
+        environmentRef: Math.floor(Math.random() * 1000),
+        prompt: scenePrompt,
         quality: "pro",
         aspect: "4:5",
       });
