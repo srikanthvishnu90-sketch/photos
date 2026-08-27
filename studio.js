@@ -1153,7 +1153,21 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
       const template = TEMPLATES.find((item) => item.name === button.dataset.studioTemplate);
       if (!template) return;
       studioActions.startTemplate(template);
-      status.textContent = `${template.name} will start a new project.`;
+      // Route each template into its real flow.
+      const name = template.name;
+      if (name === "College Commitment" || name === "Game Day") {
+        void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio())
+          .catch((err) => console.info("template open failed", err));
+      } else if (name === "Dating Profile Set") {
+        void import("./gems-dating-view.js").then((m) => m.openDatingProfile())
+          .catch((err) => console.info("template open failed", err));
+      } else if (name === "Travel Recap") {
+        void openDumpFlow("a travel recap");
+      } else if (name === "Grad Carousel") {
+        void openDumpFlow("a graduation carousel");
+      } else {
+        status.textContent = `${name} — coming soon.`;
+      }
     });
   });
 
