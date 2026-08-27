@@ -383,6 +383,7 @@ export async function generateScene(opts) {
         wardrobe: opts.wardrobe ?? undefined,
         pose: opts.pose ?? undefined,
         build: opts.build ?? undefined,
+        requestId: opts.requestId ?? undefined,
       }),
     });
     const data = await res.json().catch(() => null);

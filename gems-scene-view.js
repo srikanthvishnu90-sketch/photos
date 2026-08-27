@@ -284,7 +284,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
         <input class="commit-input" data-build type="text" maxlength="120" placeholder="e.g. 5'10, 150 lbs, slim build" value="${esc(state.build)}" />`
             : `<label class="commit-label">${inMe ? "7" : "5"} · How many <span style="font-weight:400;color:var(--color-mauve)">(each in a different editing style)</span></label>
         <div class="commit-headlines">
-          ${[1, 4, 10].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " styles"}</button>`).join("")}
+          ${[1, 5, 10].map((n) => `<button type="button" class="commit-chip${state.count === n ? " is-active" : ""}" data-count="${n}">${n === 1 ? "Just one" : n + " styles"}</button>`).join("")}
         </div>`
         }
 
@@ -439,7 +439,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
 
   function errorText(err) {
     return err?.error === "signin" ? "Sign in to generate a scene."
-      : err?.error === "paywall" ? "You've used your free generations this month — Gems Plus unlocks more."
+      : err?.error === "paywall" ? "That was your one free creation — subscribe to Gems Plus to make more."
       : err?.error === "refused" ? (err.reply || "Try a different prompt.")
       : "That didn't generate — try again.";
   }
@@ -505,6 +505,12 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       } catch { /* no identity → skip */ }
     }
 
+    // One id for the whole batch — the free tier allows ONE request (any number
+    // of images), then paywalls. Every image in this batch shares this id.
+    let batchRequestId;
+    try { batchRequestId = crypto.randomUUID(); }
+    catch { batchRequestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+
     const baseOpts = {
       mode: state.mode,
       subjectPhotoId: inMe ? state.photoId : undefined,
@@ -514,6 +520,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
       matchReference,
       build: inMe ? state.build : undefined,
       quality: matchReference ? "pro" : "standard",
+      requestId: batchRequestId,
     };
 
     // A dating profile is a VARIED SET: one call per recipe (different setting,

@@ -232,6 +232,7 @@ Deno.serve(async (request) => {
     wardrobe?: string;      // optional: change the user's outfit
     pose?: string;          // optional: how the user is posed / what they're doing
     build?: string;         // optional: real body type (e.g. "5'10, 150lbs, slim")
+    requestId?: string;     // one id per batch — a "prompt" = one request (free tier)
   };
   try {
     body = await request.json();
@@ -277,31 +278,31 @@ Deno.serve(async (request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  try {
-    // ---- Cost cap (units-based; pro counts as 3). Fails OPEN on DB error.
+    const requestId = String(body.requestId ?? "").slice(0, 64);
     try {
+      // ---- Free tier = ONE generation request (a "prompt"). That one request may
+      // produce many images (one requestId, N images). A DIFFERENT request means
+      // the free prompt is spent → paywall until they subscribe. Fails OPEN on error.
       const { data: profile } = await supabase
         .from("profiles").select("plan").eq("id", userId).maybeSingle();
       if ((profile?.plan ?? "free") === "free") {
-        const monthStart = new Date();
-        monthStart.setUTCDate(1);
-        monthStart.setUTCHours(0, 0, 0, 0);
         const { data: rows } = await supabase
           .from("taste_events")
           .select("subject")
           .eq("profile_id", userId)
-          .eq("event_type", "scene_generated")
-          .gte("created_at", monthStart.toISOString());
-        const usedUnits = (rows ?? []).reduce(
-          (sum: number, r: { subject?: { units?: number } }) => sum + (r.subject?.units ?? 1),
-          0,
-        );
-        if (usedUnits + units > FREE_SCENE_UNITS_PER_MONTH) {
+          .eq("event_type", "scene_generated");
+        const prior = rows ?? [];
+        // Allowed while there are NO prior generations, or every prior generation
+        // belongs to THIS same batch (requestId). Any prior generation from a
+        // different request means they've already used their one free prompt.
+        const sharesThisRequest =
+          !!requestId && prior.some((r: { subject?: { request_id?: string } }) => r.subject?.request_id === requestId);
+        if (prior.length > 0 && !sharesThisRequest) {
           return json(402, {
-            error: "scene_cap_reached",
+            error: "free_prompt_used",
             paywall: true,
-            cap: FREE_SCENE_UNITS_PER_MONTH,
-            used: usedUnits,
+            cap: 1,
+            used: 1,
           });
         }
       }
@@ -504,7 +505,7 @@ Deno.serve(async (request) => {
     await supabase.from("taste_events").insert({
       profile_id: userId,
       event_type: "scene_generated",
-      subject: { units, quality, refs: refIds.length, style_pack: body.stylePackId ?? null, model },
+      subject: { units, quality, refs: refIds.length, style_pack: body.stylePackId ?? null, model, request_id: requestId || null },
     });
 
     return json(200, {
