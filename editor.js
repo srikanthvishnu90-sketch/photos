@@ -24,7 +24,7 @@ import {
 
 import { loadPresets, savePresetsList } from "./gems-presets.js";
 import { segmentPerson } from "./gems-segment.js";
-import { interpretEdit, pushSessionOp, cropRectFor, prewarmInterpreter } from "./gems-edit-interpreter.js";
+import { interpretEdit, pushSessionOp, cropRectFor, prewarmInterpreter, needsInterpretation } from "./gems-edit-interpreter.js";
 import { createGenProgress } from "./gems-gen-progress.js";
 import { generateScene, matchPackForText } from "./gems-scenes.js";
 import { hasMeIdentity, getMeReferences, faceDistanceToMe } from "./gems-faces.js";
@@ -378,6 +378,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // a session exists. Null means the simulated demo flow is in charge.
   let photo = null;
   let lastInstruction = "";
+  // Version ids produced entirely on-device (deterministic) — Reroll is hidden
+  // for these; see commitManualVersion.
+  const deterministicVersionIds = new Set();
   // Edit Interpreter (v2) per-photo session memory (last ops + last target),
   // persisted to localStorage so relative follow-ups survive a draft reopen.
   let editSession = { ops: [], lastTarget: null };
@@ -405,7 +408,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
     canvas.classList.toggle("is-processing", processing);
     processingOverlay.hidden = !processing;
-    reroll.hidden = processing || activeVersionId === 0;
+    reroll.hidden = processing || activeVersionId === 0 || deterministicVersionIds.has(activeVersionId);
     done.disabled = processing;
   }
 
@@ -598,6 +601,10 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     const nextId = versions.length;
     versions.push({ id: nextId, label, url });
     versionBlobs.set(nextId, blob);
+    // On-device edits are deterministic: re-running one returns the identical
+    // image, so Reroll is meaningless here — and must never quietly become a
+    // paid server generation from the original photo.
+    deterministicVersionIds.add(nextId);
     createdUrls.push(url);
     activeVersionId = nextId;
     editorActions.manualEditApplied(toolName);
@@ -3526,6 +3533,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       try { void fetch(EDIT_FUNCTION_URL, { method: "OPTIONS" }).catch(() => {}); } catch { /* ignore */ }
       photoView.alt = record.name || "Photo being edited";
       versions = [{ id: 0, label: "Original", url: record.url }];
+      deterministicVersionIds.clear();
       activeVersionId = 0;
       bitmapCache.clear();
       versionBlobs.clear();
@@ -3955,6 +3963,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   function matchNamedGrade(text) {
     const t = String(text || "").toLowerCase();
     if (!t) return null;
+    // A grade name can sit inside a request that is NOT a grade request —
+    // "remove the film grain", "put me in a nightlife scene", "make it less
+    // moody". Applying the look there would silently discard what was asked,
+    // so anything needing the model (or relative handling) skips this path.
+    if (needsInterpretation(t)) return null;
     let best = null;
     for (const grade of FILTER_GRADES) {
       const names = [grade.label, grade.key.replace(/-/g, " "), ...(grade.aliases || [])];
@@ -4119,6 +4132,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       lastInstruction = "";
       recipeOps = [];
       versions = [{ id: 0, label: "Original", ship: true }];
+      deterministicVersionIds.clear();
       activeVersionId = 0;
       processing = false;
       tool = "Erase";

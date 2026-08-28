@@ -130,14 +130,41 @@ async function getFaceApi() {
  * Detect faces in a bitmap and return their 128-d descriptors + boxes.
  * @returns {Promise<Array<{ box:{x,y,w,h}, descriptor:number[] }>>}
  */
+// face-api only accepts an HTMLImageElement / HTMLVideoElement /
+// HTMLCanvasElement / tf.Tensor3D. Callers here hand us an ImageBitmap (that's
+// what createImageBitmap and the photo store produce), which face-api rejects
+// with "toNetInput - expected media to be of type…" — detection then returned
+// NO FACES for every caller, silently disabling identity-lock and the People
+// scan. Draw anything else onto a real canvas first.
+function toDetectableMedia(media) {
+  if (!media) return null;
+  const isElement =
+    (typeof HTMLCanvasElement !== "undefined" && media instanceof HTMLCanvasElement) ||
+    (typeof HTMLImageElement !== "undefined" && media instanceof HTMLImageElement) ||
+    (typeof HTMLVideoElement !== "undefined" && media instanceof HTMLVideoElement);
+  if (isElement) return media;
+  const w = media.width || media.naturalWidth || 0;
+  const h = media.height || media.naturalHeight || 0;
+  if (!w || !h || typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(media, 0, 0);
+  return canvas;
+}
+
 export async function detectAndEmbed(bitmap) {
   try {
     if (!bitmap || !canRecognizeFaces()) return [];
     const faceapi = await getFaceApi();
     if (!faceapi) return [];
+    const media = toDetectableMedia(bitmap);
+    if (!media) return [];
     const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 });
     const results = await faceapi
-      .detectAllFaces(bitmap, opts)
+      .detectAllFaces(media, opts)
       .withFaceLandmarks()
       .withFaceDescriptors();
     return (results || []).map((r) => ({

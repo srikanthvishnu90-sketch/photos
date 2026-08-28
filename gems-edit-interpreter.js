@@ -108,7 +108,22 @@ const BG_TARGET_RE = /\b(background|behind me|the back)\b/i;
 // Content changes only a generative model can do. If one appears ANYWHERE in the
 // instruction, the whole thing defers — otherwise a tonal word riding along
 // ("blur the background and make it darker") would silently drop the content op.
-const CONTENT_VERB_RE = /\b(remove|erase|delete|replace|swap|add|put|insert|blur|clean up|get rid of|take out|change .* (to|into))\b/i;
+const CONTENT_VERB_RE = /\b(remove|erase|delete|replace|swap|add|put|insert|blur|clean up|get rid of|take out|(change|turn|make)\s+.*\s+(to|into)\b|make\s+(the\s+)?\w+\s+(cloudy|sunny|rainy|snowy|foggy|stormy|green|empty))\b/i;
+// Negation / "less of that" — the opposite of applying a look. These belong to
+// the relative-follow-up handling (or the model), never to a fresh grade.
+const NEGATION_RE = /\b(don'?t|do not|never|without|less|reduce|undo|revert|not so|tone (it )?down)\b/i;
+
+/**
+ * True when an instruction MUST reach the model (or the relative-follow-up
+ * handling) rather than being resolved as a deterministic look. Exported so the
+ * editor's named-grade fast path applies exactly the same rule — one guard, no
+ * drift between the two entry points.
+ */
+export function needsInterpretation(text) {
+  const t = String(text || "");
+  if (!t) return false;
+  return SCENARIO_RE.test(t) || CONTENT_VERB_RE.test(t) || NEGATION_RE.test(t);
+}
 
 // Does this instruction clearly name a global adjust? Returns a merged adjust map or null.
 function buildAdjust(text) {
@@ -143,6 +158,8 @@ export function localInterpret(instruction, sessionState = {}) {
   // A content verb anywhere means the model has to run: resolving only the
   // tonal half on-device would silently drop the part the user cared about.
   if (CONTENT_VERB_RE.test(text)) return null;
+  // (Negation is handled below by the relative-follow-up rules, which know how
+  // to dial an op back — it must not fall through to a fresh global adjust.)
 
   // ---- Relative follow-ups (session memory).
   if (RELATIVE_MORE_RE.test(text) && last) {
