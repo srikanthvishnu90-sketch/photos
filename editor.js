@@ -575,6 +575,21 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     if (bitmapCache.has(version.id)) return bitmapCache.get(version.id);
     let blob = versionBlobs.get(version.id);
     if (!blob && version.id === 0) blob = await getPhotoBlob(photo.id);
+    // A model-made version (an AI edit or a generated scenario) arrives as a
+    // signed URL with no local blob. Fetch it once so the on-device toolset —
+    // crop, rotate, adjust, named looks — keeps working ON TOP of an AI edit
+    // instead of dead-ending (or paying for a model call to redo a grade).
+    if (!blob && version.url) {
+      try {
+        const res = await fetch(version.url);
+        if (res.ok) {
+          blob = await res.blob();
+          versionBlobs.set(version.id, blob);
+        }
+      } catch (error) {
+        console.info("version fetch failed", error);
+      }
+    }
     if (!blob) return null;
     const bitmap = await loadBitmap(blob);
     if (bitmap) bitmapCache.set(version.id, bitmap);
@@ -3846,7 +3861,12 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
     // ---- Deterministic, on-device ops (no model call).
     const bitmap = await activeBitmap();
-    if (!bitmap) return false;
+    if (!bitmap) {
+      // Say so. Returning quietly leaves the user on "Reading your edit…" with
+      // nothing having happened and no way to tell that it failed.
+      status.textContent = "That edit couldn't be applied — try again.";
+      return false;
+    }
     let blob = null;
     let label = op.say || "Edit";
     if (op.op === "crop") {

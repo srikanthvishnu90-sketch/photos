@@ -70,6 +70,9 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     revealing: false, revealText: "",
     // Staged lifecycle overlay (gems-gen-progress) + how many the batch will make.
     gen: null, batchTotal: 0,
+    // Why a batch stopped short (paywall / signed out / refused), shown with
+    // the images that DID land — otherwise the batch just silently ends early.
+    batchNote: "",
   };
 
   const overlay = document.createElement("div");
@@ -164,7 +167,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
                         </div>`
                      : ""
                  }
-                 ${state.busy ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>` : cur.faceNote ? `<p class="commit-note">${esc(cur.faceNote)}</p>` : ""}
+                 ${state.busy
+                   ? `<p class="commit-note">${esc(state.progress || "Creating…")}</p>`
+                   : state.batchNote
+                   ? `<p class="commit-note">${esc(state.batchNote)}</p>`
+                   : cur.faceNote
+                   ? `<p class="commit-note">${esc(cur.faceNote)}</p>`
+                   : ""}
                  <form class="scene-refine" data-refine>
                    <input class="commit-input" data-refine-input type="text" maxlength="200" placeholder="Change something… e.g. make it sunset, change my outfit" />
                    <button class="scene-refine-send" type="submit" aria-label="Regenerate"${state.busy ? " disabled" : ""}>↑</button>
@@ -399,7 +408,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     overlay.querySelector("[data-generate]")?.addEventListener("click", () => void generate());
     overlay.querySelector("[data-again]")?.addEventListener("click", () => {
       if (state.busy) return;
-      state.results = []; state.resultIndex = 0; state.batchTotal = 0; render();
+      state.results = []; state.resultIndex = 0; state.batchTotal = 0; state.batchNote = ""; render();
     });
     overlay.querySelector("[data-export]")?.addEventListener("click", () => {
       const cur = state.results[state.resultIndex];
@@ -486,6 +495,12 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     }
   }
 
+  // These don't get better on the next image: the paywall stays hit, a signed-out
+  // session stays signed out, and a refused prompt is refused every time. The
+  // batch stops on them instead of firing N−1 doomed calls; anything else (a
+  // one-off 502) lets the remaining images keep trying.
+  const TERMINAL_ERRORS = new Set(["paywall", "signin", "refused"]);
+
   function errorText(err) {
     return err?.error === "signin" ? "Sign in to generate a scene."
       : err?.error === "paywall" ? "That was your one free creation — subscribe to Gems Plus to make more."
@@ -530,6 +545,7 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
     state.results = [];
     state.resultIndex = 0;
     state.progress = "";
+    state.batchNote = "";
     state.revealing = false;
     // The words that will dissolve into the image — the user's own description.
     state.revealText =
@@ -644,6 +660,13 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
         } else if (!state.revealing) render();
       } else {
         lastError = r;
+        if (TERMINAL_ERRORS.has(r?.error)) {
+          // Nothing after this can land. Tell the truth about the batch size so
+          // the header and thumbs describe what the user actually got.
+          state.batchTotal = state.results.length;
+          state.batchNote = errorText(r);
+          break;
+        }
       }
     }
 

@@ -206,8 +206,15 @@ export async function openCommitmentStudio() {
       }
     } catch { /* no identity → single pass */ }
 
+    // One id for this poster — the identity reroll below reuses it, so a second
+    // attempt at the SAME poster isn't billed as a second free request.
+    let requestId;
+    try { requestId = crypto.randomUUID(); }
+    catch { requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+
     const opts = {
       photoId: state.photoId,
+      requestId,
       identityPhotoIds,
       schoolId: state.school.id,
       sport: state.sport,

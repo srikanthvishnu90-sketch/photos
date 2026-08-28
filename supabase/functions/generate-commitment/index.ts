@@ -9,7 +9,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const PRO_MODEL = Deno.env.get("GEMINI_PRO_IMAGE_MODEL") ?? "gemini-3-pro-image";
 const STANDARD_MODEL = Deno.env.get("GEMINI_IMAGE_MODEL") ?? "gemini-3.1-flash-image";
-const FREE_SCENE_UNITS_PER_MONTH = Number(Deno.env.get("FREE_SCENE_UNITS_PER_MONTH") ?? "30");
+// Free tier: ONE generation request, capped at this many images inside it —
+// the same two env knobs generate-scene reads, so the rule can't drift apart.
+const MAX_FREE_IMAGES = Number(Deno.env.get("MAX_FREE_IMAGES") ?? "10");
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 
 // The athlete's face must read as a real photo of a real person even inside the
@@ -84,6 +86,7 @@ Deno.serve(async (request) => {
     headline?: string;
     aspect?: string;
     quality?: string;
+    requestId?: string;     // one id per poster — a "prompt" = one request (free tier)
   };
   try {
     body = await request.json();
@@ -102,19 +105,32 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+  const requestId = String(body.requestId ?? "").slice(0, 64);
+
   try {
-    // ---- Cost cap (units-based, fails open).
+    // ---- Free tier = ONE generation request, the SAME rule generate-scene
+    // enforces over the same scene_generated events (a poster and a scene draw
+    // on one budget — otherwise spending the free scene request and then coming
+    // here would generate for free). Reusing a requestId can't game it:
+    //   • ANY prior generation from a DIFFERENT request (or a legacy no-id one)
+    //     means the free request is already spent → paywall.
+    //   • Within the same requestId, images are capped at MAX_FREE_IMAGES, so a
+    //     reused id can't mint unlimited posters.
+    // Fails OPEN on a DB error (never blocks a paying flow on an infra hiccup).
     try {
       const { data: profile } = await supabase.from("profiles").select("plan").eq("id", userId).maybeSingle();
       if ((profile?.plan ?? "free") === "free") {
-        const monthStart = new Date();
-        monthStart.setUTCDate(1);
-        monthStart.setUTCHours(0, 0, 0, 0);
         const { data: rows } = await supabase.from("taste_events").select("subject")
-          .eq("profile_id", userId).eq("event_type", "scene_generated").gte("created_at", monthStart.toISOString());
-        const used = (rows ?? []).reduce((s: number, r: { subject?: { units?: number } }) => s + (r.subject?.units ?? 1), 0);
-        if (used + units > FREE_SCENE_UNITS_PER_MONTH) {
-          return json(402, { error: "scene_cap_reached", paywall: true, cap: FREE_SCENE_UNITS_PER_MONTH, used });
+          .eq("profile_id", userId).eq("event_type", "scene_generated");
+        const prior = rows ?? [];
+        const fromAnotherRequest = prior.filter(
+          (r: { subject?: { request_id?: string } }) => (r.subject?.request_id || "__legacy__") !== requestId,
+        ).length;
+        const imagesThisRequest = prior.filter(
+          (r: { subject?: { request_id?: string } }) => r.subject?.request_id === requestId,
+        ).length;
+        if (!requestId || fromAnotherRequest > 0 || imagesThisRequest >= MAX_FREE_IMAGES) {
+          return json(402, { error: "free_prompt_used", paywall: true, cap: MAX_FREE_IMAGES });
         }
       }
     } catch (error) {
@@ -196,7 +212,7 @@ Deno.serve(async (request) => {
 
     await supabase.from("taste_events").insert({
       profile_id: userId, event_type: "scene_generated",
-      subject: { units, quality, kind: "commitment", school: school.display, model },
+      subject: { units, quality, kind: "commitment", school: school.display, model, request_id: requestId || null },
     });
 
     return json(200, { url: signed.signedUrl, projectId: project?.id ?? null, storagePath, model, aspect, quality, aiGenerated: true });

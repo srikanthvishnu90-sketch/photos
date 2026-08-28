@@ -417,7 +417,11 @@ export async function generateScene(opts) {
       }),
     });
     const data = await res.json().catch(() => null);
-    if (res.status === 402) return { error: "paywall", ...(data || {}) };
+    // The server's own code ("free_prompt_used" / "scene_cap_reached") rides
+    // along as serverError, but `error` MUST stay "paywall" — spreading the body
+    // over it put the server's code back and every caller's paywall branch
+    // missed, so a hit paywall read as "that didn't generate — try again".
+    if (res.status === 402) return { ...(data || {}), serverError: data?.error, error: "paywall" };
     if (data?.refused) return { error: "refused", reply: data.reply };
     if (!res.ok || !data?.url) return { error: data?.error || "failed" };
     return data;
