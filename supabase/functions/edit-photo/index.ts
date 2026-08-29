@@ -133,7 +133,10 @@ function userIdFromAuth(header: string | null): string | null {
         ),
       ),
     );
-    return typeof payload.sub === "string" ? payload.sub : null;
+    // Require role=authenticated, matching every other function. The anon/
+    // service tokens carry a different role, so a token that isn't a real
+    // signed-in user's is rejected here rather than only at the gateway.
+    return typeof payload.sub === "string" && payload.role === "authenticated" ? payload.sub : null;
   } catch {
     return null;
   }

@@ -1,0 +1,42 @@
+# Supabase project config for Gems.
+#
+# The ONLY thing pinned here is `verify_jwt = true` on every edge function.
+#
+# Why it matters: each handler only base64-DECODES the bearer token to read
+# `sub` / `role` — none of them verifies the signature themselves. That is safe
+# purely because the gateway rejects unsigned/forged tokens before the handler
+# runs (verified 2026-08-29: a token with a valid-looking payload and a garbage
+# signature returns 401 from interpret-edit, rank-photos, edit-photo and
+# delete-account). Nothing in the repo recorded that dependency, so a future
+# deploy could have flipped it off and silently allowed forged identities —
+# including cross-user account deletion via delete-account.
+#
+# verify_jwt defaults to true; stating it makes the dependency explicit and
+# reviewable rather than implicit. If a function ever legitimately needs to be
+# public (a webhook, say), flip it here deliberately and add the signature
+# verification inside that handler first.
+project_id = "hkwkxacvcgorhthwyslx"
+
+[functions.generate-scene]
+verify_jwt = true
+
+[functions.generate-commitment]
+verify_jwt = true
+
+[functions.edit-photo]
+verify_jwt = true
+
+[functions.gems-chat]
+verify_jwt = true
+
+[functions.rank-photos]
+verify_jwt = true
+
+[functions.interpret-edit]
+verify_jwt = true
+
+[functions.template-graphics]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
