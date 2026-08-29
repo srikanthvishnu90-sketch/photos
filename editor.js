@@ -3990,7 +3990,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     const esc = best.n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pureLookTransform = new RegExp(
       `^\\s*(please\\s+)?(change|turn|make)\\s+(it|this|the photo|my photo|the image)?\\s*` +
-        `(to|into)\\s+(a|an|the)?\\s*${esc}\\s*(look|vibe|style|grade|filter|aesthetic)?\\s*$`,
+        `(to|into)\\s+(a|an|the)?\\s*${esc}\\s*(look|vibe|style|grade|filter|aesthetic)?[.!?\\s]*$`,
     ).test(t);
     if (pureLookTransform) return best.grade;
     // Otherwise a grade NAME can still be sitting inside a request that is not a
