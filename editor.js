@@ -3963,11 +3963,6 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   function matchNamedGrade(text) {
     const t = String(text || "").toLowerCase();
     if (!t) return null;
-    // A grade name can sit inside a request that is NOT a grade request —
-    // "remove the film grain", "put me in a nightlife scene", "make it less
-    // moody". Applying the look there would silently discard what was asked,
-    // so anything needing the model (or relative handling) skips this path.
-    if (needsInterpretation(t)) return null;
     let best = null;
     for (const grade of FILTER_GRADES) {
       const names = [grade.label, grade.key.replace(/-/g, " "), ...(grade.aliases || [])];
@@ -3986,7 +3981,24 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         }
       }
     }
-    return best?.grade ?? null;
+    if (!best) return null;
+    // "change it to Film" / "turn this into Golden Hour" is a LOOK request even
+    // though it uses transform wording, and it must keep the free instant path.
+    // Exempt it only when the WHOLE instruction is that transform and nothing
+    // else — "turn the background into a coastal scene" is a background
+    // replacement and still belongs to the model.
+    const esc = best.n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pureLookTransform = new RegExp(
+      `^\\s*(please\\s+)?(change|turn|make)\\s+(it|this|the photo|my photo|the image)?\\s*` +
+        `(to|into)\\s+(a|an|the)?\\s*${esc}\\s*(look|vibe|style|grade|filter|aesthetic)?\\s*$`,
+    ).test(t);
+    if (pureLookTransform) return best.grade;
+    // Otherwise a grade NAME can still be sitting inside a request that is not a
+    // grade request — "remove the film grain", "put me in a nightlife scene",
+    // "make it less moody" — where applying the look would discard what was
+    // asked. Anything needing the model (or relative handling) skips this path.
+    if (needsInterpretation(t)) return null;
+    return best.grade;
   }
 
   async function runInterpretedEdit(prompt) {
