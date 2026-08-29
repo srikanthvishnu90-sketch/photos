@@ -1062,9 +1062,11 @@
   align-items: center;
   min-height: 42px;
   padding: 3px;
-  border: 1.5px solid var(--color-border);
+  /* The AI chatbox is the one deliberately BLACK control in the app (Black
+     Composer Rule) — it reads as the distinct surface you talk to Gems through. */
+  border: 1.5px solid var(--color-ink);
   border-radius: 999px;
-  background: var(--color-surface);
+  background: var(--color-ink);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
@@ -1073,7 +1075,7 @@
 
 .home-chat-form:focus-within,
 .home-chat-form.has-value {
-  border-color: var(--color-deep-petal);
+  border-color: var(--color-ink);
 }
 
 .home-chat-form:focus-within {
@@ -1096,7 +1098,8 @@
 }
 
 .home-chat-icon {
-  color: var(--color-mauve);
+  /* Inverse (light) icon on the black composer. */
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .home-chat-icon svg {
@@ -1118,7 +1121,8 @@
   padding: 0 4px;
   border: 0;
   outline: none;
-  color: var(--color-ink);
+  /* Inverse text on the black composer. */
+  color: #ffffff;
   background: transparent;
   /* Small, professional sizing (Spar-style). Safe from iOS focus-zoom because the
      viewport pins maximum-scale=1. */
@@ -1126,16 +1130,17 @@
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.01em;
-  caret-color: var(--color-deep-petal);
+  caret-color: #ffffff;
 }
 
 #homeChatInput::placeholder {
-  color: var(--color-mauve);
+  /* Inverse-muted placeholder on the black composer. */
+  color: rgba(255, 255, 255, 0.5);
   opacity: 1;
 }
 
 .home-chat-send {
-  color: var(--color-mauve);
+  color: rgba(255, 255, 255, 0.4);
   cursor: default;
 }
 
@@ -1143,18 +1148,20 @@
   position: absolute;
   inset: 3px;
   border-radius: 50%;
-  background: var(--color-surface-strong);
+  /* Subtle raised circle on the black composer while idle. */
+  background: rgba(255, 255, 255, 0.14);
   content: "";
   transition: background-color 200ms ease;
 }
 
 .home-chat-send:not(:disabled) {
-  color: var(--color-white);
+  /* Active send: dark arrow on a white circle, popping off the black bar. */
+  color: var(--color-ink);
   cursor: pointer;
 }
 
 .home-chat-send:not(:disabled)::before {
-  background: var(--color-ink);
+  background: #ffffff;
 }
 
 .home-chat-send svg {

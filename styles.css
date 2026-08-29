@@ -8,7 +8,11 @@
   --color-blush: #eef4fb;
   --color-ink: #0b0f17;
   --color-mauve: #6d707a;
-  --color-deep-petal: #274a86;
+  /* Midnight Navy — the darker brand navy (was #274a86). Every button, selected
+     chip, focus ring, caret and link references this token, so deepening the
+     value here darkens the navy everywhere at once. */
+  --color-deep-petal: #173a68;
+  --color-midnight-navy: #173a68;
   --color-white: #ffffff;
   --color-auth-outline: var(--color-border);
   --color-stage: #efedef;
@@ -28,7 +32,7 @@
   --color-photo-shadow: rgba(12, 30, 72, 0.2);
   --color-card-border: rgba(255, 255, 255, 0.92);
   --color-ink-muted: rgba(23, 11, 16, 0.62);
-  --color-focus-halo: rgba(39, 74, 134, 0.2);
+  --color-focus-halo: rgba(23, 58, 104, 0.22);
   --color-google-blue: #4285f4;
   --color-google-green: #34a853;
   --color-google-yellow: #fbbc05;
@@ -242,11 +246,8 @@ button {
   place-items: center;
   overflow: hidden;
   cursor: pointer;
-  background: linear-gradient(
-    168deg,
-    var(--color-petal) 0%,
-    var(--color-petal-gradient) 100%
-  );
+  /* Dark midnight-navy splash — the first thing you see is the deep brand navy. */
+  background: linear-gradient(168deg, #1c4278 0%, #12305c 46%, #0d2246 100%);
 }
 
 .splash-screen.is-active {
@@ -319,7 +320,8 @@ button {
 
 .splash-wordmark {
   margin: 0;
-  color: var(--color-ink);
+  /* Light wordmark on the dark navy splash. */
+  color: #ffffff;
   font-family: var(--font-display);
   font-size: 54px;
   font-style: italic;
@@ -332,7 +334,8 @@ button {
 
 .splash-tagline {
   margin: 10px 0 0;
-  color: var(--color-ink-muted);
+  /* Legible on the dark navy splash. */
+  color: rgba(255, 255, 255, 0.72);
   font-size: 14.5px;
   font-weight: 500;
   letter-spacing: 0.01em;
