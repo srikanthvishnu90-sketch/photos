@@ -5,15 +5,16 @@
 //   - Cross-origin traffic (Supabase, Google auth, jsdelivr CDN, Gemini) is
 //     never intercepted — it must reach the network untouched, or auth and the
 //     AI features break. We simply don't call respondWith() for those.
-//   - Navigations are network-first (always try for fresh HTML), falling back
-//     to the cached shell so the app opens offline.
-//   - Static assets are cache-first with a background refresh (stale-while-
-//     revalidate), so repeat launches are instant and self-heal on the next
-//     online visit.
+//   - Navigations AND the code/style shell (.css/.js) are network-first: online
+//     you always get the just-deployed version immediately (no stale theme or
+//     behavior that only updates a reload later), with a cache fallback so the
+//     app still opens offline.
+//   - Other static assets (images, fonts, icons) are cache-first with a
+//     background refresh, since their bytes don't change under a fixed URL.
 //
 // Every handler is wrapped so a cache miss or error can never break the page.
 
-const CACHE = "gems-shell-v28";
+const CACHE = "gems-shell-v29";
 
 const SHELL = [
   "./",
@@ -168,7 +169,32 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache-first with a background refresh.
+  // The CODE + STYLE shell (.css/.js) is NETWORK-FIRST: online you always get
+  // the just-deployed version on the FIRST load (so theme/behavior changes show
+  // immediately, never a reload later), and it falls back to cache only when the
+  // network fails, so the app still opens offline. Everything else (images,
+  // fonts, icons — content that doesn't change under a fixed URL) stays
+  // cache-first with a background refresh for instant repeat loads.
+  const isShellCode = /\.(css|js)$/i.test(url.pathname);
+  if (isShellCode) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE);
+        try {
+          const response = await fetch(request);
+          if (response && response.ok && response.type === "basic") {
+            cache.put(request, response.clone()).catch(() => {});
+          }
+          return response;
+        } catch {
+          return (await cache.match(request)) || Response.error();
+        }
+      })(),
+    );
+    return;
+  }
+
+  // Other static assets: cache-first with a background refresh.
   event.respondWith(
     (async () => {
       try {
