@@ -366,7 +366,7 @@ Deno.serve(async (request) => {
       try {
         const prefix = `${PACK_REFS_PREFIX}/${body.stylePackId}`;
         const { data: files } = await supabase.storage
-          .from("inspiration").list(prefix, { limit: 200 });
+          .from("inspiration").list(prefix, { limit: 1000, sortBy: { column: "name", order: "asc" } });
         const imgs = (files ?? [])
           // Environment refs must be REAL photos — files marked RENDER are AI
           // renders kept only for composition study, never pixel conditioning.
