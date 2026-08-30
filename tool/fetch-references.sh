@@ -32,6 +32,9 @@ command -v curl    >/dev/null 2>&1 || { echo "needs curl"; exit 1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 OUT="$TMP/imgs"; mkdir -p "$OUT"
+# Unique per-run tag so DIFFERENT queries (and re-runs) don't collide on
+# pexels-1-1.jpg — every fetch contributes distinct images for real variety.
+RUN="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 6)"
 
 fetch_pexels() {
   local page=1 got=0 per=80
@@ -51,7 +54,7 @@ for p in d.get("photos",[]):
     while IFS= read -r u; do
       [ "$got" -ge "$COUNT" ] && break
       got=$((got+1))
-      curl -s -L "$u" -o "$OUT/pexels-$page-$got.jpg" && echo "  fetched pexels-$page-$got"
+      curl -s -L "$u" -o "$OUT/px-$RUN-$page-$got.jpg" && echo "  fetched px-$RUN-$page-$got"
     done <<< "$urls"
     page=$((page+1))
     [ "$page" -gt 25 ] && break
@@ -75,7 +78,7 @@ for r in d.get("results",[]):
     while IFS= read -r u; do
       [ "$got" -ge "$COUNT" ] && break
       got=$((got+1))
-      curl -s -L "$u" -o "$OUT/unsplash-$page-$got.jpg" && echo "  fetched unsplash-$page-$got"
+      curl -s -L "$u" -o "$OUT/us-$RUN-$page-$got.jpg" && echo "  fetched us-$RUN-$page-$got"
     done <<< "$urls"
     page=$((page+1))
     [ "$page" -gt 34 ] && break
