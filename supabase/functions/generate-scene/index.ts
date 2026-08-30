@@ -296,44 +296,36 @@ Deno.serve(async (request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Free-tier reservation state, hoisted so the outer catch can release it too.
+  let reservationId: string | null = null;
+  const releaseSlot = async () => {
+    if (!reservationId) return;
+    const id = reservationId;
+    reservationId = null;
+    try { await supabase.from("taste_events").delete().eq("id", id); }
+    catch (e) { console.error("reservation release failed", e); }
+  };
+
   try {
     const requestId = String(body.requestId ?? "").slice(0, 64);
+    // ---- Free-tier meter, now ATOMIC (fixes the TOCTOU race). One RPC does the
+    // cap CHECK and the RESERVATION together under a per-profile advisory lock,
+    // so two concurrent requests with the same fresh requestId can no longer both
+    // slip under the cap. The reserved row IS the meter event: it is finalized on
+    // success or released (deleted) on any failure below, so a failed generation
+    // never consumes the free request. Fails OPEN on an infra hiccup.
     try {
-      // ---- Free tier = ONE generation request (a "prompt"). Hard-enforced, so
-      // reusing a requestId can't game it:
-      //   • ANY prior generation from a DIFFERENT request (or a legacy no-id one)
-      //     means the free prompt is already spent → paywall.
-      //   • Even within the same requestId, the free request is capped at
-      //     MAX_FREE_IMAGES total images, so id reuse can't mint unlimited images.
-      // Fails OPEN on a DB error (never blocks a paying flow on infra hiccup).
-      const { data: profile } = await supabase
-        .from("profiles").select("plan").eq("id", userId).maybeSingle();
-      if ((profile?.plan ?? "free") === "free") {
-        const { data: rows } = await supabase
-          .from("taste_events")
-          .select("subject")
-          .eq("profile_id", userId)
-          .eq("event_type", "scene_generated");
-        const prior = rows ?? [];
-        // Prior images that belong to a DIFFERENT request than this one (legacy
-        // events with no request_id count as "another request").
-        const fromAnotherRequest = prior.filter(
-          (r: { subject?: { request_id?: string } }) => (r.subject?.request_id || "__legacy__") !== requestId,
-        ).length;
-        // Images already produced under THIS request id.
-        const imagesThisRequest = prior.filter(
-          (r: { subject?: { request_id?: string } }) => r.subject?.request_id === requestId,
-        ).length;
-        if (!requestId || fromAnotherRequest > 0 || imagesThisRequest >= MAX_FREE_IMAGES) {
-          return json(402, {
-            error: "free_prompt_used",
-            paywall: true,
-            cap: MAX_FREE_IMAGES,
-          });
-        }
+      const { data: slot } = await supabase.rpc("reserve_free_scene_slot", {
+        p_profile_id: userId,
+        p_request_id: requestId,
+        p_max_images: MAX_FREE_IMAGES,
+      });
+      if (slot && slot.allow === false) {
+        return json(402, { error: slot.reason ?? "free_prompt_used", paywall: true, cap: MAX_FREE_IMAGES });
       }
+      reservationId = slot && typeof slot.reservation_id === "string" ? slot.reservation_id : null;
     } catch (error) {
-      console.error("scene cap check failed (allowing)", error);
+      console.error("scene reservation failed (allowing)", error);
     }
 
     // ---- Assemble the model parts: subject first (me-in-scene), then refs,
@@ -521,9 +513,11 @@ Deno.serve(async (request) => {
       },
     );
     if (modelResponse.status === 429) {
+      await releaseSlot();
       return json(503, { error: "image_model_quota", detail: "quota exceeded — billing may need enabling on the Google AI key." });
     }
     if (!modelResponse.ok) {
+      await releaseSlot();
       const detail = await modelResponse.text();
       return json(502, { error: "image_model_failed", detail: detail.slice(0, 300) });
     }
@@ -531,7 +525,7 @@ Deno.serve(async (request) => {
     const responseParts: Array<{ inlineData?: { mimeType?: string; data?: string } }> =
       modelData?.candidates?.[0]?.content?.parts ?? [];
     const imagePart = responseParts.find((part) => part.inlineData?.data);
-    if (!imagePart?.inlineData?.data) return json(502, { error: "image_model_returned_no_image" });
+    if (!imagePart?.inlineData?.data) { await releaseSlot(); return json(502, { error: "image_model_returned_no_image" }); }
 
     // ---- Store (edits bucket, owner-scoped path) + sign. Preserve returned bytes
     // (incl. any embedded provenance) — no re-encode.
@@ -540,9 +534,9 @@ Deno.serve(async (request) => {
     const storagePath = `${userId}/scene/${crypto.randomUUID()}.${ext}`;
     const bytes = base64ToBytes(imagePart.inlineData.data);
     const { error: uploadError } = await supabase.storage.from("edits").upload(storagePath, bytes, { contentType: outMime });
-    if (uploadError) return json(502, { error: "storage_upload_failed", detail: uploadError.message });
+    if (uploadError) { await releaseSlot(); return json(502, { error: "storage_upload_failed", detail: uploadError.message }); }
     const { data: signed, error: signError } = await supabase.storage.from("edits").createSignedUrl(storagePath, SIGNED_URL_SECONDS);
-    if (signError || !signed?.signedUrl) return json(502, { error: "sign_failed", detail: signError?.message });
+    if (signError || !signed?.signedUrl) { await releaseSlot(); return json(502, { error: "sign_failed", detail: signError?.message }); }
 
     // ---- Provenance: a projects row of kind 'scene', ai_generated flagged.
     const { data: project } = await supabase
@@ -574,12 +568,21 @@ Deno.serve(async (request) => {
       .select("id")
       .maybeSingle();
 
-    // ---- Meter (counts toward the monthly cap).
-    await supabase.from("taste_events").insert({
-      profile_id: userId,
-      event_type: "scene_generated",
-      subject: { units, quality, refs: refIds.length, style_pack: body.stylePackId ?? null, model, request_id: requestId || null },
-    });
+    // ---- Meter: finalize the reservation with the full subject (free tier), or
+    // insert a fresh meter row (plus tier, which reserves nothing). Exactly one
+    // metering row per completed generation, either way.
+    const meterSubject = { units, quality, refs: refIds.length, style_pack: body.stylePackId ?? null, model, request_id: requestId || null };
+    if (reservationId) {
+      const id = reservationId;
+      reservationId = null; // finalized — do NOT release in the catch
+      await supabase.from("taste_events").update({ subject: meterSubject }).eq("id", id);
+    } else {
+      await supabase.from("taste_events").insert({
+        profile_id: userId,
+        event_type: "scene_generated",
+        subject: meterSubject,
+      });
+    }
 
     return json(200, {
       url: signed.signedUrl,
@@ -592,6 +595,7 @@ Deno.serve(async (request) => {
     });
   } catch (error) {
     console.error("generate-scene failed", error);
+    await releaseSlot();
     return json(502, { error: String((error as Error).message ?? error) });
   }
 });
