@@ -8,11 +8,10 @@
   --color-blush: #eef4fb;
   --color-ink: #0b0f17;
   --color-mauve: #6d707a;
-  /* Deep royal brand blue — a saturated PayPal/Cluely-grade blue, not a muted
-     gray-navy. Every button, selected chip, focus ring, caret and link
-     references this token, so it sets the whole app's blue at once. */
-  --color-deep-petal: #1440d6;
-  --color-midnight-navy: #1440d6;
+  /* Deep NAVY brand blue. Every button, selected chip, focus ring, caret and
+     link references this token, so it sets the whole app's blue at once. */
+  --color-deep-petal: #0f2557;
+  --color-midnight-navy: #0f2557;
   --color-white: #ffffff;
   --color-auth-outline: var(--color-border);
   --color-stage: #efedef;
@@ -32,7 +31,7 @@
   --color-photo-shadow: rgba(12, 30, 72, 0.2);
   --color-card-border: rgba(255, 255, 255, 0.92);
   --color-ink-muted: rgba(23, 11, 16, 0.62);
-  --color-focus-halo: rgba(20, 64, 214, 0.24);
+  --color-focus-halo: rgba(15, 37, 87, 0.24);
   --color-google-blue: #4285f4;
   --color-google-green: #34a853;
   --color-google-yellow: #fbbc05;
@@ -247,7 +246,7 @@ button {
   overflow: hidden;
   cursor: pointer;
   /* Deep royal-blue splash — a vivid PayPal/Cluely blue fading to deep navy. */
-  background: linear-gradient(168deg, #2a5bff 0%, #1440d6 46%, #0a2472 100%);
+  background: linear-gradient(168deg, #1b3d78 0%, #122c5c 46%, #0a1a3d 100%);
 }
 
 .splash-screen.is-active {
