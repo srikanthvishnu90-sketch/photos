@@ -164,6 +164,17 @@ const BACKGROUND_BLOCK = `Generate an ATMOSPHERIC SCENE with NO people in it —
 
 const NEGATIVE = "No watermark-style text, no captions, no borders.";
 
+// COMPOSITION DNA — reverse-engineered from the founder's curated reference set
+// (the actual "aesthetic" travel/luxury photos). Every generation should follow
+// this exact photographic lens whether or not a specific reference is attached.
+const COMPOSITION_DNA = `COMPOSITION — frame it the way these aspirational travel photos are actually shot, NOT like a centered portrait:
+- THE SETTING IS THE SUBJECT. The place — a recognizable landmark or view (a skyline, a harbor full of yachts, an infinity pool leading to towers, a Monaco street) — must be legible in one glance and fill MOST of the frame. The person occupies only about a THIRD of it.
+- RULE OF THIRDS. Place the person OFF-CENTER on a left or right vertical third (or low-center), never centered and large. Put the landmark/horizon on a third line too.
+- SUBJECT SMALL, ENVIRONMENTAL FRAMING. Shoot half-body to full-body from a natural distance — the person is a figure IN the scene, not a face filling the frame. Never a tight portrait or selfie crop.
+- LAYERED DEPTH + A FRAMING DEVICE. Build clear foreground, midground and background, and frame through or under a real foreground element when it fits — an overhanging tree branch, an archway or tunnel, a railing, palms at the edge, a pool edge or road as a LEADING LINE that draws the eye to the landmark.
+- CANDID, TURNED-AWAY. The person is looking INTO the scene or off to the side — walking, leaning on a railing, over-the-shoulder, hand in a pocket, weight on one leg — never a stiff straight-on smile to camera.
+- VERTICAL 4:5, real phone perspective, slightly elevated or eye-level, honest depth of field. A restrained, coordinated palette (3-4 harmonious colours).`;
+
 // The launch-critical block: MOST real requests will have NO matching reference
 // photo (a pack with an empty library, or a scene we simply don't have a ref
 // for). Without a reference the model tends to invent a clean, symmetrical,
@@ -512,8 +523,10 @@ Deno.serve(async (request) => {
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
+      // The founder's compositional lens applies to every person shot.
+      (hasSubject ? `\n\n${COMPOSITION_DNA}` : "") +
       // When an environment reference is present, its EXACT-framing instruction
-      // governs; the generic "medium-to-wide" framing would fight it.
+      // governs the distance; the generic "medium-to-wide" framing would fight it.
       (hasSubject && !envRefB64 ? `\n\n${FRAMING}` : "") +
       buildBlock +
       wardrobeBlock +
