@@ -146,7 +146,15 @@ BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over
 // Pack environment conditioning: the LAST attached image is a REAL photo of the
 // place. Recreate that environment ~90% and place the user into it — this is the
 // core anti-AI mechanism (a real scene anchors everything the prompt can't).
-const ENVIRONMENT_MATCH_BLOCK = `ENVIRONMENT REFERENCE — the LAST attached image is a REAL photograph of the exact kind of place this photo is taken. RECREATE THAT ENVIRONMENT AT ROUGHLY 90% FIDELITY: the same location and layout, the same perspective and depth, the same light direction and time of day, the same palette, materials and texture — as if this new photo were taken standing in the same spot a few minutes later. You may vary small details (exact crop, incidental people far in the background, minor weather) but NEVER swap to a different-looking place. If a person appears in the reference, IGNORE their identity completely — the person in the output is ONLY the user from the identity photo(s), placed naturally into that environment; their stance may echo the reference person's if it fits the requested pose. Match the reference's CAPTURE QUALITY too — its real phone-photo light, contrast, and imperfection are the quality target.`;
+const ENVIRONMENT_MATCH_BLOCK = `ENVIRONMENT REFERENCE — the LAST attached image is a REAL photograph. Reproduce it as if the SAME photographer took the SAME shot a few minutes later with a different person in it.
+
+MATCH THE ENVIRONMENT (~90%): the same location and layout, the same perspective and depth, the same light direction and time of day, the same palette, materials and texture. Never swap to a different-looking place.
+
+MATCH THE COMPOSITION AND FRAMING EXACTLY — this is as important as the place. The output must have the SAME things in the frame, arranged the same way: the same CAMERA DISTANCE and angle (a wide establishing shot stays wide; a closer half-body shot stays that close — do NOT zoom in or out), the same SUBJECT SIZE and POSITION in the frame (how much of the frame the person fills and where they stand), the same amount of foreground, midground and background, the same headroom and horizon line. If the reference frames the subject small against a big setting, do the same; if it is closer, match that. The result should look like the exact same photograph in terms of what is in the frame and how it is proportioned — only the person is different.
+
+THE PERSON: if a person appears in the reference, IGNORE their identity completely and place the USER (from the identity photo) at the SAME distance, size and position in the frame, framed the same way. If the reference has NO person, add the user at a natural distance consistent with the reference's scale and the requested pose. Keep the user's real face, body proportions and build.
+
+CAPTURE QUALITY: match the reference's real phone-photo light, contrast, grain and imperfection — that is the quality target, not a cleaner render.`;
 const ENVIRONMENT_MATCH_BG_BLOCK = `ENVIRONMENT REFERENCE — the LAST attached image is a REAL photograph of the place. RECREATE THAT ENVIRONMENT AT ROUGHLY 90% FIDELITY as an EMPTY scene: same location, layout, perspective, light, palette and texture, with NO people in it. Remove any people present in the reference. Match its real phone-photo capture quality.`;
 
 const MATCH_REFERENCE_BLOCK = `RECREATE THE ATTACHED REFERENCE PHOTO, but the person in it is the user from the first attached image. Match the reference's composition, camera angle, framing, pose, distance, setting, lighting, color grade and overall mood as closely as possible — it should look like the same photograph, simply taken of the user instead. Keep the user's exact face and identity (this is a face/identity swap, not a lookalike). Preserve realistic body proportions consistent with the user.`;
@@ -504,7 +512,9 @@ Deno.serve(async (request) => {
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
-      (hasSubject ? `\n\n${FRAMING}` : "") +
+      // When an environment reference is present, its EXACT-framing instruction
+      // governs; the generic "medium-to-wide" framing would fight it.
+      (hasSubject && !envRefB64 ? `\n\n${FRAMING}` : "") +
       buildBlock +
       wardrobeBlock +
       autoWardrobeBlock +
