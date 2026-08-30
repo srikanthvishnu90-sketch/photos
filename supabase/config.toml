@@ -40,3 +40,13 @@ verify_jwt = true
 
 [functions.delete-account]
 verify_jwt = true
+
+# index-references (reference-conditioned generation) enforces a real user and
+# returns 401 unauthorized itself; keep the gateway check on too.
+[functions.index-references]
+verify_jwt = true
+
+# cleanup-scene-outputs is service/cron-invoked and does its OWN service-role
+# auth check (401 without it), so the gateway JWT gate is intentionally off.
+[functions.cleanup-scene-outputs]
+verify_jwt = false
