@@ -156,6 +156,14 @@ const BACKGROUND_BLOCK = `Generate an ATMOSPHERIC SCENE with NO people in it —
 
 const NEGATIVE = "No watermark-style text, no captions, no borders.";
 
+// The launch-critical block: MOST real requests will have NO matching reference
+// photo (a pack with an empty library, or a scene we simply don't have a ref
+// for). Without a reference the model tends to invent a clean, symmetrical,
+// evenly-lit AI backdrop. This forces it to instead ground the invented setting
+// in a SPECIFIC, real, photographed place with real-world light and imperfection,
+// so a no-reference generation still lands with proper background/lighting.
+const NO_REF_GROUNDING = `NO SETTING REFERENCE PHOTO IS ATTACHED, so you are inventing the location — it MUST read as ONE specific, real, photographed place, never a generic or dreamlike AI backdrop. Ground it concretely: pick a single believable real-world spot that fits the request and commit to it (a particular rooftop, a specific stretch of coast, one real street), with real architecture and materials showing genuine age and wear, ONE dominant light source with physically-correct direction and hard-edged cast shadows, true atmospheric perspective (distant things hazier and cooler), real depth of field, and the incidental clutter of a real location (a stray chair, a distant passer-by, a reflection, uneven pooled light). Keep the exposure, contrast and slight imperfection of a real phone photo — NOT a clean, centered, uniformly-lit studio render. The person's body proportions, height and build stay exactly true to their reference photo; the outfit stays fully-clothed and on-theme for the setting.`;
+
 // Named style packs mirror the canonical client definitions (gems-canvas.js).
 const STYLE_PACKS: Record<string, string> = {
   "after-dark":
@@ -490,6 +498,8 @@ Deno.serve(async (request) => {
       `\n\n${REALISM_LAYER}` +
       realismRefBlock +
       envRefBlock +
+      // No environment ref AND no user inspiration ref → force real-place grounding.
+      (!envRefB64 && !refIds.length ? `\n\n${NO_REF_GROUNDING}` : "") +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
