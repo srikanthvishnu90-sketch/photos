@@ -99,6 +99,14 @@ create table if not exists public.inspiration_assets (
 );
 
 -- Reconcile constraints/indexes even when the table was provisioned manually.
+-- Production provisioned this table earlier WITHOUT these columns (it has an
+-- older shape: id, profile_id, storage_path, label, source, created_at), so the
+-- `create table if not exists` above was a no-op there. Add the columns the
+-- constraints below reference, idempotently, before referencing them.
+alter table public.inspiration_assets add column if not exists mime_type text;
+alter table public.inspiration_assets add column if not exists byte_size bigint;
+alter table public.inspiration_assets add column if not exists label text not null default '';
+
 alter table public.inspiration_assets
   drop constraint if exists inspiration_assets_storage_path_check;
 alter table public.inspiration_assets
