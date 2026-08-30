@@ -2106,3 +2106,136 @@
 .home-attach-cell { padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; aspect-ratio: 1; cursor: pointer; background: var(--color-surface-strong); }
 .home-attach-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .home-attach-cell.is-picked { border-color: var(--color-deep-petal); }
+
+/* ============ Batch "photo dump" flow (gems-batch-view.js) ============ */
+.batch-genhero { text-align: center; padding: 4px 10px 2px; }
+.batch-genq {
+  font-family: var(--font-display, Georgia, serif);
+  font-style: italic;
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--color-ink);
+}
+.batch-gensub { margin-top: 4px; font: 400 12px var(--font-ui, sans-serif); color: var(--color-mauve); }
+
+/* Generating: a 2-col grid of scene tiles that fill in as bases return. */
+.batch-skelgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.batch-skel {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-blush, #eef4fb);
+}
+.batch-skel img { width: 100%; height: 100%; object-fit: cover; display: block; animation: batch-in 0.7s ease both; }
+@keyframes batch-in { from { opacity: 0; transform: scale(1.05); filter: blur(14px); } to { opacity: 1; transform: none; filter: none; } }
+.batch-shim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent, rgba(23, 58, 104, 0.16), transparent);
+  transform: translateX(-100%);
+  animation: batch-shim 1.5s infinite;
+}
+@keyframes batch-shim { to { transform: translateX(100%); } }
+.batch-vcount {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  font: 600 10px var(--font-ui, sans-serif);
+  color: #fff;
+  background: rgba(11, 15, 23, 0.62);
+  border-radius: 999px;
+  padding: 3px 7px;
+}
+@media (prefers-reduced-motion: reduce) { .batch-shim { animation: none; } .batch-skel img { animation: none; } }
+
+/* Results grid. */
+.batch-rsum { font: 400 12.5px/1.5 var(--font-ui, sans-serif); color: var(--color-mauve); margin-bottom: 4px; }
+.batch-rsum b { color: var(--color-ink); font-weight: 600; }
+.batch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 84px; }
+.batch-tile {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-blush, #eef4fb);
+  padding: 0;
+  cursor: pointer;
+}
+.batch-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.batch-tile.sel { border-color: var(--color-deep-petal); border-width: 2.5px; }
+.batch-idx {
+  position: absolute; left: 7px; top: 7px; z-index: 2;
+  font: 600 10px var(--font-ui, sans-serif); color: #fff;
+  background: rgba(11, 15, 23, 0.55); border-radius: 999px; padding: 3px 7px;
+  max-width: calc(100% - 42px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.batch-vc {
+  position: absolute; right: 7px; bottom: 7px; z-index: 2;
+  font: 600 10px var(--font-ui, sans-serif); color: #fff;
+  background: rgba(11, 15, 23, 0.6); border-radius: 999px; padding: 3px 7px;
+}
+.batch-chk {
+  position: absolute; right: 7px; top: 7px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: #fff;
+  background: rgba(11, 15, 23, 0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+}
+.batch-tile.sel .batch-chk { background: var(--color-deep-petal); border-color: var(--color-deep-petal); }
+.batch-dock {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; gap: 8px;
+  padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  background: linear-gradient(180deg, transparent, var(--color-surface) 30%);
+}
+.batch-dock .commit-btn { flex: 1; }
+
+/* Variant picker. */
+.batch-hero {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--color-blush, #eef4fb);
+  margin-bottom: 12px;
+}
+.batch-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.batch-hero-lbl {
+  position: absolute; left: 10px; bottom: 10px; z-index: 3;
+  font: 600 11.5px var(--font-ui, sans-serif); color: #fff;
+  background: rgba(11, 15, 23, 0.55); backdrop-filter: blur(6px);
+  border-radius: 999px; padding: 6px 11px;
+}
+.batch-vrow {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 2px; margin-bottom: 12px;
+}
+.batch-vrow::-webkit-scrollbar { display: none; }
+.batch-vthumb {
+  position: relative; flex-shrink: 0;
+  width: 64px; height: 80px; border-radius: 11px; overflow: hidden;
+  border: 2px solid transparent; background: var(--color-blush, #eef4fb); padding: 0; cursor: pointer;
+}
+.batch-vthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.batch-vthumb.on { border-color: var(--color-deep-petal); }
+.batch-vthumb span {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  font: 600 8.5px var(--font-ui, sans-serif); color: #fff;
+  background: linear-gradient(180deg, transparent, rgba(10, 12, 20, 0.78));
+  padding: 9px 3px 3px; text-align: center;
+}
+.batch-vacts { display: flex; gap: 8px; }
+.batch-vacts .commit-btn { flex: 1; }
+
+/* The variant stage needs a column layout so the hero can flex-grow. */
+.batch-overlay .commit-body:has(.batch-hero) { display: flex; flex-direction: column; }

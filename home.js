@@ -843,6 +843,19 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     pendingEditInstruction = "";
     if (looksLikeEdit(prompt) && (await routeEditToPhoto(prompt))) return;
 
+    // Fast path: a "photo dump of me in X" opens the batch flow — N scenes, each
+    // in 5 instant lighting looks to pick from. Pack inferred from the text.
+    if (/\b(photo\s?dump|photodump|dump of me|carousel of me|a dump of me|set of photos of me)\b/i.test(prompt)) {
+      chatInput.value = "";
+      syncChat();
+      showReply("Opening the dump studio — pick a photo of yourself and I'll make a set.");
+      import("./gems-scenes.js")
+        .then((s) => s.matchPackForText(prompt) || "euro-summer")
+        .then((pack) => import("./gems-batch-view.js").then((m) => m.openBatchStudio(pack, { prompt, mode: "me" })))
+        .catch((err) => { console.info("batch open failed", err); showReply("Couldn't open that just now — try again in a sec."); });
+      return;
+    }
+
     // Fast path: a dating-profile request opens the dating flow DIRECTLY — no
     // server round-trip, so it always works even if the orchestrator hiccups.
     // "create/make me photos" → generate a set; "from my photos/pick/build" →
