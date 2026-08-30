@@ -50,3 +50,8 @@ verify_jwt = true
 # auth check (401 without it), so the gateway JWT gate is intentionally off.
 [functions.cleanup-scene-outputs]
 verify_jwt = false
+
+# review-references is a founder-only curation tool gated by REVIEW_TOKEN (no
+# user JWT); the token is the gate.
+[functions.review-references]
+verify_jwt = false

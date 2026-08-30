@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gems — Reference Review</title>
+<style>
+  :root{ --blue:#1440d6; --ink:#0b0f17; --mute:#6d707a; --line:#e2e6ef; --bg:#f6f7fb; --white:#fff; --danger:#d5352b; }
+  *{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body{ font-family:-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
+  header{ position:sticky; top:0; z-index:5; background:var(--white); border-bottom:1px solid var(--line);
+    padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+  .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  h1{ font-size:17px; font-weight:700; }
+  h1 b{ color:var(--blue); }
+  input{ flex:1; min-width:160px; height:38px; padding:0 12px; border:1.5px solid var(--line); border-radius:10px; font-size:14px; }
+  .tabs{ display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  .tabs::-webkit-scrollbar{ display:none; }
+  .tab{ flex:0 0 auto; padding:7px 12px; border:1.5px solid var(--line); border-radius:999px; background:var(--white);
+    font:600 12.5px/1 inherit; color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .tab.on{ background:var(--blue); border-color:var(--blue); color:#fff; }
+  .tab .n{ opacity:.7; font-weight:500; }
+  .bulk{ display:flex; gap:8px; }
+  .btn{ height:34px; padding:0 12px; border-radius:8px; border:1.5px solid var(--line); background:var(--white);
+    font:600 12.5px/1 inherit; cursor:pointer; }
+  .btn.primary{ background:var(--blue); border-color:var(--blue); color:#fff; }
+  .btn.danger{ background:var(--danger); border-color:var(--danger); color:#fff; }
+  .btn:disabled{ opacity:.45; cursor:default; }
+  main{ padding:12px; }
+  .status{ color:var(--mute); font-size:13px; padding:6px 4px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .cell{ position:relative; aspect-ratio:4/5; border-radius:12px; overflow:hidden; border:2px solid transparent;
+    background:#e9edf6; cursor:pointer; }
+  .cell img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .cell.reject{ border-color:var(--danger); }
+  .cell.reject img{ opacity:.35; filter:grayscale(.4); }
+  .cell .mark{ position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    font-size:34px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.5); }
+  .cell.reject .mark{ display:flex; }
+  .cell .name{ position:absolute; left:0; right:0; bottom:0; font:600 9px/1.3 inherit; color:#fff;
+    background:linear-gradient(180deg,transparent,rgba(0,0,0,.7)); padding:12px 4px 3px; text-align:center;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  footer{ position:sticky; bottom:0; background:var(--white); border-top:1px solid var(--line);
+    padding:12px 16px calc(env(safe-area-inset-bottom,0)+12px); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .tally{ font-size:13px; color:var(--mute); }
+  .tally b{ color:var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>Reference <b>Review</b></h1>
+    <input id="token" type="text" placeholder="review token" autocomplete="off" spellcheck="false" />
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="row" style="justify-content:space-between">
+    <div class="bulk">
+      <button class="btn" id="keepAll">Keep all</button>
+      <button class="btn" id="rejectAll">Reject all</button>
+    </div>
+    <div class="tally" id="tally"></div>
+  </div>
+</header>
+<main>
+  <div class="status" id="status">Enter your token, then pick a pack.</div>
+  <div class="grid" id="grid"></div>
+</main>
+<footer>
+  <div class="tally" id="footTally">—</div>
+  <button class="btn danger" id="removeBtn" disabled>Remove rejected</button>
+</footer>
+
+<script>
+  const FN = "https://hkwkxacvcgorhthwyslx.supabase.co/functions/v1/review-references";
+  const PACKS = ["euro-summer","dubai","old-money","luxury-cars","beach-club","boat","dark-luxe","after-dark","_realism"];
+  const LABEL = { "_realism":"Realism (global)" };
+  const label = (p)=> LABEL[p] || p.replace(/-/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+
+  const $ = (id)=>document.getElementById(id);
+  const tokenEl=$("token"), tabsEl=$("tabs"), gridEl=$("grid"), statusEl=$("status");
+  const tallyEl=$("tally"), footTallyEl=$("footTally"), removeBtn=$("removeBtn");
+  let pack = null, images = [], reject = new Set();
+
+  // Persist the token locally so a reload doesn't lose it.
+  try{ tokenEl.value = localStorage.getItem("gems-review-token") || ""; }catch{}
+  tokenEl.addEventListener("input",()=>{ try{ localStorage.setItem("gems-review-token", tokenEl.value.trim()); }catch{} });
+  // token=... in the URL prefills it.
+  const q = new URLSearchParams(location.search); if(q.get("token")) tokenEl.value=q.get("token");
+
+  function renderTabs(){
+    tabsEl.innerHTML = PACKS.map(p=>`<button class="tab${p===pack?" on":""}" data-p="${p}">${label(p)}<span class="n" data-n="${p}"></span></button>`).join("");
+    tabsEl.querySelectorAll("[data-p]").forEach(b=> b.addEventListener("click",()=> load(b.dataset.p)));
+  }
+  function tallies(){
+    const keep = images.length - reject.size;
+    tallyEl.textContent = images.length ? `${keep} keep · ${reject.size} reject` : "";
+    footTallyEl.innerHTML = images.length ? `<b>${keep}</b> keep · <b>${reject.size}</b> to remove` : "—";
+    removeBtn.disabled = reject.size===0;
+    removeBtn.textContent = reject.size ? `Remove ${reject.size} rejected` : "Remove rejected";
+    const nb = tabsEl.querySelector(`[data-n="${pack}"]`); if(nb) nb.textContent = ` ${images.length}`;
+  }
+  function renderGrid(){
+    gridEl.innerHTML = images.map(im=>`<button class="cell${reject.has(im.name)?" reject":""}" data-name="${im.name}">
+      <img src="${im.url}" loading="lazy" alt="">
+      <span class="mark">✕</span><span class="name">${im.name}</span></button>`).join("");
+    gridEl.querySelectorAll("[data-name]").forEach(c=> c.addEventListener("click",()=>{
+      const n=c.dataset.name; if(reject.has(n)){reject.delete(n); c.classList.remove("reject");} else {reject.add(n); c.classList.add("reject");}
+      tallies();
+    }));
+  }
+  async function load(p){
+    const token=tokenEl.value.trim();
+    if(!token){ statusEl.textContent="Enter your review token first."; return; }
+    pack=p; reject=new Set(); renderTabs();
+    statusEl.textContent="Loading…"; gridEl.innerHTML="";
+    try{
+      const r = await fetch(`${FN}?pack=${encodeURIComponent(p)}&token=${encodeURIComponent(token)}`);
+      const d = await r.json();
+      if(!r.ok){ statusEl.textContent = d.error==="bad token" ? "Wrong token." : ("Error: "+(d.error||r.status)); return; }
+      images = d.images || [];
+      statusEl.textContent = images.length ? `${label(p)} — tap any photo that does NOT fit the archetype, then Remove.` : "Empty.";
+      renderGrid(); tallies();
+    }catch(e){ statusEl.textContent="Network error."; }
+  }
+  $("keepAll").addEventListener("click",()=>{ reject=new Set(); renderGrid(); tallies(); });
+  $("rejectAll").addEventListener("click",()=>{ reject=new Set(images.map(i=>i.name)); renderGrid(); tallies(); });
+  removeBtn.addEventListener("click",async ()=>{
+    if(!reject.size) return;
+    if(!confirm(`Permanently remove ${reject.size} images from ${label(pack)}?`)) return;
+    removeBtn.disabled=true; statusEl.textContent="Removing…";
+    try{
+      const r=await fetch(FN,{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({pack, token:tokenEl.value.trim(), remove:[...reject]})});
+      const d=await r.json();
+      if(!r.ok){ statusEl.textContent="Remove failed: "+(d.error||r.status); return; }
+      statusEl.textContent=`Removed ${d.removed}. Reloading…`;
+      await load(pack);
+    }catch(e){ statusEl.textContent="Network error."; }
+  });
+  renderTabs();
+</script>
+</body>
+</html>
