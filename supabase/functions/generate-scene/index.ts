@@ -52,17 +52,15 @@ const PACK_REFS_PREFIX = Deno.env.get("PACK_REFS_PREFIX") ?? "_global/packs";
 //
 // Four rules, chosen because they are precisely what a generated photo of a
 // real person gets wrong, in the order it gets them wrong.
-const REALISM_LAYER = `REALISM — four rules. Obey all four. Do NOT add other "realism" effects beyond these; extra effects make it look MORE artificial, not less.
+const REALISM_LAYER = `REALISM — four rules, each stating what the photograph IS. Follow all four.
 
-1. LIGHT HAS A DIRECTION, AND THE SUBJECT OBEYS IT. One dominant light source. The face and body must have a clearly LIT side and a clearly SHADOWED side, and the shadow side must be genuinely dark — not filled in, not evenly wrapped. The light on the person must come from the SAME direction as the light in the scene behind them, with the same hardness and the same colour. The body casts a real shadow onto whatever it stands on. Shadows are allowed to reach true black; the image is allowed to have contrast. A softly and evenly lit person is the single strongest tell that an image was generated.
+1. LIGHT COMES FROM ONE DIRECTION AND THE SUBJECT OBEYS IT. One dominant source. The face and body carry a bright lit side and a dark shadow side, and the shadow side holds real darkness, deep enough to lose detail at its core. The light on the person arrives from the same direction, with the same hardness and the same colour, as the light in the scene behind them. The body drops a shadow onto whatever it stands on. Blacks reach black and the image carries contrast.
 
-2. SKIN IS SKIN, AND THE FACE IS NOT IMPROVED. Visible pores, uneven tone, stubble or fine facial hair, a little sheen on the forehead and nose, natural asymmetry between the two sides of the face. Do NOT smooth, even out, slim, straighten, brighten, or beautify the face or body in ANY way. Do not make them more attractive, more symmetrical, or younger than their photo. If the output looks better-looking than the reference person, it is wrong.
+2. THE SKIN AND FACE ARE EXACTLY AS THE REFERENCE SHOWS THEM. Pores are visible. Tone is uneven. Stubble or fine facial hair sits where it grows. The forehead and nose carry a little sheen. The two sides of the face differ from one another, as they do in the reference. The person in the output is exactly as attractive as the person in the reference photograph and no more.
 
-3. PHONE OPTICS, NOT A PORTRAIT LENS. Deep depth of field — the background stays essentially in focus behind them. No creamy background blur, no portrait-mode subject separation, no cinematic bokeh. The frame is slightly wide and slightly imperfect, the way a photo taken by a friend standing a few steps away actually looks.
+3. A PHONE TOOK THIS PICTURE. The background sits in focus behind them, sharp into the distance, everything in frame belonging to one continuous scene at one depth of field. The framing is a little wide and a little imperfect, the way a photo taken by a friend standing a few steps away comes out.
 
-4. THE PERSON IS NOT THE WHOLE PHOTO. They occupy roughly a third of the frame, placed off-centre, with the setting clearly readable around and behind them, and their feet or full stance visible. Never a tight, centred, magazine-cover portrait.
-
-The setting must be physically real and complete: if they are on a boat, the boat is visible under and around them; on a rooftop, the roof surface and edge are visible. Never a subject floating against scenery.`;
+4. THE SETTING FILLS THE FRAME AND THE PERSON STANDS INSIDE IT. They occupy about a third of the frame, offset to one side, feet or full stance visible, with the place legible around and behind them. The setting is physically complete: on a boat the deck runs under them and the hull and rail surround them; on a rooftop the roof surface and its edge are in shot.`;
 
 // The subject is ALWAYS fully and tastefully clothed — never swimwear or shirtless,
 // in any setting. Appended whenever a real person is in the output.
@@ -74,15 +72,15 @@ const FRAMING = `FRAMING & DISTANCE (critical for realism): shoot the user from 
 
 // Face-realism — the specific tells that make an AI PERSON read as fake even at
 // SOTA (from forensic research). Complements FACE_FIDELITY (identity + skin texture).
-const FACE_REALISM = `FACE REALISM — kill the AI-person tells (obey all):
-- EYES: natural moisture and a SOFT single catchlight that is IDENTICAL in BOTH eyes and matches the scene's light direction; gaze slightly soft and often off-camera. NEVER glassy, doll-like, dead, or hyper-focused razor-sharp irises.
-- ASYMMETRY: a real, ordinary, NON-symmetric face — features not averaged into "influencer" perfection; allow a slightly uneven eye, a natural nose, distinctive imperfections. Perfect symmetry and model-beauty read as AI.
-- SKIN under this light: visible pores, peach-fuzz, minor blemishes/redness, uneven tone, under-eye texture, a little T-zone shine — never airbrushed, poreless, or glowing.
-- TEETH: natural, slightly uneven, not brilliant-white or a perfect grin.
-- HAIR: individual flyaway strands and a slightly messy, natural hairline that does NOT melt into the skin.
-- FACE LIGHT: directional — one side of the face a little brighter, soft shadow under the nose/chin. Never flat, even, everywhere-flattering studio light on the face.
-- EXPRESSION: candid, caught mid-moment, a neutral or asymmetric micro-expression — never a posed, straight-to-camera "trustworthy" smile (the uncanny tell).
-- HANDS if visible: correct five fingers, relaxed and natural — or kept partly out of frame.`;
+const FACE_REALISM = `FACE REALISM — how a real face behaves under a real camera:
+- EYES: natural moisture and a soft single catchlight, identical in both eyes and matching the scene's light direction; the gaze slightly soft and often off-camera.
+- ASYMMETRY: an ordinary, real, asymmetric face — a slightly uneven eye, a natural nose, features that keep their own distinctive irregularities.
+- SKIN under this light: visible pores, peach fuzz, small blemishes and patches of redness, uneven tone, under-eye texture, a little shine through the T-zone.
+- TEETH: natural, slightly uneven, the colour real teeth are.
+- HAIR: individual flyaway strands and a slightly messy hairline that reads as separate hairs against the skin.
+- FACE LIGHT: directional — one side of the face brighter, a soft shadow under the nose and chin.
+- EXPRESSION: candid, caught mid-moment, a neutral or asymmetric micro-expression.
+- HANDS if visible: five fingers, relaxed and naturally positioned, or resting partly outside the frame.`;
 
 // Curated, fully-clothed outfit vocabulary per style pack (analyzed from the
 // aspirational references, swimwear/shirtless excluded). Used to auto-dress the
@@ -128,13 +126,15 @@ const IDENTITY_BLOCK = `The attached photo(s) at the START are all the SAME pers
 // The single most important block for "don't make me look AI". Appended whenever a
 // real person is in the output. Stops the model from beautifying/airbrushing the
 // face — the #1 cause of the synthetic look.
-const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. The face in the output must be the EXACT face from the user's attached reference photo(s) — not a lookalike, not an "improved" version:
-- Copy their real facial geometry precisely: eye shape and spacing, nose, mouth, lips, jawline, cheekbones, brow, hairline, ears, and every mole, freckle, scar, facial hair and natural asymmetry.
-- KEEP REAL SKIN: visible pores, fine lines, natural texture, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age, or beautify. Apply NO beauty filter.
+const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. The face in the output is the exact face from the attached reference photograph, copied rather than interpreted.
+- Reproduce their real facial geometry precisely: eye shape and spacing, nose, mouth, lips, jawline, cheekbones, brow, hairline, ears, and every mole, freckle, scar, patch of facial hair and natural asymmetry.
+- KEEP REAL SKIN: visible pores, fine lines, natural texture, small blemishes, uneven tone, stubble, under-eye shadows. The skin in the output has exactly the texture the skin in the reference has.
 - Match their real skin tone and complexion exactly, including any redness or unevenness.
-- Expression and gaze stay natural and candid — never posed-perfect or model-like.
-BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over-smoothed or blurred skin, doll-like or glassy eyes, perfectly symmetric face, airbrushed "influencer" look, mannequin sheen, over-sharpened HDR, teeth too white or too even, or any face that looks prettier or different than the real photo.
-NO IDEALISATION — this is where identity is actually lost. The model's default is to make the face more symmetrical, smoother, slimmer, younger and more conventionally attractive than the reference. That is a WRONG face, not a flattering one. Reproduce the asymmetries: the eye that sits slightly differently, the nose as it actually is, the exact hairline and hair density, the real jaw and cheek width, the real skin tone including any unevenness, marks, or blemishes. Keep their exact eyewear shape if they wear glasses, including how it sits on the nose and where the temples meet the ears. If you find yourself improving anything about the face, stop and copy the reference instead.`;
+- Expression and gaze stay natural and candid, caught mid-moment.
+- Their face keeps its own proportions: the width of the jaw and cheeks as they are, the hairline where it sits, the density of the hair as it grows, the eye that sits slightly differently, the nose as it actually is.
+- The person in the output is exactly as symmetrical, exactly as smooth-skinned, exactly as slim and exactly as old as the person in the reference photograph. The reference is the ceiling and the floor for all four.
+- Their eyewear, if any, keeps its exact frame shape and thickness, and sits on the nose and meets the ears exactly as it does in the reference.
+Judge the result by one test: a stranger holding the reference photograph beside the output identifies them as the same individual on sight.`;
 
 // When the caller wants to recreate a specific reference photo AS themselves
 // ("put me in this exact shot" / face-swap): reproduce the reference composition
@@ -165,7 +165,7 @@ const BACKGROUND_BLOCK = `Generate an ATMOSPHERIC SCENE with NO people in it —
 // face — and that keeping that ORDER is what stops the model inventing a new
 // person when you describe a new scene. Ours had the identity anchor tenth, after
 // the scene, the style, the realism rules and the environment reference.
-const CONSISTENCY_LOCK = `CONSISTENCY LOCK — read this last and treat it as final. The person in the output is THE SAME PERSON shown in the identity photograph(s) at the start of this prompt. Do not invent a new person. Do not blend them with anyone else. Do not substitute a similar-looking model. If any instruction above would change their face, their bone structure, their skin tone or their body proportions, that instruction loses and the reference photograph wins. Before finishing, compare the face you have drawn against the reference: if a stranger would not identify them as the same individual, it is wrong.`;
+const CONSISTENCY_LOCK = `CONSISTENCY LOCK — read this last and treat it as final. The person in the output IS the person in the identity photograph at the start of this prompt: the same individual, rendered again. Their face, bone structure, skin tone and body proportions come from that photograph and from that photograph alone. Where any instruction above would move any of those away from the reference, the reference wins and that instruction yields. Before finishing, hold the face you have drawn beside the reference: a stranger comparing the two identifies them as the same individual.`;
 
 /**
  * A written description of the person's own features, measured once from their
@@ -206,13 +206,13 @@ const NEGATIVE = "No watermark-style text, no captions, no borders.";
 // COMPOSITION DNA — reverse-engineered from the founder's curated reference set
 // (the actual "aesthetic" travel/luxury photos). Every generation should follow
 // this exact photographic lens whether or not a specific reference is attached.
-const COMPOSITION_DNA = `COMPOSITION — frame it the way these aspirational travel photos are actually shot, NOT like a centered portrait:
-- THE SETTING IS THE SUBJECT. The place — a recognizable landmark or view (a skyline, a harbor full of yachts, an infinity pool leading to towers, a Monaco street) — must be legible in one glance and fill MOST of the frame. The person occupies only about a THIRD of it.
-- RULE OF THIRDS. Place the person OFF-CENTER on a left or right vertical third (or low-center), never centered and large. Put the landmark/horizon on a third line too.
-- SUBJECT SMALL, ENVIRONMENTAL FRAMING. Shoot half-body to full-body from a natural distance — the person is a figure IN the scene, not a face filling the frame. Never a tight portrait or selfie crop.
-- LAYERED DEPTH + A FRAMING DEVICE. Build clear foreground, midground and background, and frame through or under a real foreground element when it fits — an overhanging tree branch, an archway or tunnel, a railing, palms at the edge, a pool edge or road as a LEADING LINE that draws the eye to the landmark.
-- CANDID, TURNED-AWAY. The person is looking INTO the scene or off to the side — walking, leaning on a railing, over-the-shoulder, hand in a pocket, weight on one leg — never a stiff straight-on smile to camera.
-- VERTICAL 4:5, real phone perspective, slightly elevated or eye-level, honest depth of field. A restrained, coordinated palette (3-4 harmonious colours).`;
+const COMPOSITION_DNA = `COMPOSITION — frame it the way these aspirational travel photos are actually shot:
+- THE SETTING IS THE SUBJECT. A recognizable landmark or view — a skyline, a harbor full of yachts, an infinity pool leading to towers, a Monaco street — fills most of the frame and reads in one glance. The person occupies about a THIRD of it.
+- RULE OF THIRDS. The person stands on a left or right vertical third, or low and centred. The landmark or horizon sits on a third line too.
+- ENVIRONMENTAL FRAMING. Half-body to full-body from a natural distance: a figure IN the scene, with the place around them.
+- LAYERED DEPTH AND A FRAMING DEVICE. Clear foreground, midground and background, shot through or under a real foreground element where one fits — an overhanging branch, an archway or tunnel, a railing, palms at the edge — with a pool edge or a road running as a LEADING LINE toward the landmark.
+- CANDID AND TURNED AWAY. The person looks into the scene or off to the side: walking, leaning on a railing, over the shoulder, a hand in a pocket, weight on one leg.
+- VERTICAL 4:5, real phone perspective, slightly elevated or eye level, honest depth of field, and a restrained palette of three or four harmonious colours.`;
 
 // The launch-critical block: MOST real requests will have NO matching reference
 // photo (a pack with an empty library, or a scene we simply don't have a ref
