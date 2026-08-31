@@ -42,6 +42,12 @@ const ok = (name, cond, detail = "") => {
   else { fail += 1; console.log(`  FAIL  ${name}${detail ? " — " + detail : ""}`); }
 };
 const warned = (name, detail = "") => { warn += 1; console.log(`  WARN  ${name}${detail ? " — " + detail : ""}`); };
+/** A pair marked `resolved` must stay resolved — asserted by content, not co-occurrence. */
+const RESOLVED_ASSERTIONS = [
+  ["REALISM", /\bLANDSCAPE\b/i,
+    "REALISM_LAYER prescribes a LANDSCAPE orientation again; the aspect tail forces vertical, so it can never be honoured."],
+];
+
 const die = (msg) => { console.error(`\nPARSE FAILURE: ${msg}\n\nThis eval refuses to report a pass it did not actually verify.`); process.exit(2); };
 
 const src = readFileSync(SRC_PATH, "utf8");
@@ -253,7 +259,10 @@ console.log(`Prompt conflict eval — parsed ${Object.keys(BLOCK).length} instru
   // the flags it branches on plus the two plain interpolations.
   const EXPECTED = new Set([
     "promptText", "prompt", "aspect",                       // literal interpolations
-    "hasSubject", "envRefB64", "refIds", "specComposition",  // branch conditions
+    "hasSubject", "envRefB64", "specComposition",            // branch conditions
+    // `refIds` (what the caller asked for) was replaced in the assembly by
+    // `attachedUserRefs` (what actually downloaded) — see UNGROUNDED/PHANTOM-REF.
+    "attachedUserRefs", "recreatingReference",
     "manifestBlock", "styleBlock", "REALISM_LAYER", "realismRefBlock", "envRefBlock",
     "NO_REF_GROUNDING", "identityBlock", "FACE_FIDELITY", "FACE_REALISM", "MODESTY",
     "COMPOSITION_DNA", "specLighting", "FRAMING", "buildBlock", "wardrobeBlock",
@@ -343,8 +352,13 @@ const CONFLICTS = [
   //     these describe a property of the prompt today rather than a regression.
   ["REALISM", "SPEC_LIGHT", "warn",
     "REALISM prescribes light universally ('HARSH, UNEVEN... avoid the even, soft, flattering look'); SPEC_LIGHT states the reference's MEASURED direction/hardness, which may be exactly the soft light REALISM forbids. Same universal-vs-measured shape as the COMP_DNA/SPEC_COMP bug."],
-  ["REALISM", "ASPECT_TAIL", "warn",
-    "REALISM asks for 'often a LANDSCAPE or loosely-framed grab-shot'; the tail always demands a vertical 4:5/9:16 aspect. The orientation instruction is contradicted in the same prompt."],
+  // RESOLVED at the source: "LANDSCAPE or" was removed from REALISM_LAYER, since
+  // the tail always forces a vertical aspect and the orientation half of that
+  // bullet could therefore never be honoured. Kept as an ERROR pair so the
+  // contradiction cannot come back unnoticed — the check below asserts REALISM
+  // no longer prescribes an orientation at all.
+  ["REALISM", "ASPECT_TAIL", "resolved",
+    "REALISM must not prescribe an orientation: the tail always demands a vertical 4:5/9:16."],
   ["MATCH_REF", "AUTO_WARDROBE", "warn",
     "MATCH_REF says the output should be 'the same photograph, simply taken of the user' — which includes the reference's clothing; AUTO_WARDROBE independently dresses them from the pack vocabulary."],
   ["REALISM", "COMP_DNA", "warn",
@@ -450,26 +464,33 @@ function emit(c) {
   out.push("REALISM");
   if (realismCount > 0) out.push("REALISM_REFS");
   if (envRef) out.push(c.mode === "background" ? "ENV_MATCH_BG" : "ENV_MATCH");
-  if (!envRef && refIdsLen === 0) out.push("NO_REF");
+  // Gated on what ACTUALLY attached, not on what the caller asked for: a failed
+  // download previously suppressed the grounding block written for exactly that
+  // case (UNGROUNDED) and emitted MATCH_REF with nothing attached (PHANTOM-REF).
+  const recreatingReference = matchReference && attachedUserRefs > 0;
+  if (!envRef && attachedUserRefs === 0) out.push("NO_REF");
   if (c.mode === "background") out.push("BACKGROUND");
-  else if (matchReference && refIdsLen > 0) out.push("MATCH_REF");
+  else if (recreatingReference) out.push("MATCH_REF");
   else if (hasSubject) out.push("IDENTITY");
   if (hasSubject) out.push("FACE_FID", "FACE_REAL", "MODESTY");
   // R21, as amended: gated on !envRefB64, not !specComposition. The earlier
   // `!specComposition` gate was vacuous while no reference had a measured spec,
   // so the generic lens shipped alongside ENV_MATCH's exact-framing instruction
   // on every pack generation.
-  if (hasSubject && !envRef) out.push("COMP_DNA");
+  // Any instruction that dictates framing yields to a reference that IS the
+  // framing — envRefB64 is always null on the match-reference path, so the
+  // gate needs both terms.
+  if (hasSubject && !envRef && !recreatingReference) out.push("COMP_DNA");
   if (specComposition) out.push("SPEC_COMP");
   if (specLighting) out.push("SPEC_LIGHT");
-  if (hasSubject && !envRef) out.push("FRAMING");
+  if (hasSubject && !envRef && !recreatingReference) out.push("FRAMING");
   if (hasSubject) out.push("BUILD");
   if (hasSubject && c.wardrobe) out.push("WARDROBE");
   if (hasSubject && !c.wardrobe) out.push("AUTO_WARDROBE");
   if (hasSubject && c.pose) out.push("POSE");
-  if (hasSubject && !c.pose) out.push("CANDID_POSE");
+  if (hasSubject && !c.pose && !recreatingReference) out.push("CANDID_POSE");
   out.push("ASPECT_TAIL");
-  return { blocks: out, attachedUserRefs, refIdsLen, envRef, matchReference, hasSubject };
+  return { blocks: out, attachedUserRefs, refIdsLen, envRef, matchReference, recreatingReference, hasSubject };
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +557,9 @@ for (const s of shapes.values()) {
 
   const hit = [];
   for (const [a, b, sev, reason] of CONFLICTS) {
+    // `resolved` pairs are fixed at the source and asserted by CONTENT below;
+    // co-occurrence alone no longer means anything for them.
+    if (sev === "resolved") continue;
     if (set.has(a) && set.has(b)) {
       const key = `${a} x ${b}`;
       const bucket = sev === "error" ? violations : warnings;
@@ -580,6 +604,10 @@ for (const r of rows) {
   const impCol = `${r.imp.distinct}/${r.imp.total}`;
   console.log(`  ${NAME(r.s.example)} ${String(r.chars).padStart(6)} ${impCol.padStart(6)}${flagImp} ${status}`);
   console.log(`    blocks: ${r.s.blocks.join(" ")}`);
+}
+
+for (const [block, forbidden, why] of RESOLVED_ASSERTIONS) {
+  ok(`${block} stays free of its resolved contradiction`, !forbidden.test(BLOCK[block] ?? ""), why);
 }
 
 console.log("\nCONFLICT TABLE RESULTS");

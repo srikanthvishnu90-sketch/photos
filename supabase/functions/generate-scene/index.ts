@@ -49,7 +49,7 @@ EMBRACE IMPERFECTION — DELIBERATELY MAKE THE IMAGE "WORSE" (this is the #1 rea
 - MUNDANE CONTENT & BACKGROUND PEOPLE: fill it with incidental strangers mid-errand, a passing dog, a bird, ordinary clutter — not everything is a hero subject cleanly framed.
 - MUTED, SLIGHTLY-OFF COLOR + real sensor noise and light JPEG compression. Never vivid, never spotless.
 - RAKING LIGHT + GENUINE WEAR: favor low, raking side-light that skims and reveals texture; include real everyday wear — a scuffed shoe, creased linen, a wrinkle, a smudge, a stray hair. Nothing pristine or freshly-pressed.
-- Often a LANDSCAPE or loosely-framed grab-shot rather than a perfectly composed portrait.
+- Often a loosely-framed grab-shot rather than a perfectly composed portrait.
 
 CAPTURE MODEL — reproduce a modern iPhone's computational pipeline, not a DSLR:
 - Small-sensor smartphone, ~24mm-equivalent main lens at ƒ/1.8. DEEP depth of field: the subject AND the background are both essentially in focus. Do NOT add creamy/dreamy background blur unless Portrait mode is explicitly requested — shallow optical bokeh is a top AI/DSLR tell.
@@ -675,6 +675,11 @@ Deno.serve(async (request) => {
       hasSubject
         ? `\n\nBODY TYPE (keep it honest): render the user's REAL body type and proportions exactly as in their reference photos${build ? ` (${build})` : ""}. Do NOT make them more muscular, taller, broader, leaner, or more chiselled than they are, and do NOT exaggerate their facial structure or jawline. Their true frame and natural build — never an idealized or "gym-bro" version.`
         : "";
+    // `refIds` is what the CALLER asked for; `attachedUserRefs` is what actually
+    // downloaded. Gating on the former meant a failed download emitted
+    // "RECREATE THE ATTACHED REFERENCE PHOTO" with zero references attached —
+    // the model told to reproduce an image it cannot see.
+    const recreatingReference = matchReference && attachedUserRefs > 0;
     const pose = String(body.pose ?? "").trim().slice(0, 200);
     const poseBlock =
       hasSubject && pose
@@ -682,15 +687,18 @@ Deno.serve(async (request) => {
         : "";
     // Non-negotiable candid pose when none was chosen — the "between-takes" look
     // that reads as a real photo, never a stiff straight-on smile.
+    // Suppressed when recreating a reference: this block calls itself
+    // NON-NEGOTIABLE while MATCH_REFERENCE_BLOCK asks to match the reference's
+    // pose. Two non-negotiables is one too many.
     const candidDefaultBlock =
-      hasSubject && !pose
+      hasSubject && !pose && !recreatingReference
         ? `\n\nPOSE (candid, NON-NEGOTIABLE — never a stiff straight-on smile to camera): put them in a real between-takes moment — looking down at their phone, glancing off to the side, adjusting a watch or shirt cuff, a hand in a pocket, mid-stride walking, or looking out at the view. Relaxed, weight on one leg, unposed and natural.`
         : "";
     // Identity handling: face-swap-a-reference > put-me-in-scene > empty scene.
     const identityBlock =
       mode === "background"
         ? `\n\n${BACKGROUND_BLOCK}`
-        : matchReference && refIds.length
+        : recreatingReference
           ? `\n\n${MATCH_REFERENCE_BLOCK}`
           : hasSubject
             ? `\n\n${IDENTITY_BLOCK}`
@@ -715,7 +723,7 @@ Deno.serve(async (request) => {
       realismRefBlock +
       envRefBlock +
       // No environment ref AND no user inspiration ref → force real-place grounding.
-      (!envRefB64 && !refIds.length ? `\n\n${NO_REF_GROUNDING}` : "") +
+      (!envRefB64 && !attachedUserRefs ? `\n\n${NO_REF_GROUNDING}` : "") +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
@@ -728,12 +736,15 @@ Deno.serve(async (request) => {
       // specs measured yet it is always true, so the generic lens shipped
       // alongside the exact-match block on EVERY pack generation. Same gate as
       // FRAMING below, for the same reason.
-      (hasSubject && !envRefB64 ? `\n\n${COMPOSITION_DNA}` : "") +
+      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${COMPOSITION_DNA}` : "") +
       specComposition +
       specLighting +
       // When an environment reference is present, its EXACT-framing instruction
       // governs the distance; the generic "medium-to-wide" framing would fight it.
-      (hasSubject && !envRefB64 ? `\n\n${FRAMING}` : "") +
+      // Same suppression as COMPOSITION_DNA above and for the same reason: any
+      // instruction that dictates framing must yield to a reference that IS the
+      // framing. envRefB64 is always null here, so this gate needs both terms.
+      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${FRAMING}` : "") +
       buildBlock +
       wardrobeBlock +
       autoWardrobeBlock +

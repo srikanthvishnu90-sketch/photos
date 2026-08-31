@@ -539,6 +539,169 @@ if (PHASE === 'jank') {
   await browser.close();
 }
 
+
+if (PHASE === 'clip') {
+  for (const [w, h] of [[320, 568], [390, 844], [430, 932]]) {
+    const { browser, page, errors } = await boot({ width: w, height: h });
+    await onboard(page);
+    const seed = await seedPhoto(page, { w: 1600, h: 1200 });
+    await openEditor(page, seed.id, 'manual');
+    await page.click('[data-editor-tool="Filters"]');
+    await page.waitForSelector('.editor-filter-chip');
+    await page.waitForTimeout(3500);
+    const info = await page.evaluate((vh) => {
+      const btn = document.querySelector('[data-filter-apply]');
+      const r = btn.getBoundingClientRect();
+      // scrollable ancestors
+      const chain = [];
+      let el = btn;
+      while (el && el !== document.documentElement) {
+        const cs = getComputedStyle(el);
+        chain.push({
+          sel: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/)[0] : ''),
+          oy: cs.overflowY, sh: el.scrollHeight, ch: el.clientHeight, scrollable: el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(cs.overflowY),
+        });
+        el = el.parentElement;
+      }
+      return { applyRect: { top: +r.top.toFixed(1), bottom: +r.bottom.toFixed(1) }, vh, offscreen: r.top > vh, chain,
+        bodyScroll: { sh: document.body.scrollHeight, ch: document.body.clientHeight },
+        panelRect: (() => { const p = document.querySelector('#editorManualPanel').getBoundingClientRect(); return { top: +p.top.toFixed(1), bottom: +p.bottom.toFixed(1) }; })(),
+      };
+    }, h);
+    log('=== ' + w + 'x' + h + ' ===');
+    log(JSON.stringify(info, null, 1));
+    // can a user scroll to it?
+    const scrolled = await page.evaluate(() => {
+      const btn = document.querySelector('[data-filter-apply]');
+      btn.scrollIntoView({ block: 'center' });
+      const r = btn.getBoundingClientRect();
+      return { top: +r.top.toFixed(1), bottom: +r.bottom.toFixed(1) };
+    });
+    log('after scrollIntoView:', JSON.stringify(scrolled), 'viewportH=', h);
+    await page.screenshot({ path: `/private/tmp/claude-501/-Users-vishnusrikanth/27e14023-7753-4125-ab34-3c4d570cb2c3/scratchpad/clip-${w}x${h}.png` });
+    log('ERRORS', JSON.stringify(errors.filter((e) => !e.includes('willReadFrequently') && !e.includes('dtype not')), null, 1));
+    await browser.close();
+  }
+}
+
+
+if (PHASE === 'clip2') {
+  for (const [w, h] of [[320, 568], [390, 844], [430, 932]]) {
+    const { browser, page, errors } = await boot({ width: w, height: h });
+    await onboard(page);
+    const seed = await seedPhoto(page, { w: 1600, h: 1200 });
+    await openEditor(page, seed.id, 'manual');
+    await page.waitForTimeout(1200);
+    log('=== ' + w + 'x' + h + ' at rest (manual/Erase) ===');
+    await page.screenshot({ path: `/private/tmp/claude-501/-Users-vishnusrikanth/27e14023-7753-4125-ab34-3c4d570cb2c3/scratchpad/rest-${w}x${h}.png` });
+    const clipped = await page.evaluate(() => {
+      const out = [];
+      for (const el of document.querySelectorAll('#editorScreen *')) {
+        if (el.children.length) continue;
+        const txt = (el.textContent || '').trim();
+        if (!txt) continue;
+        if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0) {
+          out.push({ txt: txt.slice(0, 30), sw: el.scrollWidth, cw: el.clientWidth, cls: (typeof el.className === 'string' ? el.className : '') });
+        }
+      }
+      return out;
+    });
+    log('text-clipped elements:', JSON.stringify(clipped, null, 1));
+    const chips = await page.evaluate(() => [...document.querySelectorAll('[data-editor-tool]')].map((n) => {
+      const r = n.getBoundingClientRect();
+      return { t: n.textContent.trim(), sw: n.scrollWidth, cw: n.clientWidth, w: +r.width.toFixed(1), h: +r.height.toFixed(1), clipped: n.scrollWidth > n.clientWidth + 1 };
+    }).filter((x) => x.clipped));
+    log('clipped tool chips:', JSON.stringify(chips));
+    log('ERRORS', JSON.stringify(errors.filter((e) => !e.includes('willReadFrequently') && !e.includes('dtype not')), null, 1));
+    await browser.close();
+  }
+}
+
+
+if (PHASE === 'misc') {
+  const { browser, page, errors, requests } = await boot();
+  await onboard(page);
+  const seed = await seedPhoto(page, { w: 2400, h: 1800 });
+  await openEditor(page, seed.id, 'manual');
+
+  // --- blob URL leak: thumbs revoked when leaving the Filters tool? ---
+  await page.click('[data-editor-tool="Filters"]');
+  await page.waitForSelector('.editor-filter-chip');
+  await page.waitForTimeout(4000);
+  const thumbUrl = await page.$eval('[data-grade="dark-gym"] [data-grade-thumb]', (n) => n.style.backgroundImage.slice(4, -1).replace(/["\']/g, ''));
+  const aliveBefore = await page.evaluate((u) => fetch(u).then((r) => r.ok).catch(() => false), thumbUrl);
+  await page.click('[data-editor-tool="Adjust"]');
+  await page.waitForTimeout(800);
+  const aliveAfterToolSwitch = await page.evaluate((u) => fetch(u).then((r) => r.ok).catch(() => false), thumbUrl);
+  log('thumb blob alive before switch=', aliveBefore, ' after switching to Adjust=', aliveAfterToolSwitch, '(true after switch = leaked)');
+
+  // heap growth over repeated Filters visits
+  const h0 = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
+  for (let i = 0; i < 8; i++) {
+    await page.click('[data-editor-tool="Filters"]');
+    await page.waitForTimeout(2600);
+    await page.click('[data-editor-tool="Adjust"]');
+    await page.waitForTimeout(300);
+  }
+  const h1 = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
+  log('heap after 8 Filters visits:', (h0 / 1048576).toFixed(1), '->', (h1 / 1048576).toFixed(1), 'MB');
+
+  // --- double-tap Apply -> duplicate versions? ---
+  await page.click('[data-editor-tool="Filters"]');
+  await page.waitForTimeout(3000);
+  await page.click('[data-grade="film"]');
+  await page.waitForTimeout(2500);
+  const before = await page.$$eval('[data-editor-version]', (n) => n.length);
+  await page.evaluate(() => { const b = document.querySelector('[data-filter-apply]'); b.click(); b.click(); b.click(); });
+  await page.waitForTimeout(9000);
+  const after = await page.$$eval('[data-editor-version]', (n) => n.length);
+  log('versions before triple-Apply', before, '-> after', after, '(expected +1)');
+  log('labels', JSON.stringify(await page.$$eval('[data-editor-version]', (n) => n.map((x) => x.textContent.trim()))));
+
+  // --- Clear button ---
+  await page.click('[data-editor-tool="Filters"]');
+  await page.waitForTimeout(3000);
+  await page.click('[data-grade="nightlife"]');
+  await page.waitForTimeout(2500);
+  const previewSrc = await page.evaluate(() => document.querySelector('#editorPhotoView').src);
+  await page.click('[data-filter-clear]');
+  await page.waitForTimeout(600);
+  const afterClear = await page.evaluate(() => ({ src: document.querySelector('#editorPhotoView').src, filter: document.querySelector('#editorPhotoView').style.filter, applyDisabled: document.querySelector('[data-filter-apply]').disabled }));
+  log('Clear restored canonical version?', afterClear.src !== previewSrc, JSON.stringify(afterClear).slice(0, 160));
+
+  // --- switch to Describe mid-filter-preview ---
+  await page.click('[data-grade="coastal"]');
+  await page.waitForTimeout(2500);
+  await page.click('[data-editor-mode="describe"]');
+  await page.waitForTimeout(800);
+  const afterMode = await page.evaluate(() => ({
+    src: document.querySelector('#editorPhotoView').src.slice(0, 5),
+    filter: document.querySelector('#editorPhotoView').style.filter,
+    toolPanelHidden: document.querySelector('#editorToolPanel').hidden,
+    describeHidden: document.querySelector('#editorDescribePanel').hidden,
+  }));
+  log('after mode switch mid-preview:', JSON.stringify(afterMode));
+  await page.click('[data-editor-mode="manual"]');
+  await page.waitForTimeout(800);
+  log('back to manual, tool panel html len', await page.$eval('#editorToolPanel', (n) => n.innerHTML.length));
+
+  // --- AI tool without a session (Erase / Add) ---
+  await page.click('[data-editor-tool="Add"]');
+  await page.waitForTimeout(600);
+  const addInput = await page.$('#editorToolPanel input[type=text], #editorToolPanel input:not([type])');
+  if (addInput) {
+    await addInput.fill('a red balloon');
+    const btns = await page.$$('#editorToolPanel button');
+    for (const b of btns) { if ((await b.textContent()).trim().toLowerCase().includes('apply')) { await b.click(); break; } }
+    await page.waitForTimeout(9000);
+    log('Add status:', JSON.stringify(await page.$eval('#editorStatus', (n) => n.textContent)));
+  } else { log('Add: no text input found'); }
+
+  log('ERRORS', JSON.stringify(errors.filter((e) => !e.includes('willReadFrequently') && !e.includes('dtype not')), null, 1));
+  log('SUPABASE', JSON.stringify([...new Set(requests.filter((r) => r.includes('supabase.co/functions')))], null, 1));
+  await browser.close();
+}
+
 if (PHASE === 'smoke') {
   const { browser, page, errors, requests } = await boot();
   await onboard(page);
