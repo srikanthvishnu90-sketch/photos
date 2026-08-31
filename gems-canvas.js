@@ -387,6 +387,15 @@ function paintFull(bitmap, adjust = {}, opts = {}) {
 // research doc, specs 01-02.
 // ---------------------------------------------------------------------------
 
+/** Finite number or fallback — garbage params must never reach the pixel loops
+ * (NaN survives arithmetic clamps and lands in a Uint8ClampedArray as 0, which
+ * blacks out the image). Every v2 pass validates through this. */
+function num(v, fallback, lo = -Infinity, hi = Infinity) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
 /**
  * Film/sensor grain, modelled rather than overlaid.
  *
@@ -408,13 +417,13 @@ function grainPass(ctx, w, h, params = {}) {
   try {
     const amount = clampAdj(params.amount);
     if (amount <= 0) return;
-    const shadowBias = params.shadowBias == null ? 0.75 : Math.max(0, Math.min(1, params.shadowBias));
-    const chroma = params.chroma == null ? 0.35 : Math.max(0, Math.min(1, params.chroma));
+    const shadowBias = num(params.shadowBias, 0.75, 0, 1);
+    const chroma = num(params.chroma, 0.35, 0, 1);
     const scale = (amount / 100) * 34; // peak ±levels at amount 100
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
     // Deterministic PRNG — a recipe must replay identically every time.
-    let seed = (params.seed == null ? 0x9e3779b9 : params.seed) >>> 0;
+    let seed = num(params.seed, 0x9e3779b9) >>> 0;
     const rnd = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return (seed >>> 8) / 8388608 - 1; // -1..1
@@ -458,50 +467,64 @@ function grainPass(ctx, w, h, params = {}) {
  *   knee 0..1 luminance where halation starts; radius 0..100 (% of the short
  *   edge, scaled); strength 0..100; hue = per-channel weighting.
  */
+const HALO_MAX_EDGE = 1024; // halo working resolution; see halationPass
 function halationPass(canvas, ctx, params = {}) {
   try {
-    const strength = clampAdj(params.strength);
+    const strength = clampAdj(num(params.strength, 0));
     if (strength <= 0) return;
     const w = canvas.width;
     const h = canvas.height;
-    const knee = params.knee == null ? 0.72 : Math.max(0, Math.min(0.99, params.knee));
-    const radiusPct = params.radius == null ? 18 : Math.max(1, Math.min(100, params.radius));
-    const hue = Array.isArray(params.hue) && params.hue.length === 3
-      ? params.hue
-      : [1, 0.32, 0.18]; // red-weighted, as real halation is
-    const src = ctx.getImageData(0, 0, w, h);
+    const knee = num(params.knee, 0.72, 0, 0.99);
+    const radiusPct = num(params.radius, 18, 1, 100);
+    const rawHue = Array.isArray(params.hue) && params.hue.length === 3 ? params.hue : null;
+    // Red-weighted, as real halation is.
+    const hue = rawHue ? rawHue.map((v) => num(v, 0, 0, 4)) : [1, 0.32, 0.18];
+
+    // The halo is built at a REDUCED resolution and scaled back up. It is a
+    // heavily blurred mask, so this is visually lossless — and it is what keeps
+    // the pass affordable: at full 12MP this needed four extra RGBA buffers
+    // (~192MB live, enough to kill a mobile renderer, which no try/catch can
+    // recover from). Capped, it is a few MB regardless of source size.
+    const long = Math.max(w, h);
+    const scale = long > HALO_MAX_EDGE ? HALO_MAX_EDGE / long : 1;
+    const hw = Math.max(1, Math.round(w * scale));
+    const hh = Math.max(1, Math.round(h * scale));
+
+    // Downscale first, so the big frame is never read into an ImageData.
+    const smallCanvas = makeCanvas(hw, hh);
+    const sctx = smallCanvas?.getContext("2d");
+    if (!sctx) return;
+    sctx.drawImage(canvas, 0, 0, hw, hh);
+    const src = sctx.getImageData(0, 0, hw, hh);
     const sd = src.data;
-    const halo = ctx.createImageData(w, h);
-    const hd = halo.data;
     let lit = false;
     for (let i = 0; i < sd.length; i += 4) {
       const L = (0.2126 * sd[i] + 0.7152 * sd[i + 1] + 0.0722 * sd[i + 2]) / 255;
-      if (L <= knee) { hd[i + 3] = 255; continue; }
+      if (L <= knee) { sd[i] = 0; sd[i + 1] = 0; sd[i + 2] = 0; sd[i + 3] = 255; continue; }
       // Intensity above the knee, squared — only genuinely bright light blooms.
       const t = (L - knee) / (1 - knee);
       const e = t * t * 255;
-      hd[i] = e * hue[0];
-      hd[i + 1] = e * hue[1];
-      hd[i + 2] = e * hue[2];
-      hd[i + 3] = 255;
+      sd[i] = e * hue[0];
+      sd[i + 1] = e * hue[1];
+      sd[i + 2] = e * hue[2];
+      sd[i + 3] = 255;
       lit = true;
     }
     if (!lit) return;
-    const haloCanvas = makeCanvas(w, h);
-    const hctx = haloCanvas?.getContext("2d");
-    if (!hctx) return;
-    hctx.putImageData(halo, 0, 0);
-    // Blur it in a second buffer (filter applies on draw, not on putImageData).
-    const blurCanvas = makeCanvas(w, h);
+    sctx.putImageData(src, 0, 0);
+
+    const blurCanvas = makeCanvas(hw, hh);
     const bctx = blurCanvas?.getContext("2d");
     if (!bctx) return;
-    const radius = Math.max(2, (radiusPct / 100) * Math.min(w, h) * 0.09);
+    // Radius is a fraction of the short edge, so the bloom is scale-invariant;
+    // it is then expressed in the reduced buffer's own pixels.
+    const radius = Math.max(1, (radiusPct / 100) * Math.min(w, h) * 0.09 * scale);
     bctx.filter = `blur(${radius.toFixed(2)}px)`;
-    bctx.drawImage(haloCanvas, 0, 0);
+    bctx.drawImage(smallCanvas, 0, 0);
     bctx.filter = "none";
     ctx.globalCompositeOperation = "screen";
     ctx.globalAlpha = Math.min(1, strength / 100);
-    ctx.drawImage(blurCanvas, 0, 0);
+    ctx.drawImage(blurCanvas, 0, 0, w, h);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
   } catch (error) {
@@ -529,19 +552,19 @@ function threeWayPass(data, g3 = {}) {
   for (const key of ["shadows", "midtones", "highlights"]) {
     const z = g3[key];
     if (!z || (!z.s && !z.l)) continue;
-    const [r, g, b] = hslToRgb(((Number(z.h) || 0) % 360 + 360) % 360, 1, 0.5);
+    const [r, g, b] = hslToRgb(((num(z.h, 0) % 360) + 360) % 360, 1, 0.5);
     zones.push({
       key,
       // Direction away from neutral grey, scaled by saturation.
       dr: (r - 128) / 128,
       dg: (g - 128) / 128,
       db: (b - 128) / 128,
-      s: Math.max(0, Math.min(100, Number(z.s) || 0)) / 100,
-      l: clampAdj(z.l) / 100,
+      s: num(z.s, 0, 0, 100) / 100,
+      l: clampAdj(num(z.l, 0)) / 100,
     });
   }
   if (!zones.length) return;
-  const balance = clampAdj(g3.balance) / 100;
+  const balance = clampAdj(num(g3.balance, 0)) / 100;
   const pivot = 0.5 + balance * 0.25;
   const SCALE = 58; // levels of tint at s=100 inside a zone
   for (let i = 0; i < data.length; i += 4) {
@@ -570,8 +593,15 @@ function threeWayPass(data, g3 = {}) {
 
 /** Build a 256-entry LUT from piecewise-linear control points in 0..255. */
 function lutFromPoints(points) {
-  const pts = Array.isArray(points) && points.length >= 2
-    ? [...points].sort((a, b) => a[0] - b[0])
+  // Validate before use: a model-authored curve (spec 04) can be malformed, and
+  // a bad point would otherwise produce an all-zero LUT or throw.
+  const clean = Array.isArray(points)
+    ? points
+        .filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+        .map((p) => [num(p[0], 0, 0, 255), num(p[1], 0, 0, 255)])
+    : [];
+  const pts = clean.length >= 2
+    ? clean.sort((a, b) => a[0] - b[0])
     : [[0, 0], [255, 255]];
   const lut = new Uint8ClampedArray(256);
   let j = 0;
@@ -1212,6 +1242,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "dark-gym",
     label: "Dark Gym",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["cold steel", "hard light", "steely", "harsh light"],
     adjust: {
       exposure: -14, contrast: 26, highlights: -18, shadows: -20, whites: -6,
       blacks: -14, saturation: -26, vibrance: -6, warmth: -14, clarity: 22,
@@ -1232,6 +1266,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "golden-hour",
     label: "Golden Hour",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["golden hour", "magic hour", "sunset light", "sunset glow", "sun drenched", "warm glow"],
     adjust: {
       exposure: 6, contrast: -4, highlights: -30, shadows: 20, whites: 6,
       blacks: -4, saturation: 8, vibrance: 16, warmth: 26, clarity: -4,
@@ -1255,6 +1293,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "euro-summer",
     label: "Euro Summer",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["euro summer", "sun bleached", "summer glow", "bright and warm"],
     adjust: {
       exposure: 10, contrast: 6, highlights: -22, shadows: 16, whites: 8,
       blacks: -6, saturation: 6, vibrance: 14, warmth: 14, tint: 2,
@@ -1278,6 +1320,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "clean-editorial",
     label: "Clean Editorial",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["clean editorial", "editorial", "magazine look", "crisp and clean", "studio clean"],
     adjust: {
       exposure: 4, contrast: 14, highlights: -14, shadows: 8, whites: 10,
       blacks: -8, saturation: -8, vibrance: 6, clarity: 10, sharpness: 8,
@@ -1295,6 +1341,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "nightlife",
     label: "Nightlife",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["nightlife", "neon glow", "neon light", "night out", "club lighting"],
     adjust: {
       exposure: -18, contrast: 30, highlights: -24, shadows: -10, whites: -10,
       blacks: -16, saturation: 10, vibrance: 12, warmth: -16, clarity: 14,
@@ -1320,6 +1370,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "film",
     label: "Film",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["filmic", "analog", "analogue", "35mm", "film look", "grainy"],
     adjust: {
       exposure: 2, contrast: -6, highlights: -18, shadows: 12, whites: -8,
       blacks: 8, saturation: -6, vibrance: 8, warmth: 10, clarity: -2,
@@ -1348,6 +1402,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "coastal",
     label: "Coastal",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["coastal", "airy", "bright and airy", "breezy", "seaside light"],
     adjust: {
       exposure: 12, contrast: -8, highlights: -20, shadows: 22, whites: 10,
       blacks: 4, saturation: 2, vibrance: 12, warmth: -6, tint: -2,
@@ -1368,6 +1426,10 @@ export const FILTER_GRADES = Object.freeze([
   {
     key: "streetwear",
     label: "Streetwear",
+    // Look words only, never place words: matchGrade() runs BEFORE the
+    // content-edit check, so a place alias would hijack "put me on a beach"
+    // into a grade instead of a generative edit.
+    aliases: ["streetwear", "punchy", "high contrast", "gritty", "urban look"],
     adjust: {
       exposure: -4, contrast: 28, highlights: -20, shadows: -6, whites: 4,
       blacks: -14, saturation: 12, vibrance: 18, warmth: -6, clarity: 20,
@@ -1481,10 +1543,20 @@ export function fitForPreview(bitmap, maxEdge = 1600) {
 export function applyGrade(bitmap, grade = {}) {
   const adjust = grade.adjust || {};
   // A grade takes the full pipeline if it moves any of the rich tonal keys, or
-  // if it carries any of the v2 layers (curve / three-way / film physics).
-  const rich =
-    RICH_ADJUST_KEYS.some((key) => adjust[key]) ||
-    !!grade.curve || !!grade.grade3 || !!grade.film;
+  // if it carries an ACTIVE v2 layer. Presence is not enough: `film: {}` or an
+  // all-zero grade3 would otherwise reroute a simple grade through paintFull
+  // and change its warmth behaviour, and an hsl-only grade would take the
+  // simple path and silently drop its HSL entirely.
+  const g3 = grade.grade3;
+  const film = grade.film;
+  const hasActiveLayer =
+    (grade.curve && Object.entries(grade.curve).some(
+      ([ch, pts]) => ["luma", "r", "g", "b"].includes(ch) && Array.isArray(pts) && pts.length >= 2)) ||
+    (grade.hsl && activeBandsFrom(grade.hsl).length > 0) ||
+    (g3 && (clampAdj(g3.balance) !== 0 || ["shadows", "midtones", "highlights"].some(
+      (k) => g3[k] && (Number(g3[k].s) || Number(g3[k].l))))) ||
+    (film && (Number(film.grain?.amount) > 0 || Number(film.halation?.strength) > 0));
+  const rich = RICH_ADJUST_KEYS.some((key) => adjust[key]) || !!hasActiveLayer;
   let canvas;
   if (rich) {
     const film = grade.film || {};
@@ -1503,9 +1575,20 @@ export function applyGrade(bitmap, grade = {}) {
       if (needsPixelLayers) {
         try {
           const img = ctx.getImageData(0, 0, w, h);
-          if (grade.curve) curvePass(img.data, grade.curve);
-          if (activeBands.length) hslPass(img.data, activeBands);
-          if (grade.grade3) threeWayPass(img.data, grade.grade3);
+          // Each layer is guarded separately: sharing one try meant a single bad
+          // curve could silently suppress otherwise-valid HSL and three-way too.
+          if (grade.curve) {
+            try { curvePass(img.data, grade.curve); }
+            catch (error) { console.info("curve layer skipped", error); }
+          }
+          if (activeBands.length) {
+            try { hslPass(img.data, activeBands); }
+            catch (error) { console.info("HSL layer skipped", error); }
+          }
+          if (grade.grade3) {
+            try { threeWayPass(img.data, grade.grade3); }
+            catch (error) { console.info("three-way layer skipped", error); }
+          }
           ctx.putImageData(img, 0, 0);
         } catch (error) {
           console.info("grade pixel layers skipped", error);

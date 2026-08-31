@@ -92,11 +92,43 @@ for (const g of FILTER_GRADES) {
     const o = g.hsl?.orange || {};
     ok(`${n}: skin protected (orange |s| <= 14)`, Math.abs(o.s || 0) <= 14, `got ${o.s}`);
     ok(`${n}: skin protected (orange |h| <= 8)`, Math.abs(o.h || 0) <= 8, `got ${o.h}`);
-    // Craft rule 3 — a look is a recipe, not four numbers.
-    const layers = ["adjust", "curve", "hsl", "grade3", "film"].filter((k) => g[k]).length;
-    ok(`${n}: is a real recipe (>=4 layers)`, layers >= 4, `${layers} layers`);
+    // Craft rule 3 — a look is a recipe, not four numbers. An empty object is
+    // not a layer: `film: {}` must not count toward the total.
+    const nonEmpty = (v) => !!v && typeof v === "object" && Object.keys(v).length > 0;
+    const layers = ["adjust", "curve", "hsl", "grade3", "film"].filter((k) => nonEmpty(g[k])).length;
+    ok(`${n}: is a real recipe (>=4 non-empty layers)`, layers >= 4, `${layers} layers`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Alias hygiene. Aliases are the vibe vocabulary: they feed matchNamedGrade()
+// in the editor and matchGrade() in gems-edit-intent, and matchGrade runs
+// BEFORE the content-edit check — so a place-word alias would hijack
+// "put me on a beach" into a grade instead of a generative edit.
+// ---------------------------------------------------------------------------
+const PLACE_WORDS = [
+  "beach", "ocean", "sea", "club", "bar", "gym", "street", "city", "pool",
+  "yacht", "boat", "car", "hotel", "villa", "desert", "mountain", "dubai",
+  "paris", "amalfi", "santorini", "mediterranean", "restaurant", "office",
+];
+const seen = new Map();
+for (const g of FILTER_GRADES) {
+  for (const a of g.aliases || []) {
+    const t = String(a).toLowerCase().trim();
+    ok(`alias "${t}" is at least 4 chars`, t.length >= 4);
+    ok(`alias "${t}" is unique across looks`, !seen.has(t), `also on ${seen.get(t)}`);
+    seen.set(t, g.key);
+    // English noun phrases are head-final, so it is the LAST word that decides
+    // whether the alias names a place or describes a look: "dark gym" is a
+    // place ("put me in a dark gym" would be hijacked into a grade), while
+    // "club lighting" is a look and safely means the nightlife grade.
+    const head = t.split(/\s+/).pop();
+    ok(`alias "${t}" names a look, not a place`, !PLACE_WORDS.includes(head),
+      PLACE_WORDS.includes(head) ? `"${head}" in head position would hijack a content edit` : "");
+  }
+}
+ok("every look carries aliases", FILTER_GRADES.every((g) => (g.aliases || []).length >= 3),
+  "the vibe vocabulary is how a described look reaches the free on-device path");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

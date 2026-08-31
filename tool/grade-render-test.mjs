@@ -19,11 +19,17 @@ srv.kill();
 let fail = 0;
 const check = (n, c, d) => { if (c) console.log(`  ok   ${n}${d ? " — " + d : ""}`); else { fail++; console.log(`  FAIL ${n} — ${d}`); } };
 
+const b = res.base;
 console.log("PHYSICS (each pass in isolation)\n");
 const g = res.physics.grain;
+// Variance GAINED over the ungraded baseline, not absolute variance — the test
+// patches are flat, but JPEG leaves a little of its own noise.
+const gain = { shadow: g.shadow - b.grainShadow, mid: g.mid - b.grainMid, high: g.high - b.grainHigh };
 check("grain is luminance-dependent (shadow > mid > high)",
-  g.shadow > g.mid && g.mid > g.high, `variance ${g.shadow} / ${g.mid} / ${g.high}`);
-check("grain dies out in the speculars", g.high < g.shadow * 0.3, `high ${g.high} vs shadow ${g.shadow}`);
+  gain.shadow > gain.mid && gain.mid > gain.high,
+  `variance gained ${gain.shadow.toFixed(2)} / ${gain.mid.toFixed(2)} / ${gain.high.toFixed(2)}`);
+check("grain dies out in the speculars", gain.high < gain.shadow * 0.3,
+  `gained ${gain.high.toFixed(2)} in speculars vs ${gain.shadow.toFixed(2)} in shadow`);
 
 for (const name of ["red", "magenta"]) {
   const h = res.physics[`halation_${name}`];
@@ -41,6 +47,23 @@ for (const name of ["red", "magenta"]) {
   console.log(`       red gain by distance from the highlight edge (6px bins): ${prof.join("  ")}`);
 }
 
+const c = res.physics.curve;
+check("curve lifts the shadow toe", c.shadow[0] - c.baseShadow[0] > 15,
+  `${c.baseShadow[0]} -> ${c.shadow[0]}`);
+check("curve rolls the highlight shoulder", c.baseHigh[0] - c.high[0] > 8,
+  `${c.baseHigh[0]} -> ${c.high[0]}`);
+
+const hs = res.physics.hsl;
+const blueSatDrop = (hs.baseBluePatch[2] - hs.baseBluePatch[0]) - (hs.bluePatch[2] - hs.bluePatch[0]);
+const redSatDrop = (hs.baseRedPatch[0] - hs.baseRedPatch[2]) - (hs.redPatch[0] - hs.redPatch[2]);
+check("HSL desaturates only the targeted band", blueSatDrop > 20 && Math.abs(redSatDrop) < 8,
+  `blue -${blueSatDrop.toFixed(1)}, red band moved ${redSatDrop.toFixed(1)}`);
+check("an hsl-only grade is not dropped by the routing predicate", blueSatDrop > 20,
+  "presence of a layer is not enough; it must be ACTIVE");
+
+check("grain replays deterministically", res.physics.deterministic === true,
+  "same seed must give byte-identical output or saved presets drift");
+
 const t = res.physics.threeWay;
 const shadowShift = (t.shadowRGB[2] - t.baseShadowRGB[2]) - (t.shadowRGB[0] - t.baseShadowRGB[0]);
 const highShift = (t.highRGB[0] - t.baseHighRGB[0]) - (t.highRGB[2] - t.baseHighRGB[2]);
@@ -50,7 +73,6 @@ check("three-way leaves the two zones opposed", shadowShift > 0 && highShift > 0
   "warm highlights against cool shadows is the whole point");
 
 console.log("\nLOOKS\n");
-const b = res.base;
 for (const [key, s] of Object.entries(res.looks)) {
   if (s.error) { console.log(`${key}: ${s.error}`); fail++; continue; }
   console.log(`${key.padEnd(16)} diff=${String(s.diff).padStart(6)}  mean=[${s.mean.join(", ")}]  ${s.ms}ms  ${(s.bytes / 1024).toFixed(0)}kB`);
