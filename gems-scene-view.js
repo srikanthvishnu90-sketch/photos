@@ -31,6 +31,12 @@ const PROMPT_HINTS = {
   "boat": "on a boat in turquoise water, coastline behind me",
   "dark-luxe": "in a penthouse at dusk, city skyline through the glass",
   "after-dark": "on a rooftop at night, city lights behind me",
+  "campus": "walking across the quad with the old library behind me",
+  "game-day": "in the student section under the stadium lights",
+  "alpine": "on a chalet terrace with the peaks behind me",
+  "tokyo-neon": "on a narrow neon-lit street after rain",
+  "marrakech": "in a riad courtyard with tilework and palms",
+  "wellness": "by a sunlit window with a matcha, linen and oak around me",
 };
 
 const BG_HINTS = {
@@ -42,6 +48,12 @@ const BG_HINTS = {
   "boat": "a day-yacht on clear turquoise water, coastline in the distance",
   "dark-luxe": "a dark infinity pool at dusk framed by tropical foliage",
   "after-dark": "a moody city skyline at blue hour from a high window",
+  "campus": "an ivy-covered brick quad in early autumn, long light through old trees",
+  "game-day": "a packed stadium bowl under floodlights, school colours everywhere",
+  "alpine": "a timber chalet terrace above the pistes, granite peaks behind",
+  "tokyo-neon": "a narrow Tokyo street at night, stacked neon signage reflected in wet asphalt",
+  "marrakech": "a riad courtyard with zellige tilework, palms and a still plunge pool in hard sun",
+  "wellness": "a bright neutral room in soft diffuse daylight, linen, oak and ceramics",
 };
 
 export async function openSceneStudio(defaultPack = "euro-summer", prefill = {}) {

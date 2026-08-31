@@ -109,6 +109,18 @@ const FACE_REALISM = `FACE REALISM — kill the AI-person tells (obey all):
 // (long- OR short-sleeve) in a location-appropriate color with linen trousers.
 // FIT 2 = a tight, good-fitting plain tee with good pants. NEVER swimwear/shirtless.
 const PACK_WARDROBE: Record<string, string> = {
+  campus:
+    "PREFERRED for a man — FIT 1: a crewneck or quarter-zip sweatshirt in heather grey, navy or forest over a collared shirt, with straight chinos or dark jeans and clean leather sneakers; OR FIT 2: a knit sweater over a white tee with tailored trousers, a canvas backpack on one shoulder. For a woman: a fitted knit sweater or cardigan over a collared shirt with straight-leg jeans or a pleated skirt with tights, loafers or clean sneakers, a tote bag. Heritage collegiate — layered for autumn, always fully clothed",
+  "game-day":
+    "PREFERRED for a man — FIT 1: a school-colour sweatshirt, jersey or graphic tee with jeans or shorts and sneakers, a cap; OR FIT 2: a team polo or long-sleeve with a light jacket tied on. For a woman: a school-colour crewneck, jersey or fitted tee with jeans, a skirt with tights, or shorts, sneakers, hair up, a small crossbody. Team colours are the point — spirited and casual, always fully clothed",
+  alpine:
+    "PREFERRED for a man — FIT 1: a chunky cream or oatmeal knit sweater with dark technical trousers and snow boots, sunglasses or goggles pushed up; OR FIT 2: a fitted black or navy ski jacket over a turtleneck with matching ski pants. For a woman: a cream cable-knit or a fitted ski jacket in a solid colour with technical trousers, a knit beanie, sunglasses, gloves. Warm alpine layers — bulky knitwear and real ski gear, always fully and warmly clothed",
+  "tokyo-neon":
+    "PREFERRED for a man — FIT 1: a black or charcoal technical jacket or oversized bomber over a plain tee, with tapered black trousers and clean sneakers; OR FIT 2: a fitted dark button-down with straight black jeans. For a woman: a sleek dark jacket or trench over a simple top with straight trousers or a midi skirt and boots, a small structured bag. Sharp dark urban streetwear against the neon, always fully clothed",
+  marrakech:
+    "PREFERRED for a man — FIT 1: a loose linen shirt in cream, white or sand with matching relaxed linen trousers and leather sandals; OR FIT 2: a plain fitted tee in a warm neutral with stone linen trousers. For a woman: a flowing linen or cotton maxi dress in cream, sand or terracotta, or a loose linen shirt with wide-leg trousers, a woven bag, gold jewelry, a light scarf. Breathable warm-weather linen in earth tones — modest and fully covered, respectful of the setting",
+  wellness:
+    "PREFERRED for a man — FIT 1: a plain heavyweight tee in bone, sage or warm grey with relaxed trousers or clean joggers and minimal sneakers; OR FIT 2: a soft knit over a plain tee with straight trousers. For a woman: a fitted neutral athleisure set (long-sleeve or tank with full-length leggings), or a soft knit with wide-leg trousers, hair up, minimal jewelry, bare face. Neutral, unlogo'd, expensive through restraint — always modestly and fully clothed",
   "beach-club":
     "IMPORTANT — fully-clothed RESORTWEAR only, NEVER swimwear even at the beach. PREFERRED for a man — FIT 1: an open-but-buttoned or short-sleeve linen shirt in white, cream, blue or a soft stripe with linen shorts or trousers, leather sandals and sunglasses; OR FIT 2: a fitted plain tee or polo in white or navy with tailored linen shorts. For a woman: a breezy sundress, a linen shirt-dress, or a linen co-ord / cover-up worn over the outfit, with sunglasses and a straw hat — chic beach-club resortwear, always modestly and fully clothed",
   "luxury-cars":
@@ -310,6 +322,18 @@ const NO_REF_GROUNDING = `NO SETTING REFERENCE PHOTO IS ATTACHED, so you are inv
 
 // Named style packs mirror the canonical client definitions (gems-canvas.js).
 const STYLE_PACKS: Record<string, string> = {
+  campus:
+    "STYLE — Campus (collegiate autumn): red brick and limestone quads, ivy, arched walkways, long shadows through old trees, a bell tower or library steps behind. Early-autumn light — low warm sun, cool blue shade, leaves turning. Muted heritage palette: brick red, forest green, cream stone, navy. Real student life in the background (bikes, backpacks, someone on the grass), never an empty film set. Warm, hopeful, a little nostalgic.",
+  "game-day": 
+    "STYLE — Game Day (stadium energy): saturated school colours everywhere, a packed student section, floodlights or bright afternoon sun, banners and painted faces, the stadium bowl or a tailgate lot with trucks and folding tables. High energy, crowded, slightly chaotic — motion in the background, not a posed portrait. Punchy contrast, strong colour, deep green turf. Loud and communal, the opposite of quiet luxury.",
+  alpine:
+    "STYLE — Alpine (après-ski): snow-bright high-altitude light, dark timber chalets, cable cars and pistes, pine and granite peaks. The light is HARD and very bright off the snow with deep blue shadows, or warm interior firelight against a blue-hour window. Palette: white snow, weathered wood, cream knitwear, black ski gear, one deep accent. Cold air, warm interiors, a mountain that is genuinely enormous behind everything.",
+  "tokyo-neon":
+    "STYLE — Tokyo Neon (night city): dense wet-street neon, vertical kanji signage stacked up narrow buildings, vending machines, train overpasses, a convenience-store glow. Light comes ENTIRELY from signage and shopfronts — magenta, cyan, sodium orange — never from a single clean key. Reflections in wet asphalt. Palette: black, magenta, cyan, deep red. Crowded, cinematic, slightly overwhelming — a real street at 11pm, not a clean render.",
+  marrakech:
+    "STYLE — Marrakech (riad warmth): terracotta and ochre walls, zellige tilework, carved cedar doors, brass lanterns, courtyards with palms and a still plunge pool. Hard North African sun cutting through into deep shade — high contrast, strong architectural shadow shapes. Palette: terracotta, ochre, saffron, deep green, faded blue. Textured, sun-worn, hand-made — every surface has age on it.",
+  wellness:
+    "STYLE — Wellness (clean girl): soft diffuse daylight through sheer curtains, neutral linen and oak, a reformer studio or a quiet kitchen, matcha, ceramics, fresh produce. Nothing saturated, nothing harsh — low contrast, airy highlights, gentle shadow. Palette: bone, oatmeal, sage, pale wood, warm white. Calm, uncluttered, morning-light quiet. Athleisure and bare faces; expensive-looking through restraint, never through logos.",
   "after-dark":
     "STYLE — After Dark (moody luxury, low-exposure): dusk-like underexposure even in daylight; steel-blue/navy skies with retained detail, never blown; deep clean blacks, muted color (~-25% saturation), greens toward dark emerald and blues toward navy, protected skin tones; slightly cool temperature; no added grain, subtle vignette at most. Quiet, expensive, cinematic.",
   "dark-luxe":

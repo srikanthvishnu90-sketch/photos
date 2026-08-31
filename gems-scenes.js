@@ -18,12 +18,27 @@ export const STYLE_PACKS = Object.freeze([
   { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
+  { id: "campus", label: "Campus" },
+  { id: "game-day", label: "Game Day" },
+  { id: "alpine", label: "Alpine" },
+  { id: "tokyo-neon", label: "Tokyo Neon" },
+  { id: "marrakech", label: "Marrakech" },
+  { id: "wellness", label: "Wellness" },
 ]);
 
 // Match free text (an editor scenario, a chat ask) to the closest style pack so
 // the generation inherits that pack's REAL environment-reference conditioning.
 // Returns a pack id or null when nothing clearly matches.
 const PACK_MATCHERS = [
+  // Ordered: the most specific place words win. New packs go ABOVE the broad
+  // ones (after-dark's /night|neon/ would otherwise swallow tokyo-neon, and
+  // euro-summer's /old town/ would swallow marrakech).
+  { id: "tokyo-neon", re: /\b(tokyo|japan(ese)?|shibuya|shinjuku|osaka|kyoto|izakaya|neon (street|alley|sign))\b/i },
+  { id: "marrakech", re: /\b(marrakech|morocc(o|an)|riad|medina|souk|zellige|casablanca|fez)\b/i },
+  { id: "alpine", re: /\b(ski|skiing|snowboard|apr(e|è)s.?ski|alps|alpine|chalet|piste|gondola|st\.? moritz|aspen|zermatt|courchevel|snow)\b/i },
+  { id: "campus", re: /\b(campus|college|university|quad|dorm|lecture|sorority|fraternity|graduation|commencement|library steps)\b/i },
+  { id: "game-day", re: /\b(game.?day|tailgate|stadium|student section|kickoff|touchdown|varsity|bleachers|home game)\b/i },
+  { id: "wellness", re: /\b(pilates|reformer|yoga|matcha|wellness|clean girl|smoothie|gym mirror|morning routine|self.?care)\b/i },
   { id: "boat", re: /\b(boat|yacht|sail|deck|open (sea|water)|on the water|wake)\b/i },
   { id: "beach-club", re: /\b(beach club|cabana|day.?bed|beach bar|umbrella|boardwalk)\b/i },
   { id: "dubai", re: /\b(dubai|burj|marina|infinity pool|skyline pool|desert city)\b/i },

@@ -11,6 +11,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const PACKS = new Set([
   "euro-summer", "dubai", "old-money", "luxury-cars",
   "beach-club", "boat", "dark-luxe", "after-dark",
+  "campus", "game-day", "alpine", "tokyo-neon", "marrakech", "wellness",
 ]);
 const SIGNED_SECONDS = 60 * 60 * 6;
 

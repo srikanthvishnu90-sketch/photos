@@ -1171,8 +1171,15 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
       studioActions.startTemplate(template);
       // Route each template into its real flow.
       const name = template.name;
-      if (name === "College Commitment" || name === "Game Day") {
+      if (name === "College Commitment") {
         void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio())
+          .catch((err) => console.info("template open failed", err));
+      } else if (name === "Game Day") {
+        // Was routed to the commitment studio, which opened a sheet titled
+        // "Commitment post" asking for a school and a signing headline — the
+        // wrong destination for a template advertised as an action shot. It now
+        // opens the scene studio on its own pack.
+        void import("./gems-scene-view.js").then((m) => m.openSceneStudio("game-day"))
           .catch((err) => console.info("template open failed", err));
       } else if (name === "Dating Profile Set") {
         void import("./gems-dating-view.js").then((m) => m.openDatingProfile())

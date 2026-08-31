@@ -196,6 +196,8 @@ function validateSpec(raw: unknown): Record<string, unknown> | null {
 const PACKS = [
   "euro-summer", "dubai", "old-money", "luxury-cars",
   "beach-club", "boat", "dark-luxe", "after-dark",
+  "campus", "game-day", "alpine", "tokyo-neon", "marrakech", "wellness",
+
 ];
 
 /**
