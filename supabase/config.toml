@@ -55,3 +55,8 @@ verify_jwt = false
 # user JWT); the token is the gate.
 [functions.review-references]
 verify_jwt = false
+
+# build-shot-specs measures the reference library offline (R19). Service-role
+# only, invoked by the founder or a cron — no user JWT.
+[functions.build-shot-specs]
+verify_jwt = false

@@ -181,6 +181,125 @@ const COMPOSITION_DNA = `COMPOSITION — frame it the way these aspirational tra
 // evenly-lit AI backdrop. This forces it to instead ground the invented setting
 // in a SPECIFIC, real, photographed place with real-world light and imperfection,
 // so a no-reference generation still lands with proper background/lighting.
+// ---------------------------------------------------------------------------
+// The Reference Protocol — blocks rendered FROM the chosen reference's measured
+// shot spec, rather than asserted generically.
+//
+// R2  composition is delivered as a short enumerated block, never prose. The
+//     layout literature is explicit: decomposing a spatial task raised recall
+//     from 57.2% to 99.9%. Complexity is what breaks spatial compliance.
+// R3  the targets come from the reference, not from a universal ideal.
+// R20 this is as close to a depth map as a text-only channel gets — we cannot
+//     send Gemini a depth map, so we send measurements.
+// ---------------------------------------------------------------------------
+
+type ShotSpec = {
+  outline?: Record<string, unknown>;
+  lighting?: Record<string, unknown>;
+  aesthetic?: Record<string, unknown>;
+};
+
+const DISTANCE_WORDS: Record<string, string> = {
+  wide: "a WIDE establishing shot",
+  "medium-wide": "a MEDIUM-WIDE shot",
+  medium: "a MEDIUM shot",
+  close: "a CLOSER half-body shot",
+};
+
+const POSITION_WORDS: Record<string, string> = {
+  "left-third": "on the LEFT vertical third",
+  "right-third": "on the RIGHT vertical third",
+  centre: "low and centred (never centred AND large)",
+};
+
+/** R2/R3/R20 — the enumerated composition block, measured from the reference. */
+function compositionFromSpec(spec: ShotSpec | null, hasSubject: boolean): string {
+  const o = spec?.outline as Record<string, any> | undefined;
+  if (!o) return "";
+  const lines: string[] = [];
+  const distance = DISTANCE_WORDS[String(o.camera_distance)] ?? null;
+  if (distance) lines.push(`Camera distance: ${distance}. Do NOT zoom in or out from this.`);
+  if (hasSubject && Number.isFinite(Number(o.subject_frame_fraction))) {
+    const pct = Math.round(Number(o.subject_frame_fraction) * 100);
+    lines.push(`The person fills about ${pct}% of the frame — not more, not less.`);
+  }
+  if (hasSubject && POSITION_WORDS[String(o.subject_position)]) {
+    lines.push(`Place the person ${POSITION_WORDS[String(o.subject_position)]}.`);
+  }
+  if (Number.isFinite(Number(o.horizon_height))) {
+    lines.push(`The horizon sits about ${Math.round(Number(o.horizon_height) * 100)}% of the way down the frame.`);
+  }
+  if (o.camera_elevation) lines.push(`Camera height: ${o.camera_elevation} level.`);
+  const fg = String(o.foreground_element ?? "none");
+  if (fg && fg.toLowerCase() !== "none") {
+    lines.push(`Frame the shot through or past this real foreground element: ${fg}.`);
+  }
+  if (o.depth_layers === "layered") {
+    lines.push("Build clear foreground, midground and background layers.");
+  }
+  if (!lines.length) return "";
+  return `\n\nCOMPOSITION — MEASURED FROM THE ATTACHED ENVIRONMENT REFERENCE. Match every line exactly:\n` +
+    lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
+}
+
+/** R5/R6 — lighting as four explicit values, with shadow behaviour stated separately. */
+function lightingFromSpec(spec: ShotSpec | null): string {
+  const l = spec?.lighting as Record<string, any> | undefined;
+  if (!l) return "";
+  const lines: string[] = [];
+  if (l.direction) lines.push(`Direction: ${l.direction}.`);
+  if (l.hardness) lines.push(`Quality: ${l.hardness}-edged light.`);
+  if (Number.isFinite(Number(l.temperature_k))) {
+    const k = Math.round(Number(l.temperature_k));
+    const word = k < 3600 ? "warm" : k > 6200 ? "cool" : "neutral";
+    lines.push(`Colour temperature: about ${k}K (${word}).`);
+  }
+  if (l.key_to_fill) lines.push(`Key-to-fill contrast: ${l.key_to_fill}.`);
+  if (l.time_of_day) lines.push(`Time of day: ${l.time_of_day}.`);
+  if (!lines.length) return "";
+  const shadow = String(l.shadow_note ?? "").trim();
+  return `\n\nLIGHT — MEASURED FROM THE ENVIRONMENT REFERENCE:\n` +
+    lines.map((x) => `- ${x}`).join("\n") +
+    `\n- SHADOWS${shadow ? `: ${shadow}.` : ":"} Shadow direction must be consistent with the stated light ` +
+    `direction, shadow length consistent with its elevation, and shadow edges consistent with its quality. ` +
+    `Inconsistent shadows are the single strongest tell that an image is not a real photograph.`;
+}
+
+/**
+ * R8 — every attached reference labelled by role and position. An unlabelled
+ * reference is an invitation for the model to borrow the wrong attribute from
+ * it, most damagingly a stranger's face.
+ */
+function referenceManifest(counts: {
+  identity: number; userRefs: number; realism: number; env: boolean;
+}): string {
+  const rows: string[] = [];
+  let cursor = 0;
+  if (counts.identity > 0) {
+    const range = counts.identity === 1 ? "Image 1" : `Images 1-${counts.identity}`;
+    rows.push(`${range}: the USER. Take ONLY their face, identity, skin tone, hair and build from these. Take nothing else — not their clothes, not their background, not their pose.`);
+    cursor = counts.identity;
+  }
+  if (counts.userRefs > 0) {
+    const start = cursor + 1;
+    const end = cursor + counts.userRefs;
+    rows.push(`${start === end ? `Image ${start}` : `Images ${start}-${end}`}: the user's own inspiration reference(s).`);
+    cursor = end;
+  }
+  if (counts.realism > 0) {
+    const start = cursor + 1;
+    const end = cursor + counts.realism;
+    rows.push(`${start === end ? `Image ${start}` : `Images ${start}-${end}`}: PHOTOGRAPHIC QUALITY references. Take ONLY their grain, exposure, noise and casual capture quality. Take NOTHING of their people, places, clothing or composition.`);
+    cursor = end;
+  }
+  if (counts.env) {
+    rows.push(`Image ${cursor + 1} (the LAST image): the ENVIRONMENT reference. Take its place, its composition and its light. If a person appears in it, take NOTHING from them — not their face, not their identity.`);
+  }
+  if (rows.length < 2) return "";
+  return `\n\nREFERENCE MANIFEST — read this before anything else. The attached images are, in order:\n` +
+    rows.map((r) => `- ${r}`).join("\n");
+}
+
 const NO_REF_GROUNDING = `NO SETTING REFERENCE PHOTO IS ATTACHED, so you are inventing the location — it MUST read as ONE specific, real, photographed place, never a generic or dreamlike AI backdrop. Ground it concretely: pick a single believable real-world spot that fits the request and commit to it (a particular rooftop, a specific stretch of coast, one real street), with real architecture and materials showing genuine age and wear, ONE dominant light source with physically-correct direction and hard-edged cast shadows, true atmospheric perspective (distant things hazier and cooler), real depth of field, and the incidental clutter of a real location (a stray chair, a distant passer-by, a reflection, uneven pooled light). Keep the exposure, contrast and slight imperfection of a real phone photo — NOT a clean, centered, uniformly-lit studio render. The person's body proportions, height and build stay exactly true to their reference photo; the outfit stays fully-clothed and on-theme for the setting.`;
 
 // Named style packs mirror the canonical client definitions (gems-canvas.js).
@@ -363,6 +482,7 @@ Deno.serve(async (request) => {
     for (const img of identityImages) {
       parts.push({ inline_data: { mime_type: "image/jpeg", data: img } });
     }
+    let attachedUserRefs = 0;
     if (refIds.length) {
       // Only the caller's own inspiration assets, downloaded from the private bucket.
       const { data: assets } = await supabase
@@ -376,6 +496,7 @@ Deno.serve(async (request) => {
           if (!file) continue;
           const b64 = await bytesToBase64(new Uint8Array(await file.arrayBuffer()));
           parts.push({ inline_data: { mime_type: file.type || "image/jpeg", data: b64 } });
+          attachedUserRefs++;
         } catch (error) {
           console.info("ref download skipped", asset.id, error);
         }
@@ -389,31 +510,62 @@ Deno.serve(async (request) => {
     let envRefB64: string | null = null;
     let envRefMime = "image/jpeg";
     let envRefName: string | null = null;
+    let envRefAssetId: string | null = null;
+    let envRefSpec: ShotSpec | null = null;
+    let envRefSelection: "modulo" | "random" | "none" = "none";
     if (PACK_REFS_ENABLED && !matchReference && !refIds.length && body.stylePackId) {
       try {
-        const prefix = `${PACK_REFS_PREFIX}/${body.stylePackId}`;
-        const { data: files } = await supabase.storage
-          .from("inspiration").list(prefix, { limit: 1000, sortBy: { column: "name", order: "asc" } });
-        const imgs = (files ?? [])
-          // Environment refs must be REAL photos — files marked RENDER are AI
-          // renders kept only for composition study, never pixel conditioning.
-          .filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name) && !/render/i.test(f.name))
-          .sort((a, b) => a.name.localeCompare(b.name));
-        if (imgs.length) {
-          const idx = Number.isFinite(body.environmentRef)
-            ? Math.abs(Math.trunc(body.environmentRef as number)) % imgs.length
-            : Math.floor(Math.random() * imgs.length);
-          const pick = imgs[idx];
-          const { data: file } = await supabase.storage
-            .from("inspiration").download(`${prefix}/${pick.name}`);
+        // R13 — eligibility is DATA, not a filename regex. An asset measured as
+        // an AI render, watermarked, or manually de-listed is excluded here, so
+        // the rule survives any refactor of reference selection.
+        const { data: rows } = await supabase
+          .from("inspiration_assets")
+          .select("id, storage_path, shot_spec")
+          .is("profile_id", null)
+          .eq("style_pack_id", body.stylePackId)
+          .eq("eligible", true)
+          .eq("is_ai_render", false)
+          .order("storage_path", { ascending: true })
+          .limit(1000);
+        let candidates = (rows ?? []).filter((r) => /\.(jpe?g|png|webp)$/i.test(r.storage_path));
+
+        // Fail OPEN: if the library has not been registered in the database yet,
+        // fall back to listing storage directly, as before.
+        if (!candidates.length) {
+          const prefix = `${PACK_REFS_PREFIX}/${body.stylePackId}`;
+          const { data: files } = await supabase.storage
+            .from("inspiration").list(prefix, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+          candidates = (files ?? [])
+            .filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name) && !/render/i.test(f.name))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((f) => ({ id: null as unknown as string, storage_path: `${prefix}/${f.name}`, shot_spec: null }));
+        }
+
+        if (candidates.length) {
+          const explicit = Number.isFinite(body.environmentRef);
+          const idx = explicit
+            ? Math.abs(Math.trunc(body.environmentRef as number)) % candidates.length
+            : Math.floor(Math.random() * candidates.length);
+          envRefSelection = explicit ? "modulo" : "random";
+          const pick = candidates[idx];
+          const { data: file } = await supabase.storage.from("inspiration").download(pick.storage_path);
           if (file) {
             envRefB64 = await bytesToBase64(new Uint8Array(await file.arrayBuffer()));
             envRefMime = file.type || "image/jpeg";
-            envRefName = pick.name;
+            envRefName = pick.storage_path;
+            envRefAssetId = pick.id ?? null;
+            // R19/R20 — the measured spec, when this reference has one. Without
+            // it the generic composition default still applies (R21).
+            envRefSpec = (pick as { shot_spec?: ShotSpec | null }).shot_spec ?? null;
           }
         }
       } catch (error) {
+        // R18 — retrieval failure degrades to the NO-REFERENCE path, never to a
+        // random photograph: a wrong reference is worse than none, because the
+        // model will faithfully reproduce the wrong location.
         console.info("pack environment ref unavailable", error);
+        envRefB64 = null;
+        envRefSelection = "none";
       }
     }
 
@@ -511,8 +663,21 @@ Deno.serve(async (request) => {
           : hasSubject
             ? `\n\n${IDENTITY_BLOCK}`
             : "";
+    // R8 — every attached reference labelled by role and position.
+    const manifestBlock = referenceManifest({
+      identity: identityImages.length,
+      userRefs: attachedUserRefs,
+      realism: realismRefCount,
+      env: !!envRefB64,
+    });
+    // R20 — composition measured from the chosen reference. R5/R6 — light and
+    // shadow as explicit values rather than "the same light as the reference".
+    const specComposition = envRefB64 ? compositionFromSpec(envRefSpec, hasSubject) : "";
+    const specLighting = envRefB64 ? lightingFromSpec(envRefSpec) : "";
+
     const promptText =
       `SCENE REQUEST: ${prompt}` +
+      manifestBlock +
       styleBlock +
       `\n\n${REALISM_LAYER}` +
       realismRefBlock +
@@ -523,8 +688,12 @@ Deno.serve(async (request) => {
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
-      // The founder's compositional lens applies to every person shot.
-      (hasSubject ? `\n\n${COMPOSITION_DNA}` : "") +
+      // R21 — the generic compositional lens applies ONLY when the reference has
+      // no measured spec to override it. Two composition instructions do not
+      // average; the model picks one, so never send both.
+      (hasSubject && !specComposition ? `\n\n${COMPOSITION_DNA}` : "") +
+      specComposition +
+      specLighting +
       // When an environment reference is present, its EXACT-framing instruction
       // governs the distance; the generic "medium-to-wide" framing would fight it.
       (hasSubject && !envRefB64 ? `\n\n${FRAMING}` : "") +
@@ -617,6 +786,27 @@ Deno.serve(async (request) => {
       });
     }
 
+    // R17 — record which reference this generation used, in which role, chosen
+    // how. Without it we cannot answer the only question that improves the
+    // library: which photographs produce good generations. Best-effort: this is
+    // provenance, and it must never fail a delivered image.
+    if (envRefName) {
+      try {
+        await supabase.from("generation_references").insert({
+          profile_id: userId,
+          request_id: requestId || null,
+          asset_id: envRefAssetId,
+          storage_path: envRefName,
+          style_pack_id: body.stylePackId ?? null,
+          role: "environment",
+          selection: envRefSelection,
+          outcome: "delivered",
+        });
+      } catch (error) {
+        console.info("provenance write skipped", error);
+      }
+    }
+
     return json(200, {
       url: signed.signedUrl,
       projectId: project?.id ?? null,
@@ -625,6 +815,10 @@ Deno.serve(async (request) => {
       aspect,
       quality,
       aiGenerated: true,
+      // Surfaced so the client can attribute a result to its reference and the
+      // founder can trace a bad generation back to the photo that caused it.
+      referenceUsed: envRefName,
+      referenceSpecApplied: !!specComposition,
     });
   } catch (error) {
     console.error("generate-scene failed", error);
