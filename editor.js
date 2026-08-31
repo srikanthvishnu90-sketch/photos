@@ -250,6 +250,10 @@ function editorMarkup() {
       </form>
       <p id="editorStatus" class="sr-only" aria-live="polite"></p>
     </section>
+    <!-- Manual mode's own status. The describe panel's #editorStatus is inside a
+         section that setMode hides in manual mode, so its messages reached
+         neither the screen nor a screen reader. -->
+    <p id="editorManualStatus" class="editor-manual-status" role="status" aria-live="polite"></p>
 
     <section id="editorManualPanel" class="editor-panel editor-manual-panel" aria-label="Manual editing tools" hidden>
       <div id="editorTools" class="editor-tools">
@@ -317,6 +321,19 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   const canvas = mount.querySelector("#editorCanvas");
   const photoView = mount.querySelector("#editorPhotoView");
   const processingOverlay = mount.querySelector("#editorProcessing");
+  const manualStatusEl = mount.querySelector("#editorManualStatus");
+
+  /**
+   * Write a status message to the panel the user can actually see.
+   * Manual and describe mode have separate status elements because each lives
+   * inside a section the other mode hides.
+   */
+  function say(message) {
+    const text = String(message ?? "");
+    if (manualStatusEl) manualStatusEl.textContent = mode === "manual" ? text : "";
+    if (status) status.textContent = mode === "manual" ? "" : text;
+  }
+
   // Model edits show the shared staged generation lifecycle inside the
   // processing overlay; instant on-device ops keep the plain "Working on it…".
   const defaultProcessingHTML = processingOverlay.innerHTML;
@@ -375,6 +392,21 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
   let manualBusy = false; // guards overlapping client-side commits
+
+  /**
+   * Set the busy flag AND show the blocking-work overlay.
+   *
+   * Every manual Apply already bracketed its work with this flag, but nothing
+   * was shown: a 12MP grade measured ~3.9s of fully blocked main thread with
+   * `Done` still enabled and no indicator, so the app simply looked frozen.
+   * Each handler awaits activeBitmap() between this call and the synchronous
+   * pixel work, which gives the overlay its chance to paint.
+   */
+  function setManualBusy(busy) {
+    manualBusy = busy;
+    if (processingOverlay) processingOverlay.hidden = !busy;
+    canvas?.classList.toggle("is-processing", busy);
+  }
   // Real-photo mode: set when the activation payload names a library photo AND
   // a session exists. Null means the simulated demo flow is in charge.
   let photo = null;
@@ -543,6 +575,14 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     }
   }
 
+  function releaseFilterThumbs() {
+    if (!filterThumbUrls.length) return;
+    filterThumbUrls.forEach((u) => {
+      try { URL.revokeObjectURL(u); } catch { /* already revoked */ }
+    });
+    filterThumbUrls = [];
+  }
+
   function teardownToolPanel() {
     resetPreview();
     if (filterThumbUrls.length) {
@@ -588,7 +628,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // version and make it active. The Original is never touched.
   function commitManualVersion(label, blob, toolName) {
     if (!blob) {
-      status.textContent = "That edit couldn't be applied — try again.";
+      say("That edit couldn't be applied — try again.");
       return false;
     }
     let url = "";
@@ -596,7 +636,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       url = URL.createObjectURL(blob);
     } catch (error) {
       console.info("Object URL creation failed", error);
-      status.textContent = "That edit couldn't be applied — try again.";
+      say("That edit couldn't be applied — try again.");
       return false;
     }
     const nextId = versions.length;
@@ -613,13 +653,17 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     renderVersions({ focusActive: true });
     syncCanvas();
     renderToolControls(tool);
-    status.textContent = `${label} applied — saved as a new version.`;
+    say(`${label} applied — saved as a new version.`);
     return true;
   }
 
   // Route the tool to its control renderer. Only real-photo mode gets live
   // controls; demo mode keeps the original visual-only manual panel.
   function renderToolControls(toolName) {
+    // Revokes the previous tool's object URLs. Without this, re-entering
+    // Filters (or committing an edit, which re-renders the panel) minted nine
+    // fresh thumbnail blobs each time and never released the old ones.
+    releaseFilterThumbs();
     resetPreview();
     if (!photo) {
       toolPanel.hidden = true;
@@ -765,16 +809,16 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       if (manualBusy) return;
       const noChange = ADJUST_FIELDS.every((field) => values[field.key] === 0);
       if (noChange) {
-        status.textContent = "Move a slider first, then Apply.";
+        say("Move a slider first, then Apply.");
         return;
       }
       window.clearTimeout(previewTimer);
-      manualBusy = true;
-      status.textContent = "Applying adjustments…";
+      setManualBusy(true);
+      say("Applying adjustments…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyAdjust(bitmap, values) : null;
       clearPreviewUrl();
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("adjust", values);
       commitManualVersion("Adjust", blob, "Adjust");
     });
@@ -829,12 +873,12 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy) return;
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyGeometry(bitmap, geo) : null;
       photoView.style.transform = "";
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Rotate", blob, "Rotate");
     });
   }
@@ -894,15 +938,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     toolPanel.querySelector("[data-persp-apply]")?.addEventListener("click", async () => {
       if (manualBusy) return;
       if (!state.vertical && !state.horizontal) {
-        status.textContent = "Move a slider first, then Apply.";
+        say("Move a slider first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying perspective…";
+      setManualBusy(true);
+      say("Applying perspective…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyPerspective(bitmap, state) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Perspective", blob, "Perspective");
     });
   }
@@ -972,18 +1016,18 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // to the generative path if the segmenter can't run.
   async function removeBackgroundOnDevice(fallbackInstruction) {
     if (manualBusy || processing) return;
-    manualBusy = true;
-    status.textContent = "Removing background…";
+    setManualBusy(true);
+    say("Removing background…");
     try {
       const bitmap = await activeBitmap();
       if (!bitmap) {
-        manualBusy = false;
+        setManualBusy(false);
         return;
       }
       const mask = await segmentPerson(bitmap);
       if (!mask) {
         // No on-device matting available — fall back to the model.
-        manualBusy = false;
+        setManualBusy(false);
         void requestRealEdit(fallbackInstruction, "remove-bg");
         return;
       }
@@ -994,7 +1038,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       out.height = h;
       const octx = out.getContext("2d");
       if (!octx) {
-        manualBusy = false;
+        setManualBusy(false);
         return;
       }
       // White backdrop, then the subject masked in on top.
@@ -1005,7 +1049,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       cut.height = h;
       const cctx = cut.getContext("2d");
       if (!cctx) {
-        manualBusy = false;
+        setManualBusy(false);
         return;
       }
       cctx.drawImage(bitmap, 0, 0, w, h);
@@ -1013,11 +1057,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       cctx.drawImage(mask, 0, 0, w, h);
       octx.drawImage(cut, 0, 0);
       const blob = dataURLToBlob(out.toDataURL("image/jpeg", 0.92));
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Background removed", blob, "Remove background");
     } catch (error) {
       console.info("on-device remove-bg failed, using model", error);
-      manualBusy = false;
+      setManualBusy(false);
       void requestRealEdit(fallbackInstruction, "remove-bg");
     }
   }
@@ -1085,11 +1129,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       if (manualBusy || !selected) return;
       const grade = FILTER_GRADES.find((entry) => entry.key === selected);
       if (!grade) return;
-      manualBusy = true;
-      status.textContent = `Applying ${grade.label}…`;
+      setManualBusy(true);
+      say(`Applying ${grade.label}…`);
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyGrade(bitmap, grade) : null;
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("grade", { key: grade.key });
       commitManualVersion(grade.label, blob, "Filters");
     });
@@ -1160,8 +1204,8 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   async function applyReferenceStyle(referencePhotoId) {
     if (manualBusy || !photo || !referencePhotoId) return;
-    manualBusy = true;
-    status.textContent = "Borrowing that look…";
+    setManualBusy(true);
+    say("Borrowing that look…");
     try {
       const mod = await import("./gems-style.js");
       const result = await mod.applyStyleFromReference({
@@ -1177,19 +1221,19 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         renderVersions({ focusActive: true });
         syncCanvas();
         renderToolControls(tool);
-        status.textContent = "Style applied — saved as a new version.";
+        say("Style applied — saved as a new version.");
       } else if (result?.paywall) {
-        status.textContent = "Borrowing looks is a Gems Plus feature.";
+        say("Borrowing looks is a Gems Plus feature.");
       } else if (result?.quota) {
-        status.textContent = "The style model is warming up — try again soon.";
+        say("The style model is warming up — try again soon.");
       } else {
-        status.textContent = "That look couldn't be applied — try again.";
+        say("That look couldn't be applied — try again.");
       }
     } catch (error) {
       console.info("applyStyleFromReference unavailable", error);
-      status.textContent = "That look couldn't be applied — try again.";
+      say("That look couldn't be applied — try again.");
     } finally {
-      manualBusy = false;
+      setManualBusy(false);
     }
   }
 
@@ -1406,7 +1450,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   async function applyEraseBrush() {
     if (processing || !eraseState.mask) return;
     if (!eraseState.painted) {
-      status.textContent = "Brush over something first, then Erase.";
+      say("Brush over something first, then Erase.");
       return;
     }
     let maskBase64 = "";
@@ -1415,7 +1459,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       maskBase64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
     } catch (error) {
       console.info("Mask export failed", error);
-      status.textContent = "That erase couldn't be sent — try again.";
+      say("That erase couldn't be sent — try again.");
       return;
     }
     void requestRealEdit(
@@ -1492,14 +1536,14 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     toolPanel.querySelector("[data-draw-apply]")?.addEventListener("click", async () => {
       if (manualBusy || !state.surface || !state.painted) {
-        if (!state.painted) status.textContent = "Draw something first, then Apply.";
+        if (!state.painted) say("Draw something first, then Apply.");
         return;
       }
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyOverlay(bitmap, state.surface) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Draw", blob, "Draw");
     });
 
@@ -1625,11 +1669,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !state.text.trim()) return;
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? renderTextToImage(bitmap, state) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Text", blob, "Text");
     });
 
@@ -1782,15 +1826,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     toolPanel.querySelector("[data-lv-apply]")?.addEventListener("click", async () => {
       if (manualBusy) return;
       if (state.black === 0 && state.white === 255 && state.gamma === 1) {
-        status.textContent = "Move a slider first, then Apply.";
+        say("Move a slider first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying levels…";
+      setManualBusy(true);
+      say("Applying levels…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyLevels(bitmap, state) : null;
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("levels", { black: state.black, white: state.white, gamma: state.gamma });
       commitManualVersion("Levels", blob, "Levels");
     });
@@ -1879,15 +1923,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       if (manualBusy) return;
       const changed = HSL_BANDS.some((b) => bands[b.key].h || bands[b.key].s || bands[b.key].l);
       if (!changed) {
-        status.textContent = "Pick a color and move a slider, then Apply.";
+        say("Pick a color and move a slider, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying color mix…";
+      setManualBusy(true);
+      say("Applying color mix…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyHsl(bitmap, bands) : null;
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("hsl", bands);
       commitManualVersion("Color Mix", blob, "HSL");
     });
@@ -1915,14 +1959,14 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     toolPanel.querySelector("[data-wb-apply]")?.addEventListener("click", async () => {
       if (manualBusy || !state.gains) {
-        if (!state.gains) status.textContent = "Tap a neutral spot first, then Apply.";
+        if (!state.gains) say("Tap a neutral spot first, then Apply.");
         return;
       }
-      manualBusy = true;
-      status.textContent = "Applying white balance…";
+      setManualBusy(true);
+      say("Applying white balance…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyChannelGains(bitmap, state.gains) : null;
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("gains", state.gains);
       commitManualVersion("White balance", blob, "White Balance");
     });
@@ -2116,15 +2160,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       if (manualBusy) return;
       const changed = points.some((pt) => pt[1] !== pt[0]);
       if (!changed) {
-        status.textContent = "Drag the curve first, then Apply.";
+        say("Drag the curve first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying curve…";
+      setManualBusy(true);
+      say("Applying curve…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyCurve(bitmap, points) : null;
-      manualBusy = false;
+      setManualBusy(false);
       if (blob) recordOp("curve", points.map((pt) => [pt[0], pt[1]]));
       commitManualVersion("Curves", blob, "Curves");
     });
@@ -2167,15 +2211,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     toolPanel.querySelector("[data-db-apply]")?.addEventListener("click", async () => {
       if (manualBusy || !state.surface || !state.painted) {
-        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        if (!state.painted) say("Brush an area first, then Apply.");
         return;
       }
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const bitmap = await activeBitmap();
       // soft-light with a white layer lightens (dodge); black darkens (burn).
       const blob = bitmap ? applyOverlay(bitmap, state.surface, "soft-light") : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion(state.mode === "dodge" ? "Dodge" : "Burn", blob, "Dodge & Burn");
     });
     void setupDodgeBurnSurface(state);
@@ -2332,13 +2376,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     toolPanel.querySelector("[data-cl-apply]")?.addEventListener("click", async () => {
       if (manualBusy || !state.work || !state.painted) {
-        if (!state.painted) status.textContent = "Set a source and brush first, then Apply.";
+        if (!state.painted) say("Set a source and brush first, then Apply.");
         return;
       }
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const blob = await canvasToBlob(state.work);
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion(state.mode === "heal" ? "Heal" : "Clone", blob, "Clone");
     });
     void setupCloneSurface(state);
@@ -2501,13 +2545,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     toolPanel.querySelector("[data-bs-apply]")?.addEventListener("click", async () => {
       if (manualBusy || !state.work || !state.painted) {
-        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        if (!state.painted) say("Brush an area first, then Apply.");
         return;
       }
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const blob = await canvasToBlob(state.work);
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion(state.mode === "sharpen" ? "Sharpen" : "Blur", blob, "Blur & Sharpen");
     });
     void setupBlurSurface(state);
@@ -2640,11 +2684,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !state.items.length) return;
-      manualBusy = true;
-      status.textContent = "Applying…";
+      setManualBusy(true);
+      say("Applying…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? rasterizeStickers(bitmap, state) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Stickers", blob, "Stickers");
     });
     void setupStickersOverlay(state);
@@ -2910,7 +2954,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       const name = (nameInput?.value || "").trim() || `Look ${list.length + 1}`;
       list.unshift({ id: `p${Date.now().toString(36)}`, name, ops: recipeOps.map((o) => ({ ...o })) });
       savePresetsList(list.slice(0, 40));
-      status.textContent = `Saved "${name}".`;
+      say(`Saved "${name}".`);
       renderPresetsTool();
     });
     toolPanel.querySelectorAll(".editor-preset-apply").forEach((btn) => {
@@ -2919,11 +2963,11 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         const id = btn.closest("[data-preset-id]")?.dataset.presetId;
         const pr = loadPresets().find((x) => x.id === id);
         if (!pr) return;
-        manualBusy = true;
-        status.textContent = `Applying "${pr.name}"…`;
+        setManualBusy(true);
+        say(`Applying "${pr.name}"…`);
         const bitmap = await activeBitmap();
         const blob = bitmap ? await applyRecipe(bitmap, pr.ops) : null;
-        manualBusy = false;
+        setManualBusy(false);
         commitManualVersion(pr.name, blob, "Presets");
       });
     });
@@ -3001,13 +3045,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         if (type === "person") {
           // True on-device segmentation, with a graceful fall back to the
           // heuristic subject mask if the model can't load.
-          status.textContent = "Selecting the person…";
+          say("Selecting the person…");
           auto = await segmentPerson(bitmap);
           if (tool !== "Selective") return;
-          if (auto) status.textContent = "Person selected.";
+          if (auto) say("Person selected.");
           else {
             auto = buildAutoMask(bitmap, "foreground");
-            status.textContent = "Selected the subject (approximate).";
+            say("Selected the subject (approximate).");
           }
         } else {
           auto = buildAutoMask(bitmap, type);
@@ -3061,20 +3105,20 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !state.mask || !state.painted) {
-        if (!state.painted) status.textContent = "Brush an area first, then Apply.";
+        if (!state.painted) say("Brush an area first, then Apply.");
         return;
       }
       const changed = fields.some((f) => values[f.key] !== 0);
       if (!changed) {
-        status.textContent = "Move a slider first, then Apply.";
+        say("Move a slider first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying local edit…";
+      setManualBusy(true);
+      say("Applying local edit…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyMaskedAdjust(bitmap, values, state.mask, state.invert) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Selective", blob, "Selective");
     });
     void setupMaskBrush(state, preview);
@@ -3156,16 +3200,16 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !state.mask || !state.painted) {
-        if (!state.painted) status.textContent = "Brush the subject first, then Apply.";
+        if (!state.painted) say("Brush the subject first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Applying blur…";
+      setManualBusy(true);
+      say("Applying blur…");
       const bitmap = await activeBitmap();
       const r = await scaledRadius();
       const blob = bitmap ? applyPortraitBlur(bitmap, state.mask, r, state.mode === "blur") : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Portrait blur", blob, "Portrait Blur");
     });
     void setupMaskBrush(state, preview);
@@ -3227,15 +3271,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     });
     applyBtn?.addEventListener("click", async () => {
       if (manualBusy || !state.mask || !state.painted) {
-        if (!state.painted) status.textContent = "Brush the teeth or eyes first, then Apply.";
+        if (!state.painted) say("Brush the teeth or eyes first, then Apply.");
         return;
       }
       window.clearTimeout(timer);
-      manualBusy = true;
-      status.textContent = "Whitening…";
+      setManualBusy(true);
+      say("Whitening…");
       const bitmap = await activeBitmap();
       const blob = bitmap ? applyMaskedAdjust(bitmap, adjustFor(), state.mask, false) : null;
-      manualBusy = false;
+      setManualBusy(false);
       commitManualVersion("Whiten", blob, "Whiten");
     });
     void setupMaskBrush(state, preview);
@@ -3495,13 +3539,13 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   async function applyCropSelection() {
     if (manualBusy || !cropState.overlay) return;
-    manualBusy = true;
-    status.textContent = "Cropping…";
+    setManualBusy(true);
+    say("Cropping…");
     const bitmap = await activeBitmap();
     const overlay = cropState.overlay;
     if (!bitmap || !overlay) {
-      manualBusy = false;
-      status.textContent = "That crop couldn't be applied — try again.";
+      setManualBusy(false);
+      say("That crop couldn't be applied — try again.");
       return;
     }
     const scaleX = cropState.natW / overlay.clientWidth;
@@ -3513,7 +3557,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       w: r.w * scaleX,
       h: r.h * scaleY,
     });
-    manualBusy = false;
+    setManualBusy(false);
     commitManualVersion("Crop", blob, "Crop");
   }
 
@@ -3587,7 +3631,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     renderVersions();
     syncCanvas();
     const genRun = showGenLifecycle(instruction);
-    status.textContent = `Applying edit: ${instruction}`;
+    say(`Applying edit: ${instruction}`);
     abortController = new AbortController();
     let succeeded = false;
 
@@ -3627,23 +3671,23 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         versions.push({ id: nextId, label: `V${nextId}`, url: data.url });
         activeVersionId = nextId;
         succeeded = true;
-        status.textContent = `Version ${nextId} is ready.`;
+        say(`Version ${nextId} is ready.`);
         editorActions.editResultShown(data.kind ?? kind, data.model ?? "unknown");
         void verifyEditIdentity(data.url, token, nextId);
       } else if (response.status === 402) {
         const cap = Number(data?.cap);
-        status.textContent = Number.isFinite(cap)
+        say(Number.isFinite(cap)
           ? `You've used all ${cap} free edits this month — Gems Plus unlocks more.`
-          : "You've used all your free edits this month — Gems Plus unlocks more.";
+          : "You've used all your free edits this month — Gems Plus unlocks more.");
       } else if (response.status === 503 && data?.error === "image_model_quota") {
-        status.textContent = "The editing model is warming up — try again soon.";
+        say("The editing model is warming up — try again soon.");
       } else {
-        status.textContent = "That edit didn't go through — try again.";
+        say("That edit didn't go through — try again.");
       }
     } catch (error) {
       if (error?.name === "AbortError" || token !== activationToken) return;
       console.info("Edit request failed", error);
-      status.textContent = "That edit didn't go through — try again.";
+      say("That edit didn't go through — try again.");
     } finally {
       endGenLifecycle(genRun);
       if (token === activationToken) {
@@ -3671,7 +3715,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       // past — it would warn about (and point Reroll at) the wrong edit.
       if (token !== activationToken || versionId !== activeVersionId || dist == null) return;
       if (dist > 0.62) {
-        status.textContent = "Heads up — the face drifted from you in that edit. Tap Reroll to try again.";
+        say("Heads up — the face drifted from you in that edit. Tap Reroll to try again.");
         reroll.classList.add("is-attention");
       }
     } catch (error) {
@@ -3794,7 +3838,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
   // Show a clarify question with up to 4 tappable options in the status strip.
   function showClarify(clarify) {
     const q = clarify?.question || "Which did you mean?";
-    status.textContent = q;
+    say(q);
     const options = Array.isArray(clarify?.options) ? clarify.options.slice(0, 4) : [];
     // Reuse the describe suggestions row if present, else drop chips under status.
     let strip = mount.querySelector("#editorClarify");
@@ -3851,7 +3895,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         activeVersionId -= 1;
         renderVersions({ focusActive: true });
         syncCanvas();
-        status.textContent = "Backed off the last change.";
+        say("Backed off the last change.");
       }
       return true;
     }
@@ -3887,7 +3931,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       return false;
     }
     if (!blob) {
-      status.textContent = "That edit couldn't be applied — try again.";
+      say("That edit couldn't be applied — try again.");
       return false;
     }
     recordSessionOp({ op: op.op, params: p });
@@ -3903,7 +3947,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     syncPrompt();
     renderVersions();
     syncCanvas();
-    status.textContent = "Placing you in the scene…";
+    say("Placing you in the scene…");
     try {
       const specParts = [params.scene_spec, params.camera, params.pose].filter(Boolean);
       const scenePrompt = specParts.join(". ").slice(0, 780) || "a photo of me in the scene";
@@ -3930,15 +3974,15 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         const nextId = versions.length;
         versions.push({ id: nextId, label: `V${nextId}`, url: result.url });
         activeVersionId = nextId;
-        status.textContent = `Version ${nextId} is ready.`;
+        say(`Version ${nextId} is ready.`);
       } else if (result?.error === "paywall") {
-        status.textContent = "You've used your free generations this month — Gems Plus unlocks more.";
+        say("You've used your free generations this month — Gems Plus unlocks more.");
       } else {
-        status.textContent = "That scene didn't generate — try again.";
+        say("That scene didn't generate — try again.");
       }
     } catch (error) {
       console.info("scenario generation failed", error);
-      status.textContent = "That scene didn't generate — try again.";
+      say("That scene didn't generate — try again.");
     } finally {
       endGenLifecycle(scenarioGenRun);
       if (token === activationToken) {
@@ -4011,7 +4055,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     promptInput.value = "";
     syncPrompt();
     lastInstruction = prompt;
-    status.textContent = "Reading your edit…";
+    say("Reading your edit…");
 
     // Named-look fast path — no network at all.
     const namedGrade = matchNamedGrade(prompt);
@@ -4023,7 +4067,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
           recordSessionOp({ op: "style", params: { grade: namedGrade.key } });
           commitManualVersion(namedGrade.label, blob, "Describe");
           editorActions.requestEdit(prompt, currentVersion());
-          status.textContent = `${namedGrade.label} applied.`;
+          say(`${namedGrade.label} applied.`);
           return;
         }
       } catch (error) {
@@ -4077,7 +4121,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     syncPrompt();
     renderVersions();
     syncCanvas();
-    status.textContent = `Applying edit: ${prompt}`;
+    say(`Applying edit: ${prompt}`);
 
     processingTimer = window.setTimeout(() => {
       const removesShip = /ship|boat/i.test(prompt);
@@ -4092,9 +4136,9 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       renderVersions({ focusActive: true });
       syncCanvas();
       syncPrompt();
-      status.textContent = removesShip
+      say(removesShip
         ? `Version ${nextId} is ready. The ship was removed.`
-        : `Version ${nextId} is ready.`;
+        : `Version ${nextId} is ready.`);
     }, 1400);
   }
 
@@ -4143,7 +4187,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       teardownToolPanel();
       bitmapCache.clear();
       versionBlobs.clear();
-      manualBusy = false;
+      setManualBusy(false);
       photo = null;
       lastInstruction = "";
       recipeOps = [];
@@ -4158,7 +4202,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       syncPrompt();
       setTool("Erase");
       setMode(options.mode === "manual" ? "manual" : "describe");
-      status.textContent = "Original photo loaded.";
+      say("Original photo loaded.");
       const instruction =
         typeof options.instruction === "string" ? options.instruction.trim() : "";
       if (options.photoId) {
@@ -4180,7 +4224,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
       abortController = null;
       activationToken += 1;
       processing = false;
-      manualBusy = false;
+      setManualBusy(false);
       // Leaving the editor stops the lifecycle overlay's interval — an
       // unabortable scenario request must not leave it ticking.
       genRunId += 1;

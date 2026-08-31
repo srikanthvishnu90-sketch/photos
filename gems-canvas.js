@@ -31,6 +31,11 @@ function makeCanvas(w, h) {
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
+      // The v2 grade chain reads pixels back 3-5 times per render (curve, HSL,
+      // three-way, grain, halation). Ask for a readback-friendly backing store
+      // up front — otherwise the first getImageData forces a GPU->CPU copy and
+      // Chromium warns on every single one.
+      try { canvas.getContext("2d", { willReadFrequently: true }); } catch { /* ignore */ }
       return canvas;
     }
     if (typeof OffscreenCanvas !== "undefined") {

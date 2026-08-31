@@ -1460,3 +1460,17 @@
   border-color: var(--color-deep-petal);
   color: var(--color-deep-petal);
 }
+
+/* Manual mode's status line. The describe panel's #editorStatus is inside a
+   section hidden in manual mode, so its messages reached nobody. */
+.editor-manual-status{
+  margin: 8px 20px 0;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-ink-soft, #5f6779);
+}
+.editor-manual-status:empty{ margin-top: 0; }
+/* The grade chain is synchronous; dim the canvas while it blocks so the app
+   does not simply look frozen for several seconds. */
+.editor-canvas.is-processing{ opacity: .55; transition: opacity 120ms ease; }

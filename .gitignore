@@ -21,3 +21,6 @@ supabase/.temp/
 
 # transient snapshot written by tool/regression-test.mjs
 tool/_gems-canvas-prev.js
+
+# QA agents write scratch drivers here; they must never be committed.
+_qa-*.mjs
