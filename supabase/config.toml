@@ -60,3 +60,8 @@ verify_jwt = false
 # only, invoked by the founder or a cron — no user JWT.
 [functions.build-shot-specs]
 verify_jwt = false
+
+# describe-face measures the caller's OWN facial structure. Authenticated,
+# owner-only — it reads a person's face and stores a description of their body.
+[functions.describe-face]
+verify_jwt = true

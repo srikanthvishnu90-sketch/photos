@@ -159,6 +159,48 @@ const MATCH_REFERENCE_BLOCK = `RECREATE THE ATTACHED REFERENCE PHOTO, but the pe
 // Aesthetic-background mode: no person at all — just the place/scene.
 const BACKGROUND_BLOCK = `Generate an ATMOSPHERIC SCENE with NO people in it — an empty, aspirational location photograph (an "aesthetic background"). No human figures, no faces, no silhouettes of people. Focus entirely on the environment, light, and mood.`;
 
+// The final instruction the model reads. Consistency-character guidance for this
+// model family is specific about structure: identity anchor FIRST, then subject
+// and action, then composition, then a lock that explicitly forbids changing the
+// face — and that keeping that ORDER is what stops the model inventing a new
+// person when you describe a new scene. Ours had the identity anchor tenth, after
+// the scene, the style, the realism rules and the environment reference.
+const CONSISTENCY_LOCK = `CONSISTENCY LOCK — read this last and treat it as final. The person in the output is THE SAME PERSON shown in the identity photograph(s) at the start of this prompt. Do not invent a new person. Do not blend them with anyone else. Do not substitute a similar-looking model. If any instruction above would change their face, their bone structure, their skin tone or their body proportions, that instruction loses and the reference photograph wins. Before finishing, compare the face you have drawn against the reference: if a stranger would not identify them as the same individual, it is wrong.`;
+
+/**
+ * A written description of the person's own features, measured once from their
+ * photos and stored with their profile.
+ *
+ * Pixels alone are not always enough: reinforcing identity IN WORDS alongside
+ * the reference images is standard practice for this model family, because the
+ * text channel survives when attention over the reference does not. It is also
+ * the only way to carry facts a single photo cannot show — height and build, or
+ * what their profile looks like when the only reference is frontal.
+ */
+function faceProfileBlock(profile: Record<string, unknown> | null): string {
+  if (!profile || typeof profile !== "object") return "";
+  const f = profile as Record<string, string | undefined>;
+  const line = (label: string, value?: string) =>
+    value && String(value).trim() ? `- ${label}: ${String(value).trim().slice(0, 160)}` : "";
+  const rows = [
+    line("Face shape", f.face_shape),
+    line("Jaw and chin", f.jaw),
+    line("Cheekbones", f.cheekbones),
+    line("Eyes", f.eyes),
+    line("Eyebrows", f.eyebrows),
+    line("Nose", f.nose),
+    line("Mouth and lips", f.mouth),
+    line("Hairline and hair", f.hair),
+    line("Facial hair", f.facial_hair),
+    line("Skin tone and texture", f.skin),
+    line("Distinguishing marks", f.marks),
+    line("Eyewear", f.eyewear),
+    line("Build and height", f.build),
+  ].filter(Boolean);
+  if (!rows.length) return "";
+  return `\n\nTHE PERSON, IN WORDS — this describes the SAME person as the identity photograph(s), measured from their own photos. Use it to resolve anything the photographs do not show clearly, and never to override them:\n${rows.join("\n")}`;
+}
+
 const NEGATIVE = "No watermark-style text, no captions, no borders.";
 
 // COMPOSITION DNA — reverse-engineered from the founder's curated reference set
@@ -411,6 +453,7 @@ Deno.serve(async (request) => {
     wardrobe?: string;      // optional: change the user's outfit
     pose?: string;          // optional: how the user is posed / what they're doing
     build?: string;         // optional: real body type (e.g. "5'10, 150lbs, slim")
+    faceProfile?: Record<string, unknown>; // measured description of the user's own features
     requestId?: string;     // one id per batch — a "prompt" = one request (free tier)
   };
   try {
@@ -724,42 +767,56 @@ Deno.serve(async (request) => {
     const specComposition = envRefB64 ? compositionFromSpec(envRefSpec, hasSubject) : "";
     const specLighting = envRefB64 ? lightingFromSpec(envRefSpec) : "";
 
+    const faceProfile = hasSubject
+      ? faceProfileBlock((body.faceProfile ?? null) as Record<string, unknown> | null)
+      : "";
+
+    // FOUR PARTS, IN THIS ORDER — identity anchor, subject and action,
+    // composition and capture, consistency lock.
+    //
+    // The order is the point, not a tidy-up. Consistency-character guidance for
+    // this model family is explicit that the identity anchor must come FIRST and
+    // the lock LAST, and that keeping that order is what stops the model
+    // inventing a new person once you start describing a scene. Ours previously
+    // opened with the scene request and put the identity anchor tenth, after the
+    // manifest, the style pack, the realism rules, the realism references, the
+    // environment reference and the grounding block — so the model had built an
+    // entire picture before it was told whose face belonged in it.
     const promptText =
-      `SCENE REQUEST: ${prompt}` +
-      manifestBlock +
-      styleBlock +
-      `\n\n${REALISM_LAYER}` +
-      realismRefBlock +
-      envRefBlock +
-      // No environment ref AND no user inspiration ref → force real-place grounding.
-      (!envRefB64 && !attachedUserRefs ? `\n\n${NO_REF_GROUNDING}` : "") +
+      // 1 — IDENTITY ANCHOR
+      (hasSubject ? `WHO THIS IS — read before anything else.${manifestBlock}` : manifestBlock) +
       identityBlock +
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
-      (hasSubject ? `\n\n${FACE_REALISM}` : "") +
-      (hasSubject ? `\n\n${MODESTY}` : "") +
-      // R21 — the generic compositional lens applies ONLY when NO environment
-      // reference is attached. Whenever one is, the reference governs framing:
-      // either through its measured spec, or through ENVIRONMENT_MATCH_BLOCK's
-      // "match the framing EXACTLY". Gating this on `!specComposition` (as the
-      // first cut did) was wrong in the most damaging possible way — with no
-      // specs measured yet it is always true, so the generic lens shipped
-      // alongside the exact-match block on EVERY pack generation. Same gate as
-      // FRAMING below, for the same reason.
-      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${COMPOSITION_DNA}` : "") +
-      specComposition +
-      specLighting +
-      // When an environment reference is present, its EXACT-framing instruction
-      // governs the distance; the generic "medium-to-wide" framing would fight it.
-      // Same suppression as COMPOSITION_DNA above and for the same reason: any
-      // instruction that dictates framing must yield to a reference that IS the
-      // framing. envRefB64 is always null here, so this gate needs both terms.
-      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${FRAMING}` : "") +
+      faceProfile +
       buildBlock +
+
+      // 2 — SUBJECT & ACTION
+      `\n\nSCENE REQUEST: ${prompt}` +
+      styleBlock +
       wardrobeBlock +
       autoWardrobeBlock +
       poseBlock +
       candidDefaultBlock +
-      `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}`;
+
+      // 3 — COMPOSITION & CAPTURE
+      envRefBlock +
+      (!envRefB64 && !attachedUserRefs ? `\n\n${NO_REF_GROUNDING}` : "") +
+      // The generic compositional lens applies ONLY when no environment
+      // reference is attached; whenever one is, the reference governs framing,
+      // either through its measured spec or through the exact-match block.
+      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${COMPOSITION_DNA}` : "") +
+      specComposition +
+      specLighting +
+      (hasSubject && !envRefB64 && !recreatingReference ? `\n\n${FRAMING}` : "") +
+      `\n\n${REALISM_LAYER}` +
+      realismRefBlock +
+      (hasSubject ? `\n\n${FACE_REALISM}` : "") +
+      (hasSubject ? `\n\n${MODESTY}` : "") +
+      `\n\nRender as a ${aspect} vertical-friendly aspect ratio. ${NEGATIVE}` +
+
+      // 4 — CONSISTENCY LOCK, last word
+      (hasSubject ? `\n\n${CONSISTENCY_LOCK}` : "");
+
     parts.push({ text: promptText });
 
     // ---- Generate.

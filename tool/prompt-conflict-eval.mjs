@@ -207,6 +207,8 @@ const BLOCK = {
   POSE:          constText("poseBlock"),
   CANDID_POSE:   constText("candidDefaultBlock"),
   ASPECT_TAIL:   constText("NEGATIVE"),
+  FACE_PROFILE:  functionLiterals("faceProfileBlock"),
+  LOCK:          constText("CONSISTENCY_LOCK"),
 };
 
 console.log(`Prompt conflict eval — parsed ${Object.keys(BLOCK).length} instruction blocks from generate-scene/index.ts\n`);
@@ -259,7 +261,7 @@ console.log(`Prompt conflict eval — parsed ${Object.keys(BLOCK).length} instru
   // the flags it branches on plus the two plain interpolations.
   const EXPECTED = new Set([
     "promptText", "prompt", "aspect",                       // literal interpolations
-    "hasSubject", "envRefB64", "specComposition",            // branch conditions
+    "hasSubject", "envRefB64", "specComposition", "faceProfile", "CONSISTENCY_LOCK",
     // `refIds` (what the caller asked for) was replaced in the assembly by
     // `attachedUserRefs` (what actually downloaded) — see UNGROUNDED/PHANTOM-REF.
     "attachedUserRefs", "recreatingReference",
@@ -350,6 +352,11 @@ const CONFLICTS = [
 
   // --- standing tensions (warn). Real overlaps, but one side is always-on, so
   //     these describe a property of the prompt today rather than a regression.
+  // FACE_PROFILE describes the person in words and FACE_FID describes them in
+  // pixels; the profile block says in its own text that it never overrides the
+  // photographs, so they are complementary rather than competing. LOCK is
+  // deliberately last and deliberately outranks everything — it is the tie-break
+  // for every other block, not a peer of them.
   ["REALISM", "SPEC_LIGHT", "warn",
     "REALISM prescribes light universally ('HARSH, UNEVEN... avoid the even, soft, flattering look'); SPEC_LIGHT states the reference's MEASURED direction/hardness, which may be exactly the soft light REALISM forbids. Same universal-vs-measured shape as the COMP_DNA/SPEC_COMP bug."],
   // RESOLVED at the source: "LANDSCAPE or" was removed from REALISM_LAYER, since
@@ -478,6 +485,10 @@ function emit(c) {
   else if (recreatingReference) out.push("MATCH_REF");
   else if (hasSubject) out.push("IDENTITY");
   if (hasSubject) out.push("FACE_FID", "FACE_REAL", "MODESTY");
+  // A written face profile only exists once the user has one measured; model
+  // both states so a conflict cannot hide behind "nobody has one yet".
+  if (hasSubject && c.faceProfile) out.push("FACE_PROFILE");
+  if (hasSubject) out.push("LOCK");
   // R21, as amended: gated on !envRefB64, not !specComposition. The earlier
   // `!specComposition` gate was vacuous while no reference had a measured spec,
   // so the generic lens shipped alongside ENV_MATCH's exact-framing instruction
@@ -517,7 +528,8 @@ for (const mode of ["me", "background"]) {
                   if (!stylePack && envLibrary) continue;                    // no pack, no pack library
                   if (!envLibrary && spec) continue;                         // a spec belongs to a library asset
                   if (!subject && (pose || wardrobe)) continue;              // ignored without a subject
-                  combos.push({ mode, subject, stylePack, userRefs, matchReference, envLibrary, spec, pose, wardrobe });
+                  for (const faceProfile of [true, false])
+                    combos.push({ mode, subject, stylePack, userRefs, matchReference, envLibrary, spec, pose, wardrobe, faceProfile });
                 }
               }
             }
