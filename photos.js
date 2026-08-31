@@ -83,14 +83,17 @@ const PHOTOS = Object.freeze([
   },
 ]);
 
+// The tile count is DERIVED, never authored. Hardcoded counts had drifted from
+// the real contents on five of six collections — "Hidden gems 16 photos"
+// opening to show 3 — so the number on the tile contradicted the grid behind it.
 const COLLECTIONS = Object.freeze([
-  { name: "Hidden gems", count: 16, scene: "flash", photoIds: [1, 4, 6] },
-  { name: "Best of August", count: 9, scene: "gym", photoIds: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
-  { name: "Never posted", count: 41, scene: "sunset", photoIds: [1, 5, 8] },
-  { name: "With friends", count: 58, scene: "y2k", photoIds: [2, 3, 7] },
-  { name: "Dating picks", count: 6, scene: "portrait", photoIds: [1, 5, 6] },
-  { name: "Worth editing", count: 12, scene: "beach", photoIds: [3, 4, 8] },
-]);
+  { name: "Hidden gems", scene: "flash", photoIds: [1, 4, 6] },
+  { name: "Best of August", scene: "gym", photoIds: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+  { name: "Never posted", scene: "sunset", photoIds: [1, 5, 8] },
+  { name: "With friends", scene: "y2k", photoIds: [2, 3, 7] },
+  { name: "Dating picks", scene: "portrait", photoIds: [1, 5, 6] },
+  { name: "Worth editing", scene: "beach", photoIds: [3, 4, 8] },
+].map((c) => Object.freeze({ ...c, count: c.photoIds.length })));
 
 const PHOTO_ACTIONS = Object.freeze([
   {
@@ -529,7 +532,11 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     const terms = normalized
       .split(/[^a-z0-9]+/)
       .filter((term) => term.length > 1 && !STOP_WORDS.has(term));
-    if (terms.length === 0) return PHOTOS;
+    // The user typed SOMETHING — emoji, punctuation, a single letter — that
+    // yielded no usable term. Returning the whole library and calling it
+    // "Search results" claims a match that was never made; an empty result is
+    // the honest answer, and it is what Discover already does.
+    if (terms.length === 0) return [];
     return PHOTOS.filter((photo) => terms.some((term) => photo.keywords.includes(term)));
   }
 
@@ -615,10 +622,16 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     });
   }
 
+  // Removes the document-level Escape listener for the open sheet. Held here
+  // because the listener outlives the dialog node it was created alongside.
+  let sheetEscapeCleanup = null;
+
   function closeSheet() {
     if (selectedPhotoId === null) return;
     const returnToPhoto = selectedPhotoId;
     selectedPhotoId = null;
+    sheetEscapeCleanup?.();
+    sheetEscapeCleanup = null;
     sheetRoot.replaceChildren();
     content.inert = false;
     bottomChrome.inert = false;
@@ -726,12 +739,18 @@ export function createPhotosScreen({ screen, mount, onNavigate = () => {} }) {
     });
 
     const dialog = sheetRoot.querySelector(".photos-sheet");
+    // Escape is bound at the DOCUMENT, not the dialog: tapping the "Why this
+    // works" copy or the preview image (neither is focusable) moves focus to
+    // <body>, and a dialog-bound handler then never fires. The background is
+    // already inert, so nothing else can be listening.
+    const onEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeSheet();
+    };
+    document.addEventListener("keydown", onEscape);
+    sheetEscapeCleanup = () => document.removeEventListener("keydown", onEscape);
     dialog.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSheet();
-        return;
-      }
       if (event.key !== "Tab") return;
       const focusable = [...dialog.querySelectorAll("button")];
       const first = focusable[0];

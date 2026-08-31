@@ -713,8 +713,15 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
         void import("./gems-memories-view.js").then((m) => m.openMemories());
         return;
       }
-      // camera / help keep the existing engagement-signal behavior.
+      // camera / help are not built yet. Every other stub on this screen
+      // narrates itself; these two recorded a taste event and then did nothing
+      // visible at all, which reads as a broken row rather than an unfinished
+      // one. Say so, on screen.
       profileActions.openSetting(button.dataset.profileAction);
+      status.textContent =
+        button.dataset.profileAction === "camera"
+          ? "Camera roll access is managed in your device settings for now."
+          : "Help & feedback is coming soon — email us in the meantime.";
     });
   });
 

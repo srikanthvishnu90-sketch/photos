@@ -1520,3 +1520,23 @@ button {
    bottom with no breathing room and no sign there is more below. A scroll
    padding gives the reveal somewhere to land. */
 #onboardingScroll{ scroll-padding-block-end:20px; padding-bottom:20px; }
+
+/* #profileStatus is the screen's only feedback channel, and it was .sr-only —
+   so a sighted user tapping a stubbed row or the training switch saw nothing
+   happen at all. Keep it announced, but show it once it has something to say. */
+#profileStatus:not(:empty){
+  position:static;
+  width:auto;
+  height:auto;
+  overflow:visible;
+  clip:auto;
+  clip-path:none;
+  white-space:normal;
+  margin:10px 24px 0;
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--color-surface-muted, rgba(15,37,87,.06));
+  color:var(--color-ink);
+  font-size:13.5px;
+  line-height:1.45;
+}

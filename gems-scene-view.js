@@ -2,6 +2,7 @@
 // Summer). Pick your selfie + a style pack + optional inspiration references,
 // then Gems generates you in that scene. Self-contained overlay; never throws.
 import { listPhotos, importPhotoFiles } from "./gems-photolib.js";
+import { inertBackdrop, releaseBackdrop } from "./gems-modal-a11y.js";
 import {
   STYLE_PACKS, ASPECTS, generateScene, uploadInspiration, listInspiration, deleteInspiration,
   poseOptionsFor, outfitOptionsFor, settingOptionsFor, datingShots, editStyles,
@@ -45,6 +46,8 @@ const BG_HINTS = {
 
 export async function openSceneStudio(defaultPack = "euro-summer", prefill = {}) {
   if (typeof document === "undefined") return;
+  // Tearing down a previous studio must also undo its inerting.
+  releaseBackdrop();
   document.querySelector(".scene-overlay")?.remove();
 
   const state = {
@@ -77,7 +80,15 @@ export async function openSceneStudio(defaultPack = "euro-summer", prefill = {})
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   document.body.append(overlay);
-  const close = () => overlay.remove();
+  // aria-modal alone is a promise, not a mechanism: Tab still walked out of the
+  // overlay into the screen behind it (measured: 14 of 25 tab stops landed on
+  // the Discover card buttons underneath). Make the rest of the app genuinely
+  // inert while this is open, the way the Photos sheet already does.
+  inertBackdrop(overlay);
+  const close = () => {
+    releaseBackdrop();
+    overlay.remove();
+  };
 
   let photos = [];
   try { photos = await listPhotos(); } catch { photos = []; }

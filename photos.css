@@ -35,7 +35,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  /* Three action buttons plus a 26px display title do not fit a 320px phone.
+     The header had no wrap and no scroll, so Import was hard-clipped at 390 and
+     entirely off-screen at 320 — unreachable, not just ugly. The title yields
+     first; the actions keep their size and stay on screen. */
+  gap: 12px;
+  flex-wrap: nowrap;
+  min-width: 0;
   padding:
     max(62px, calc(env(safe-area-inset-top) + 20px))
     24px
@@ -1065,4 +1071,13 @@
 
 .screen.is-selecting .photos-grid-item {
   cursor: pointer;
+}
+
+/* The title is the only element in the header that may shrink. */
+.photos-title{ min-width:0; flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.photos-header .photos-import{ flex:0 0 auto; }
+@media (max-width: 360px){
+  /* At the smallest width, drop the action labels to icons so all three fit. */
+  .photos-header .photos-import span{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .photos-header .photos-import{ padding-left:10px; padding-right:10px; }
 }

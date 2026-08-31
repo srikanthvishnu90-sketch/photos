@@ -1,4 +1,5 @@
 import { appTabBarMarkup, syncActiveTab } from "./app-tabs.js";
+import { inertBackdrop, releaseBackdrop, trapFocus } from "./gems-modal-a11y.js";
 import { studioActions } from "./studio-actions.js";
 import { getSupabase, getSession } from "./gems-supabase.js";
 import { fetchMoodboardCounts } from "./gems-moodboards.js";
@@ -525,6 +526,8 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   let dumpOptionsData = []; // built options
   let dumpSelected = null; // currently open option
   let dumpLastFocus = null;
+  // Removes the dump sheet's focus trap; the listener outlives each re-render.
+  let dumpTrapCleanup = null;
 
   async function loadDumpVibes() {
     try {
@@ -716,7 +719,13 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
       const input = event.currentTarget.querySelector("input[name='revision']");
       const instruction = input?.value ?? "";
       if (!instruction.trim()) return;
-      void applyDumpRevision(instruction);
+      // applyDumpRevision re-renders the whole sheet body, which destroys this
+      // input along with focus — dismissing the keyboard and forcing a re-tap
+      // before every subsequent revision. Put focus back on the new field.
+      void applyDumpRevision(instruction).then(() => {
+        const next = dumpBody.querySelector("[data-dump-revise] input[name='revision']");
+        next?.focus({ preventScroll: true });
+      });
     });
     dumpBody.querySelector("#studioDumpSave").addEventListener("click", () => {
       void saveDumpSet();
@@ -799,6 +808,10 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     dumpRequestEl.textContent = `“${dumpRequest}”`;
     dump.hidden = false;
     document.body.classList.add("studio-dump-open");
+    // The sheet claims aria-modal="true"; make that true in behaviour as well.
+    inertBackdrop(dump);
+    dumpTrapCleanup?.();
+    dumpTrapCleanup = trapFocus(dump, closeDumpFlow);
     renderDumpLoading();
     const vibes = await loadDumpVibes();
     renderDumpQuestions(vibes);
@@ -810,6 +823,9 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     if (dump.hidden) return;
     dump.hidden = true;
     document.body.classList.remove("studio-dump-open");
+    dumpTrapCleanup?.();
+    dumpTrapCleanup = null;
+    releaseBackdrop();
     dumpBody.innerHTML = "";
     if (dumpLastFocus && typeof dumpLastFocus.focus === "function") {
       try {
