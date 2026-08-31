@@ -275,7 +275,7 @@ function sharpen(src, w, h, amount) {
   return out;
 }
 
-function paintFull(bitmap, adjust = {}) {
+function paintFull(bitmap, adjust = {}, opts = {}) {
   try {
     const a = {};
     for (const key of ADJUST_KEYS) a[key] = clampAdj(adjust[key]);
@@ -363,33 +363,247 @@ function paintFull(bitmap, adjust = {}) {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // Pass 4 — film grain (monochrome noise, soft-light).
-    if (a.grain > 0) {
-      const amt = (a.grain / 100) * 40;
-      const noise = ctx.createImageData(w, h);
-      const nd = noise.data;
-      // Deterministic pseudo-noise (no Math.random — keeps re-encodes stable).
-      let seed = 0x9e3779b9;
-      for (let i = 0; i < nd.length; i += 4) {
-        seed = (seed * 1664525 + 1013904223) >>> 0;
-        const v = 128 + (((seed >>> 24) / 255) * 2 - 1) * amt;
-        nd[i] = nd[i + 1] = nd[i + 2] = v;
-        nd[i + 3] = 255;
-      }
-      const grainCanvas = makeCanvas(w, h);
-      grainCanvas?.getContext("2d")?.putImageData(noise, 0, 0);
-      if (grainCanvas) {
-        ctx.globalCompositeOperation = "soft-light";
-        ctx.globalAlpha = 0.6;
-        ctx.drawImage(grainCanvas, 0, 0);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = "source-over";
-      }
+    // Pass 4 — film grain. Deferred when this is one link in a grade chain, so
+    // grain lands AFTER halation (grain is always the last thing that happens
+    // to a frame, in a camera and on film alike).
+    if (a.grain > 0 && !opts.deferGrain) {
+      grainPass(ctx, w, h, { amount: a.grain });
     }
+
     return canvas;
   } catch (error) {
     console.info("paintFull failed", error);
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Film physics — grain, halation and three-way colour grading.
+//
+// These three are why a "look" can't be a colour mapping. A LUT maps every
+// input colour to one output colour identically across the frame; halation
+// depends on WHERE the highlights are, and grain is a live structure with its
+// own statistics. So they are passes, not presets. See the Grade Engine
+// research doc, specs 01-02.
+// ---------------------------------------------------------------------------
+
+/**
+ * Film/sensor grain, modelled rather than overlaid.
+ *
+ * Real noise is (a) luminance-dependent — coarse in the shadows, finer through
+ * the midtones, nearly absent in speculars — and (b) per-channel, because a
+ * Bayer sensor and a three-layer emulsion both carry slightly different noise
+ * in R, G and B. Flat monochrome noise composited across the whole frame is the
+ * single most recognisable "grain overlay" tell, which is exactly what this
+ * replaces.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} w
+ * @param {number} h
+ * @param {{amount?:number, shadowBias?:number, chroma?:number, seed?:number}} params
+ *   amount 0..100; shadowBias 0..1 (how much heavier grain runs in the shadows);
+ *   chroma 0..1 (0 = pure luminance noise, 1 = fully independent per channel).
+ */
+function grainPass(ctx, w, h, params = {}) {
+  try {
+    const amount = clampAdj(params.amount);
+    if (amount <= 0) return;
+    const shadowBias = params.shadowBias == null ? 0.75 : Math.max(0, Math.min(1, params.shadowBias));
+    const chroma = params.chroma == null ? 0.35 : Math.max(0, Math.min(1, params.chroma));
+    const scale = (amount / 100) * 34; // peak ±levels at amount 100
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    // Deterministic PRNG — a recipe must replay identically every time.
+    let seed = (params.seed == null ? 0x9e3779b9 : params.seed) >>> 0;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return (seed >>> 8) / 8388608 - 1; // -1..1
+    };
+    for (let i = 0; i < d.length; i += 4) {
+      const L = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      // Amplitude curve: heaviest in the low tones, dying out in the speculars.
+      const shadowW = 1 - smooth((L - 0.05) / 0.5);
+      const specW = 1 - smooth((L - 0.7) / 0.3);
+      const amp = specW * (0.55 + shadowBias * shadowW) * scale;
+      if (amp <= 0) continue;
+      const luma = rnd() * amp;
+      if (chroma <= 0) {
+        d[i] += luma; d[i + 1] += luma; d[i + 2] += luma;
+      } else {
+        // Green carries the least noise on a Bayer sensor (twice the photosites).
+        d[i] += luma + rnd() * amp * chroma;
+        d[i + 1] += luma + rnd() * amp * chroma * 0.6;
+        d[i + 2] += luma + rnd() * amp * chroma * 1.15;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (error) {
+    console.info("grainPass skipped", error);
+  }
+}
+
+/**
+ * Halation — light punching through the emulsion, reflecting off the film base
+ * and re-exposing from behind. It is red-weighted, it is tied to the intensity
+ * of each individual highlight, and it only blooms where the light was strong
+ * enough to make the round trip. (Remjet backing suppresses it; stripping that
+ * backing is exactly why CineStill halates so hard.)
+ *
+ * Three steps: threshold the highlights above a knee, blur that mask, screen it
+ * back with a red-dominant weighting.
+ *
+ * @param {HTMLCanvasElement|OffscreenCanvas} canvas
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{knee?:number, radius?:number, strength?:number, hue?:[number,number,number]}} params
+ *   knee 0..1 luminance where halation starts; radius 0..100 (% of the short
+ *   edge, scaled); strength 0..100; hue = per-channel weighting.
+ */
+function halationPass(canvas, ctx, params = {}) {
+  try {
+    const strength = clampAdj(params.strength);
+    if (strength <= 0) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const knee = params.knee == null ? 0.72 : Math.max(0, Math.min(0.99, params.knee));
+    const radiusPct = params.radius == null ? 18 : Math.max(1, Math.min(100, params.radius));
+    const hue = Array.isArray(params.hue) && params.hue.length === 3
+      ? params.hue
+      : [1, 0.32, 0.18]; // red-weighted, as real halation is
+    const src = ctx.getImageData(0, 0, w, h);
+    const sd = src.data;
+    const halo = ctx.createImageData(w, h);
+    const hd = halo.data;
+    let lit = false;
+    for (let i = 0; i < sd.length; i += 4) {
+      const L = (0.2126 * sd[i] + 0.7152 * sd[i + 1] + 0.0722 * sd[i + 2]) / 255;
+      if (L <= knee) { hd[i + 3] = 255; continue; }
+      // Intensity above the knee, squared — only genuinely bright light blooms.
+      const t = (L - knee) / (1 - knee);
+      const e = t * t * 255;
+      hd[i] = e * hue[0];
+      hd[i + 1] = e * hue[1];
+      hd[i + 2] = e * hue[2];
+      hd[i + 3] = 255;
+      lit = true;
+    }
+    if (!lit) return;
+    const haloCanvas = makeCanvas(w, h);
+    const hctx = haloCanvas?.getContext("2d");
+    if (!hctx) return;
+    hctx.putImageData(halo, 0, 0);
+    // Blur it in a second buffer (filter applies on draw, not on putImageData).
+    const blurCanvas = makeCanvas(w, h);
+    const bctx = blurCanvas?.getContext("2d");
+    if (!bctx) return;
+    const radius = Math.max(2, (radiusPct / 100) * Math.min(w, h) * 0.09);
+    bctx.filter = `blur(${radius.toFixed(2)}px)`;
+    bctx.drawImage(haloCanvas, 0, 0);
+    bctx.filter = "none";
+    ctx.globalCompositeOperation = "screen";
+    ctx.globalAlpha = Math.min(1, strength / 100);
+    ctx.drawImage(blurCanvas, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  } catch (error) {
+    console.info("halationPass skipped", error);
+  }
+}
+
+/**
+ * Three-way colour grading — shadows, midtones and highlights tinted
+ * independently. This is what replaced two-way split toning, precisely because
+ * midtones needed their own control, and it is most of what people mean when
+ * they say a photo looks "graded" rather than "filtered": warm highlights
+ * opposed by cool shadows, with the midtones (and therefore skin) left honest.
+ *
+ * A flat full-frame tint — the thing this replaces — lifts the blacks, dulls
+ * the whites and dirties the skin all at once.
+ *
+ * @param {Uint8ClampedArray} data
+ * @param {{shadows?:object, midtones?:object, highlights?:object, balance?:number}} g3
+ *   each zone { h: 0..360, s: 0..100, l: -100..100 }; balance -100..100 shifts
+ *   the pivot between the shadow and highlight zones.
+ */
+function threeWayPass(data, g3 = {}) {
+  const zones = [];
+  for (const key of ["shadows", "midtones", "highlights"]) {
+    const z = g3[key];
+    if (!z || (!z.s && !z.l)) continue;
+    const [r, g, b] = hslToRgb(((Number(z.h) || 0) % 360 + 360) % 360, 1, 0.5);
+    zones.push({
+      key,
+      // Direction away from neutral grey, scaled by saturation.
+      dr: (r - 128) / 128,
+      dg: (g - 128) / 128,
+      db: (b - 128) / 128,
+      s: Math.max(0, Math.min(100, Number(z.s) || 0)) / 100,
+      l: clampAdj(z.l) / 100,
+    });
+  }
+  if (!zones.length) return;
+  const balance = clampAdj(g3.balance) / 100;
+  const pivot = 0.5 + balance * 0.25;
+  const SCALE = 58; // levels of tint at s=100 inside a zone
+  for (let i = 0; i < data.length; i += 4) {
+    const L = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+    let r = data[i], g = data[i + 1], b = data[i + 2];
+    for (const z of zones) {
+      let w;
+      if (z.key === "shadows") w = 1 - smooth(L / Math.max(0.05, pivot));
+      else if (z.key === "highlights") w = smooth((L - pivot) / Math.max(0.05, 1 - pivot));
+      else w = 1 - Math.abs(L - pivot) / Math.max(0.05, Math.max(pivot, 1 - pivot));
+      if (w <= 0) continue;
+      if (z.s) {
+        const k = w * z.s * SCALE;
+        r += z.dr * k; g += z.dg * k; b += z.db * k;
+      }
+      if (z.l) {
+        const k = w * z.l * 70;
+        r += k; g += k; b += k;
+      }
+    }
+    data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
+    data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+    data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+  }
+}
+
+/** Build a 256-entry LUT from piecewise-linear control points in 0..255. */
+function lutFromPoints(points) {
+  const pts = Array.isArray(points) && points.length >= 2
+    ? [...points].sort((a, b) => a[0] - b[0])
+    : [[0, 0], [255, 255]];
+  const lut = new Uint8ClampedArray(256);
+  let j = 0;
+  for (let i = 0; i < 256; i += 1) {
+    while (j < pts.length - 2 && i > pts[j + 1][0]) j += 1;
+    const [x0, y0] = pts[j];
+    const [x1, y1] = pts[j + 1];
+    const t = x1 === x0 ? 0 : (i - x0) / (x1 - x0);
+    lut[i] = y0 + (y1 - y0) * Math.max(0, Math.min(1, t));
+  }
+  return lut;
+}
+
+/**
+ * Apply a grade's curve block in place: a luminance curve for the shape of the
+ * contrast, plus optional per-channel RGB curves for casts and lifted blacks.
+ * @param {Uint8ClampedArray} data
+ * @param {{luma?:Array, r?:Array, g?:Array, b?:Array}} curve
+ */
+function curvePass(data, curve = {}) {
+  const luma = curve.luma ? lutFromPoints(curve.luma) : null;
+  const rl = curve.r ? lutFromPoints(curve.r) : null;
+  const gl = curve.g ? lutFromPoints(curve.g) : null;
+  const bl = curve.b ? lutFromPoints(curve.b) : null;
+  if (!luma && !rl && !gl && !bl) return;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i], g = data[i + 1], b = data[i + 2];
+    if (luma) { r = luma[r]; g = luma[g]; b = luma[b]; }
+    if (rl) r = rl[r];
+    if (gl) g = gl[g];
+    if (bl) b = bl[b];
+    data[i] = r; data[i + 1] = g; data[i + 2] = b;
   }
 }
 
@@ -982,53 +1196,192 @@ export function applyCrop(bitmap, rect = {}) {
  * optional `tint` overlay {color, alpha}.
  */
 export const FILTER_GRADES = Object.freeze([
+  // ---------------------------------------------------------------------
+  // The looks. Each one is a full recipe, not a filter: tone, a curve for the
+  // SHAPE of the contrast, per-band HSL, and three-way colour grading that
+  // tints the shadows, midtones and highlights separately. Film physics
+  // (grain, halation) where the look calls for it.
+  //
+  // Two rules run through all of them:
+  //   1. Skin is protected. The orange band is never pushed hard, so faces stay
+  //      faces while the rest of the frame is graded.
+  //   2. No flat full-frame tint. Warm highlights opposed by cool shadows is
+  //      what reads as "graded"; one hue washed over everything is what reads
+  //      as a cheap filter.
+  // ---------------------------------------------------------------------
   {
     key: "dark-gym",
     label: "Dark Gym",
-    adjust: { brightness: -18, contrast: 28, saturation: -22, warmth: -18 },
-    tint: { color: "#2a3550", alpha: 0.1 },
+    adjust: {
+      exposure: -14, contrast: 26, highlights: -18, shadows: -20, whites: -6,
+      blacks: -14, saturation: -26, vibrance: -6, warmth: -14, clarity: 22,
+      sharpness: 10, vignette: 18,
+    },
+    curve: { luma: [[0, 0], [48, 32], [128, 126], [208, 224], [255, 255]] },
+    hsl: {
+      red: { s: -10 }, orange: { s: -6, l: -4 }, yellow: { s: -24 },
+      green: { s: -30, l: -20 }, blue: { s: -18, l: -16 },
+    },
+    grade3: {
+      shadows: { h: 212, s: 22 }, midtones: { h: 210, s: 6 },
+      highlights: { h: 200, s: 8, l: -4 }, balance: -8,
+    },
+    // Hard gym light doesn't bloom — contrast and steel, no halation.
+    film: { grain: { amount: 12, shadowBias: 0.85, chroma: 0.25 } },
   },
   {
     key: "golden-hour",
     label: "Golden Hour",
-    adjust: { brightness: 6, contrast: -10, saturation: 14, warmth: 35 },
-    tint: { color: "#ffb257", alpha: 0.14 },
+    adjust: {
+      exposure: 6, contrast: -4, highlights: -30, shadows: 20, whites: 6,
+      blacks: -4, saturation: 8, vibrance: 16, warmth: 26, clarity: -4,
+      vignette: 8,
+    },
+    curve: { luma: [[0, 10], [60, 60], [128, 134], [198, 208], [255, 254]] },
+    hsl: {
+      orange: { s: 12, l: 6 }, yellow: { h: -8, s: 18, l: 6 },
+      green: { h: 14, s: -16 }, blue: { h: 6, s: -10, l: -10 },
+    },
+    grade3: {
+      shadows: { h: 250, s: 14 }, midtones: { h: 32, s: 8 },
+      highlights: { h: 38, s: 30 }, balance: 10,
+    },
+    // The whole point of golden hour is light blooming off a low sun.
+    film: {
+      grain: { amount: 8, shadowBias: 0.8, chroma: 0.35 },
+      halation: { knee: 0.7, radius: 22, strength: 34 },
+    },
   },
   {
     key: "euro-summer",
     label: "Euro Summer",
-    adjust: { brightness: 16, contrast: 4, saturation: 20, warmth: 22 },
-    tint: { color: "#ffd08a", alpha: 0.08 },
+    adjust: {
+      exposure: 10, contrast: 6, highlights: -22, shadows: 16, whites: 8,
+      blacks: -6, saturation: 6, vibrance: 14, warmth: 14, tint: 2,
+      clarity: 6, sharpness: 4, vignette: 4,
+    },
+    curve: { luma: [[0, 8], [64, 62], [128, 132], [196, 204], [255, 252]] },
+    hsl: {
+      orange: { s: 6, l: 4 }, yellow: { h: -6, s: 14, l: 8 },
+      green: { h: 12, s: -14, l: 6 }, aqua: { s: 16, l: -4 },
+      blue: { h: -6, s: 18, l: -6 },
+    },
+    grade3: {
+      shadows: { h: 205, s: 16 }, midtones: { h: 35, s: 5 },
+      highlights: { h: 44, s: 22 }, balance: 6,
+    },
+    film: {
+      grain: { amount: 9, shadowBias: 0.7, chroma: 0.3 },
+      halation: { knee: 0.8, radius: 14, strength: 16 },
+    },
   },
   {
     key: "clean-editorial",
     label: "Clean Editorial",
-    adjust: { brightness: 4, contrast: 16, saturation: -8, warmth: 0 },
-    tint: null,
+    adjust: {
+      exposure: 4, contrast: 14, highlights: -14, shadows: 8, whites: 10,
+      blacks: -8, saturation: -8, vibrance: 6, clarity: 10, sharpness: 8,
+    },
+    curve: { luma: [[0, 0], [64, 58], [128, 130], [192, 200], [255, 255]] },
+    hsl: {
+      orange: { s: 4, l: 2 }, yellow: { s: -12 },
+      green: { s: -18, l: -4 }, blue: { s: -6, l: -4 },
+    },
+    grade3: {
+      shadows: { h: 220, s: 8 }, highlights: { h: 40, s: 6 }, balance: 0,
+    },
+    film: { grain: { amount: 5, shadowBias: 0.6, chroma: 0.2 } },
   },
   {
     key: "nightlife",
     label: "Nightlife",
-    adjust: { brightness: -14, contrast: 34, saturation: 6, warmth: -24 },
-    tint: { color: "#241a3a", alpha: 0.16 },
+    adjust: {
+      exposure: -18, contrast: 30, highlights: -24, shadows: -10, whites: -10,
+      blacks: -16, saturation: 10, vibrance: 12, warmth: -16, clarity: 14,
+      sharpness: 6, vignette: 22,
+    },
+    curve: { luma: [[0, 4], [48, 30], [128, 124], [206, 226], [255, 252]] },
+    hsl: {
+      orange: { s: -4 }, green: { s: -34, l: -24 }, aqua: { s: 18, l: -6 },
+      blue: { h: -8, s: 16, l: -10 }, purple: { s: 20 },
+      magenta: { s: 24, l: 4 },
+    },
+    grade3: {
+      shadows: { h: 196, s: 26 }, midtones: { h: 280, s: 8 },
+      highlights: { h: 322, s: 24 }, balance: -6,
+    },
+    // Neon bleeds. Lower knee, wider radius, and the halo pulled toward
+    // magenta rather than the pure red of daylight halation.
+    film: {
+      grain: { amount: 20, shadowBias: 0.9, chroma: 0.45 },
+      halation: { knee: 0.62, radius: 26, strength: 48, hue: [1, 0.28, 0.42] },
+    },
   },
   {
     key: "film",
     label: "Film",
-    adjust: { brightness: 4, contrast: -14, saturation: -4, warmth: 14 },
-    tint: { color: "#e9d8b8", alpha: 0.1 },
+    adjust: {
+      exposure: 2, contrast: -6, highlights: -18, shadows: 12, whites: -8,
+      blacks: 8, saturation: -6, vibrance: 8, warmth: 10, clarity: -2,
+    },
+    // The stock look lives in the curve: a lifted toe for matte blacks and a
+    // rolled shoulder, with opposing per-channel toes (warm shadow, cool
+    // highlight rolloff) — which is what print emulation actually is.
+    curve: {
+      luma: [[0, 20], [56, 66], [128, 132], [200, 204], [255, 244]],
+      r: [[0, 12], [128, 130], [255, 252]],
+      b: [[0, 16], [128, 124], [255, 246]],
+    },
+    hsl: {
+      orange: { s: 6, l: 4 }, yellow: { h: -6, s: 8 },
+      green: { h: 10, s: -20, l: 4 }, blue: { h: 6, s: -8, l: -6 },
+    },
+    grade3: {
+      shadows: { h: 214, s: 14 }, midtones: { h: 36, s: 6 },
+      highlights: { h: 42, s: 16 }, balance: 4,
+    },
+    film: {
+      grain: { amount: 26, shadowBias: 0.8, chroma: 0.4 },
+      halation: { knee: 0.74, radius: 18, strength: 26 },
+    },
   },
   {
     key: "coastal",
     label: "Coastal",
-    adjust: { brightness: 14, contrast: -8, saturation: 4, warmth: -6 },
-    tint: { color: "#bfe0ff", alpha: 0.08 },
+    adjust: {
+      exposure: 12, contrast: -8, highlights: -20, shadows: 22, whites: 10,
+      blacks: 4, saturation: 2, vibrance: 12, warmth: -6, tint: -2,
+      clarity: -4, sharpness: 4,
+    },
+    curve: { luma: [[0, 14], [64, 70], [128, 134], [196, 206], [255, 252]] },
+    hsl: {
+      orange: { s: 4, l: 4 }, yellow: { s: -8, l: 6 },
+      green: { h: 16, s: -14, l: 6 }, aqua: { s: 22, l: 4 },
+      blue: { h: -8, s: 20, l: 2 },
+    },
+    grade3: {
+      shadows: { h: 206, s: 16 }, midtones: { h: 190, s: 4 },
+      highlights: { h: 48, s: 10 }, balance: 8,
+    },
+    film: { grain: { amount: 6, shadowBias: 0.6, chroma: 0.25 } },
   },
   {
     key: "streetwear",
     label: "Streetwear",
-    adjust: { brightness: 0, contrast: 30, saturation: 26, warmth: -4 },
-    tint: null,
+    adjust: {
+      exposure: -4, contrast: 28, highlights: -20, shadows: -6, whites: 4,
+      blacks: -14, saturation: 12, vibrance: 18, warmth: -6, clarity: 20,
+      sharpness: 12, vignette: 10,
+    },
+    curve: { luma: [[0, 0], [52, 36], [128, 128], [204, 220], [255, 255]] },
+    hsl: {
+      red: { s: 16 }, orange: { s: 6, l: -2 }, yellow: { s: -10 },
+      green: { s: -24, l: -12 }, blue: { h: -6, s: 14, l: -10 },
+    },
+    grade3: {
+      shadows: { h: 218, s: 20 }, highlights: { h: 30, s: 10 }, balance: -4,
+    },
+    film: { grain: { amount: 10, shadowBias: 0.75, chroma: 0.3 } },
   },
   // "After Dark" (internal codename "Dark Batman") — moody luxury, low-exposure.
   // The single client-side definition of this grade; the values below are the
@@ -1092,37 +1445,96 @@ const RICH_ADJUST_KEYS = Object.freeze([
  * @param {{adjust?:object, tint?:object}} grade
  * @returns {Blob|null}
  */
+/**
+ * Downscale a bitmap to a working resolution for PREVIEW rendering.
+ *
+ * The v2 grade chain is several per-pixel passes deep, so its cost scales with
+ * megapixels: a 12MP phone photo measures ~2.5s for the heaviest look on
+ * desktop Chromium, and worse on a phone. Nobody needs 12MP to decide whether
+ * they like a look, so previews run capped and only the committed version is
+ * rendered at full size. Returns the original untouched when it already fits.
+ *
+ * @param {ImageBitmap|HTMLImageElement|HTMLCanvasElement} bitmap
+ * @param {number} maxEdge long-side cap in px
+ * @returns {ImageBitmap|HTMLCanvasElement} the original, or a downscaled canvas
+ */
+export function fitForPreview(bitmap, maxEdge = 1600) {
+  try {
+    if (!bitmap) return bitmap;
+    const w = bitmap.width || bitmap.naturalWidth || 0;
+    const h = bitmap.height || bitmap.naturalHeight || 0;
+    if (!w || !h) return bitmap;
+    const long = Math.max(w, h);
+    if (long <= maxEdge) return bitmap;
+    const scale = maxEdge / long;
+    const canvas = makeCanvas(Math.round(w * scale), Math.round(h * scale));
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return bitmap;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } catch (error) {
+    console.info("fitForPreview failed, using full size", error);
+    return bitmap;
+  }
+}
+
 export function applyGrade(bitmap, grade = {}) {
   const adjust = grade.adjust || {};
-  const rich = RICH_ADJUST_KEYS.some((key) => adjust[key]);
+  // A grade takes the full pipeline if it moves any of the rich tonal keys, or
+  // if it carries any of the v2 layers (curve / three-way / film physics).
+  const rich =
+    RICH_ADJUST_KEYS.some((key) => adjust[key]) ||
+    !!grade.curve || !!grade.grade3 || !!grade.film;
   let canvas;
   if (rich) {
-    // Full pipeline (exposure, highlights/shadows, vignette…), then a tint wash.
-    canvas = paintFull(bitmap, adjust);
+    const film = grade.film || {};
+    const wantsHalation = !!(film.halation && film.halation.strength);
+    // Grain must land after halation, so defer it out of paintFull when this
+    // grade has film physics of its own.
+    const deferGrain = wantsHalation || !!film.grain;
+    canvas = paintFull(bitmap, adjust, { deferGrain });
     const ctx = canvas?.getContext("2d");
-    // Native per-channel HSL (e.g. After Dark's greens→emerald / blues→navy).
-    if (ctx && grade.hsl) {
-      const active = activeBandsFrom(grade.hsl);
-      if (active.length) {
+    if (ctx && canvas) {
+      const w = canvas.width;
+      const h = canvas.height;
+      // One read/write for every per-pixel layer: curve → HSL → three-way.
+      const activeBands = grade.hsl ? activeBandsFrom(grade.hsl) : [];
+      const needsPixelLayers = !!grade.curve || activeBands.length > 0 || !!grade.grade3;
+      if (needsPixelLayers) {
         try {
-          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          hslPass(img.data, active);
+          const img = ctx.getImageData(0, 0, w, h);
+          if (grade.curve) curvePass(img.data, grade.curve);
+          if (activeBands.length) hslPass(img.data, activeBands);
+          if (grade.grade3) threeWayPass(img.data, grade.grade3);
           ctx.putImageData(img, 0, 0);
         } catch (error) {
-          console.info("grade HSL pass skipped", error);
+          console.info("grade pixel layers skipped", error);
         }
       }
-    }
-    if (ctx && grade.tint?.color && grade.tint.alpha) {
-      ctx.globalCompositeOperation = "soft-light";
-      ctx.globalAlpha = Math.max(0, Math.min(1, Number(grade.tint.alpha) || 0));
-      ctx.fillStyle = grade.tint.color;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = "source-over";
+      // Legacy flat tint. Kept so saved presets and After Dark are untouched;
+      // new looks express colour through `grade3` instead, which tints the
+      // tonal zones separately rather than washing the whole frame.
+      if (grade.tint?.color && grade.tint.alpha) {
+        ctx.globalCompositeOperation = "soft-light";
+        ctx.globalAlpha = Math.max(0, Math.min(1, Number(grade.tint.alpha) || 0));
+        ctx.fillStyle = grade.tint.color;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      }
+      if (wantsHalation) halationPass(canvas, ctx, film.halation);
+      if (deferGrain) {
+        const g = film.grain || {};
+        grainPass(ctx, w, h, {
+          amount: g.amount == null ? clampAdj(adjust.grain) : g.amount,
+          shadowBias: g.shadowBias,
+          chroma: g.chroma,
+          seed: g.seed,
+        });
+      }
     }
   } else {
-    // The original 8 grades keep their exact tuned look via the simpler path.
+    // The simple path, for grades that are genuinely just four numbers.
     canvas = paintAdjust(bitmap, adjust, grade.tint || null);
   }
   if (!canvas) return null;

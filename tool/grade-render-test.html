@@ -1,0 +1,147 @@
+<!doctype html><meta charset="utf-8"><title>grade render test</title>
+<body><script type="module">
+import { FILTER_GRADES, applyGrade } from "../gems-canvas.js";
+
+// A synthetic frame that exercises every pass: a shadow-to-highlight ramp
+// (grain amplitude), a hard specular disc (halation), and colour patches
+// (HSL bands + three-way).
+function testFrame() {
+  const c = document.createElement("canvas");
+  c.width = 480; c.height = 320;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 480, 0);
+  g.addColorStop(0, "#050608"); g.addColorStop(0.5, "#6b7078"); g.addColorStop(1, "#e8ebf0");
+  x.fillStyle = g; x.fillRect(0, 0, 480, 320);
+  const patches = ["#c85a3a", "#d8a35e", "#5f8f4a", "#3f6fa8", "#8a5fa8"];
+  patches.forEach((p, i) => { x.fillStyle = p; x.fillRect(20 + i * 90, 20, 70, 60); });
+  // Flat patches at known luminance — grain amplitude is only measurable on a
+  // flat field; a gradient's own slope swamps the noise.
+  x.fillStyle = "#1a1a1a"; x.fillRect(20, 250, 60, 55);   // shadow flat
+  x.fillStyle = "#808080"; x.fillRect(100, 250, 60, 55);  // midtone flat
+  x.fillStyle = "#f2f2f2"; x.fillRect(400, 250, 60, 55);  // near-specular flat
+  // Specular highlight — the thing halation blooms off.
+  x.fillStyle = "#ffffff";
+  x.beginPath(); x.arc(240, 190, 26, 0, Math.PI * 2); x.fill();
+  return c;
+}
+
+function flatRGB(data, w, x0, x1, y0, y1) {
+  let r = 0, g = 0, b = 0, k = 0;
+  for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) {
+    const i = (y * w + x) * 4; r += data[i]; g += data[i + 1]; b += data[i + 2]; k += 1;
+  }
+  return [r / k, g / k, b / k].map((v) => +v.toFixed(1));
+}
+
+function stats(data, w, h, ref) {
+  let r = 0, g = 0, b = 0, n = 0;
+  // Grain check: luma variance inside each FLAT patch.
+  const flats = {
+    shadow: { x0: 24, x1: 76, y0: 254, y1: 301, s: 0, s2: 0, k: 0 },
+    mid: { x0: 104, x1: 156, y0: 254, y1: 301, s: 0, s2: 0, k: 0 },
+    high: { x0: 404, x1: 456, y0: 254, y1: 301, s: 0, s2: 0, k: 0 },
+  };
+  let diff = 0;
+  // Halation check: mean r/b in an annulus around the specular disc.
+  let ringR = 0, ringB = 0, nRing = 0;
+  let farR = 0, farB = 0, nFar = 0;
+  const prof = Array.from({ length: 10 }, () => ({ r: 0, b: 0, k: 0 }));
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      r += data[i]; g += data[i + 1]; b += data[i + 2]; n += 1;
+      const L = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      if (ref) {
+        diff += Math.abs(data[i] - ref[i]) + Math.abs(data[i + 1] - ref[i + 1]) + Math.abs(data[i + 2] - ref[i + 2]);
+      }
+      for (const f of Object.values(flats)) {
+        if (x >= f.x0 && x < f.x1 && y >= f.y0 && y < f.y1) { f.s += L; f.s2 += L * L; f.k += 1; }
+      }
+      const d = Math.hypot(x - 240, y - 190);
+      if (d > 28 && d < 46) { ringR += data[i]; ringB += data[i + 2]; nRing += 1; }
+      // Radial profile of the halo, so its reach is measured rather than assumed.
+      const bin = Math.floor((d - 26) / 6);
+      if (d >= 26 && bin >= 0 && bin < 10) { prof[bin].r += data[i]; prof[bin].b += data[i + 2]; prof[bin].k += 1; }
+      // Far field at the same background tone — isolates the local bloom from
+      // whatever the look does to the whole frame.
+      if (d > 110 && d < 150 && y > 150 && y < 240) { farR += data[i]; farB += data[i + 2]; nFar += 1; }
+    }
+  }
+  const varOf = (f) => (f.k ? f.s2 / f.k - (f.s / f.k) ** 2 : 0);
+  return {
+    mean: [r / n, g / n, b / n].map((v) => +v.toFixed(2)),
+    grainShadow: +varOf(flats.shadow).toFixed(2),
+    grainMid: +varOf(flats.mid).toFixed(2),
+    grainHigh: +varOf(flats.high).toFixed(2),
+    ringR: +(ringR / nRing).toFixed(2),
+    ringB: +(ringB / nRing).toFixed(2),
+    farR: +(farR / nFar).toFixed(2),
+    farB: +(farB / nFar).toFixed(2),
+    profile: prof.map((p) => (p.k ? [+(p.r / p.k).toFixed(1), +(p.b / p.k).toFixed(1)] : null)),
+    flatShadowRGB: flatRGB(data, w, 24, 76, 254, 301),
+    flatHighRGB: flatRGB(data, w, 404, 456, 254, 301),
+    diff: +(diff / (n * 3)).toFixed(2),
+  };
+}
+
+async function statsOfBlob(blob, ref) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement("canvas");
+  c.width = bmp.width; c.height = bmp.height;
+  const x = c.getContext("2d");
+  x.drawImage(bmp, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height).data;
+  return { ...stats(d, c.width, c.height, ref), pixels: d };
+}
+
+window.__run = async () => {
+  const src = testFrame();
+  const bmp = await createImageBitmap(src);
+  const base = await statsOfBlob(await new Promise((r) => src.toBlob(r, "image/jpeg", 0.92)));
+  const out = { base: { ...base, pixels: undefined }, looks: {}, physics: {} };
+
+  // --- Physics unit cases: each pass in isolation, so a look's own tone
+  // mapping can't confound the measurement (a grade that crushes shadows moves
+  // the test patches off the luminance they were authored at).
+  const grainOnly = await statsOfBlob(
+    applyGrade(bmp, { adjust: {}, film: { grain: { amount: 40, shadowBias: 0.75, chroma: 0.35 } } }),
+    base.pixels,
+  );
+  out.physics.grain = {
+    shadow: grainOnly.grainShadow, mid: grainOnly.grainMid, high: grainOnly.grainHigh,
+  };
+  for (const [name, hue] of [["red", null], ["magenta", [1, 0.28, 0.42]]]) {
+    const h = await statsOfBlob(
+      applyGrade(bmp, {
+        adjust: {},
+        film: { halation: { knee: 0.7, radius: 22, strength: 60, ...(hue ? { hue } : {}) } },
+      }),
+      base.pixels,
+    );
+    out.physics[`halation_${name}`] = {
+      ringR: h.ringR, ringB: h.ringB, farR: h.farR, farB: h.farB,
+      baseRingR: base.ringR, baseRingB: base.ringB,
+      profile: h.profile, baseProfile: base.profile,
+    };
+  }
+  const threeWayOnly = await statsOfBlob(
+    applyGrade(bmp, {
+      adjust: {},
+      grade3: { shadows: { h: 210, s: 40 }, highlights: { h: 40, s: 40 } },
+    }),
+    base.pixels,
+  );
+  out.physics.threeWay = { shadowRGB: threeWayOnly.flatShadowRGB, highRGB: threeWayOnly.flatHighRGB,
+    baseShadowRGB: base.flatShadowRGB, baseHighRGB: base.flatHighRGB };
+
+  for (const grade of FILTER_GRADES) {
+    const t0 = performance.now();
+    const blob = applyGrade(bmp, grade);
+    const ms = performance.now() - t0;
+    out.looks[grade.key] = blob
+      ? { ...(await statsOfBlob(blob, base.pixels)), pixels: undefined, ms: +ms.toFixed(1), bytes: blob.size }
+      : { error: "applyGrade returned null" };
+  }
+  return out;
+};
+</script></body>

@@ -6,6 +6,7 @@ import {
   applyAdjust,
   applyCrop,
   applyGrade,
+  fitForPreview,
   applyGeometry,
   applyPerspective,
   applyOverlay,
@@ -1069,7 +1070,10 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         photoView.style.filter = cssFilterFor(grade.adjust);
         const bitmap = await activeBitmap();
         if (bitmap && tool === "Filters" && selected === grade.key) {
-          showToolPreview(applyGrade(bitmap, grade));
+          // Preview at a working resolution — the full v2 grade chain on a 12MP
+          // photo is seconds of work, and the preview is being judged on a
+          // phone screen. Apply (below) still renders at full size.
+          showToolPreview(applyGrade(fitForPreview(bitmap), grade));
         }
       });
     });

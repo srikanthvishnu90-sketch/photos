@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>grade perf</title><body><script type="module">
+import { FILTER_GRADES, applyGrade, fitForPreview } from "../gems-canvas.js";
+window.__perf = async (w, h) => {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, "#0a0c10"); g.addColorStop(0.55, "#7a808c"); g.addColorStop(1, "#f4f6fa");
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.fillStyle = "#fff";
+  x.beginPath(); x.arc(w * 0.6, h * 0.4, Math.min(w, h) * 0.05, 0, Math.PI * 2); x.fill();
+  const bmp = await createImageBitmap(c);
+  const prev = fitForPreview(bmp, 1600);
+  const out = {};
+  for (const key of ["nightlife", "film", "clean-editorial", "after-dark"]) {
+    const grade = FILTER_GRADES.find((v) => v.key === key);
+    const t0 = performance.now();
+    const blob = applyGrade(bmp, grade);
+    const full = performance.now() - t0;
+    const t1 = performance.now();
+    const pblob = applyGrade(prev, grade);
+    out[key] = { ms: +full.toFixed(0), preview: +(performance.now() - t1).toFixed(0), ok: !!blob && !!pblob };
+  }
+  return out;
+};
+</script></body>

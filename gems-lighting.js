@@ -9,7 +9,7 @@
 // Honesty: these are colour/mood grades of the same frame, not a physical
 // relight (sky geometry and cast shadows don't move). The UI copy says "looks",
 // not "re-lit".
-import { FILTER_GRADES, applyGrade } from "./gems-canvas.js";
+import { FILTER_GRADES, applyGrade, fitForPreview } from "./gems-canvas.js";
 
 // The 5 looks, in display order. `grade` is a FILTER_GRADES key, or null for the
 // base frame shown as-is (Midday). All keys below exist in gems-canvas.js.
@@ -45,7 +45,9 @@ export async function lightingVariants(baseUrl) {
   try {
     const res = await fetch(baseUrl);
     const blob = await res.blob();
-    bitmap = await createImageBitmap(blob);
+    // Capped: these five looks are regraded for viewing, and the chain costs
+    // real time per megapixel.
+    bitmap = fitForPreview(await createImageBitmap(blob), 1600);
   } catch (error) {
     console.info("lightingVariants: base unavailable, using base for all looks", error);
     return out;
