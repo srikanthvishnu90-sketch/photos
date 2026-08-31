@@ -53,6 +53,12 @@ const TRENDS = Object.freeze([
   { id: "boat", label: "On the Water" },
   { id: "dark-luxe", label: "Dark Luxe" },
   { id: "after-dark", label: "After Dark" },
+  { id: "campus", label: "Campus" },
+  { id: "game-day", label: "Game Day" },
+  { id: "alpine", label: "Alpine" },
+  { id: "tokyo-neon", label: "Tokyo Neon" },
+  { id: "marrakech", label: "Marrakech" },
+  { id: "wellness", label: "Wellness" },
 ]);
 
 function sceneMarkup(scene) {
