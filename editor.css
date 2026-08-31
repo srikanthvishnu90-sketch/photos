@@ -1474,3 +1474,12 @@
 /* The grade chain is synchronous; dim the canvas while it blocks so the app
    does not simply look frozen for several seconds. */
 .editor-canvas.is-processing{ opacity: .55; transition: opacity 120ms ease; }
+
+/* Tool chips must fit their own labels. "Perspective" measured 67px of text in
+   a 62px chip at 390 and 62px in 44px at 320 — a layout bug, not a copy one. */
+.editor-tool,.editor-tool-chip{ min-width:max-content; }
+.editor-tool span,.editor-tool-chip span{ white-space:nowrap; overflow:visible; }
+@media (max-width:360px){
+  .editor-tools,.editor-tool-strip{ gap:6px; }
+  .editor-tool,.editor-tool-chip{ font-size:11px; padding-left:8px; padding-right:8px; }
+}

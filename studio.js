@@ -462,6 +462,11 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   }
 
   function renderFilter() {
+    // The filter strip overflows at 390px, so selecting a chip near its end
+    // left the active one off-screen — indistinguishable from nothing having
+    // happened. `nearest` never scrolls a chip that is already visible.
+    filters.querySelector(`[data-studio-filter="${CSS.escape(activeFilter)}"]`)
+      ?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
     const projects = visibleProjects();
     const templateOnly = activeFilter === "Templates";
     const moodboards = activeFilter === "Moodboards";
@@ -504,7 +509,10 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
     const resultLabel = templateOnly
       ? `${TEMPLATES.length} templates`
       : moodboards
-        ? "No moodboards yet"
+        // Was hardcoded to "No moodboards yet" regardless of what was on
+        // screen, so a signed-in user with boards saw cards while the live
+        // region announced none.
+        ? `${projects.length} ${projects.length === 1 ? "moodboard" : "moodboards"}`
         : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`;
     status.textContent = `${activeFilter}: ${resultLabel}.`;
   }

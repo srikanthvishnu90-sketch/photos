@@ -32,11 +32,31 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-const STATS = Object.freeze([
+// Demo figures ONLY. A real account must never be shown these — a user who
+// finished onboarding thirty seconds ago seeing "16 gems found · 27 edits" is
+// the app lying to them about their own history. statsFor() below picks.
+const DEMO_STATS = Object.freeze([
   { value: "16", label: "gems found" },
   { value: "3", label: "dumps made" },
   { value: "27", label: "edits" },
 ]);
+const EMPTY_STATS = Object.freeze([
+  { value: "0", label: "gems found" },
+  { value: "0", label: "dumps made" },
+  { value: "0", label: "edits" },
+]);
+/** Real accounts get their real (possibly zero) numbers; demo mode keeps the mock. */
+function statsFor(state) {
+  if (!state || !state.userId) return DEMO_STATS;
+  const s = state.stats;
+  if (!s) return EMPTY_STATS;
+  return Object.freeze([
+    { value: String(s.gems ?? 0), label: "gems found" },
+    { value: String(s.dumps ?? 0), label: "dumps made" },
+    { value: String(s.edits ?? 0), label: "edits" },
+  ]);
+}
+const STATS = DEMO_STATS;
 
 const SETTINGS = Object.freeze([
   {
@@ -98,7 +118,7 @@ function profileMarkup() {
       <section class="profile-stats" aria-label="Your Gems activity">
         ${STATS.map(
           (stat, index) => `
-            <div class="profile-stat profile-entrance" style="--profile-delay: ${220 + index * 60}ms">
+            <div class="profile-stat profile-entrance" data-stat="${stat.label}" style="--profile-delay: ${220 + index * 60}ms">
               <strong>${stat.value}</strong>
               <span>${stat.label}</span>
             </div>
@@ -750,6 +770,20 @@ export function createProfileScreen({ screen, mount, onNavigate = () => {} }) {
   return Object.freeze({
     activate(nextProfileState = {}) {
       profileState = { ...nextProfileState };
+      // Demo figures are for demo mode only. A real account gets its real
+      // numbers, including zero — showing "27 edits" to someone who finished
+      // onboarding a minute ago is the app lying about their own history.
+      for (const stat of statsFor(profileState)) {
+        const el = mount.querySelector(`[data-stat="${CSS.escape(stat.label)}"] strong`);
+        if (el) el.textContent = stat.value;
+      }
+      const joined = mount.querySelector(".profile-identity-copy p");
+      if (joined && profileState.userId) {
+        const when = profileState.joinedAt ? new Date(profileState.joinedAt) : null;
+        joined.textContent = when && !Number.isNaN(when.valueOf())
+          ? `Free plan · joined ${when.toLocaleString(undefined, { month: "long", year: "numeric" })}`
+          : "Free plan";
+      }
       const firstName = profileState.name?.trim().split(/\s+/)[0] || "Vish";
       name.textContent = firstName;
       avatar.textContent = firstName.charAt(0).toLocaleUpperCase();

@@ -247,7 +247,10 @@ function discoverMarkup() {
         ${categoryMarkup("For you")}
       </div>
 
-      <div id="discoverGrid" class="discover-grid" aria-live="polite"></div>
+      <!-- No aria-live here: the grid is rebuilt wholesale on every keystroke, so a
+           live region on it re-announces the entire result list per character.
+           #discoverStatus below is the correct, already-wired announcement. -->
+      <div id="discoverGrid" class="discover-grid"></div>
       <p id="discoverStatus" class="sr-only" aria-live="polite"></p>
     </div>
 
@@ -446,11 +449,22 @@ export function createDiscoverScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => selectCategory(button.dataset.discoverCategory));
   });
 
+  /**
+   * Debounce the render, not the input. The field itself must stay perfectly
+   * responsive — only the expensive grid rebuild is coalesced, so ten fast
+   * keystrokes produce one render instead of ten.
+   */
+  let searchRenderTimer = 0;
+  const renderSearchSoon = (fn) => {
+    window.clearTimeout(searchRenderTimer);
+    searchRenderTimer = window.setTimeout(fn, 90);
+  };
+
   search.addEventListener("input", () => {
     query = search.value;
     openCard = null;
     searchShell.classList.toggle("has-value", query.length > 0);
-    renderGrid();
+    renderSearchSoon(renderGrid);
   });
 
   search.addEventListener("search", () => {

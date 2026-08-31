@@ -34,12 +34,18 @@ const GEMS = Object.freeze([
   { id: 5, label: "Euro Summer match", meta: "From your vibe", scene: "beach" },
 ]);
 
+// Each tile carries the sentence it types into the composer. A suggestion chip
+// fills the input rather than acting instead of it: the user sees what they are
+// about to ask, can edit it before sending, and learns the vocabulary of the
+// product by watching it get typed for them. The composer's own routing then
+// takes the message to the right studio, so nothing is lost by going through it.
 const ACTIONS = Object.freeze([
-  { label: "Commitment post", icon: "spark" },
-  { label: "Euro Summer", icon: "spark" },
-  { label: "Edit a photo", icon: "edit" },
-  { label: "Find my best photos", icon: "search" },
+  { label: "Commitment post", icon: "spark", ask: "Make me a commitment post for my school" },
+  { label: "Euro Summer", icon: "spark", ask: "Make me a Euro Summer photo" },
+  { label: "Edit a photo", icon: "edit", ask: "Edit one of my photos" },
+  { label: "Find my best photos", icon: "search", ask: "Find my best photos of me" },
 ]);
+const ASK_FOR = Object.freeze(Object.fromEntries(ACTIONS.map((a) => [a.label, a.ask])));
 
 // Homepage style-pack buttons. Each opens the quick questionnaire → generates an
 // image in that style (same flow + reveal animation as Euro Summer). The `id` is
@@ -1197,33 +1203,17 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     button.addEventListener("click", () => {
       const action = button.dataset.homeAction;
       homeActions.startAction(action);
-      if (action === "Commitment post") {
-        void import("./gems-commitment-view.js").then((m) => m.openCommitmentStudio());
+      // Fill the composer; never navigate instead of it, and never overwrite a
+      // draft in progress. Sending is the user's decision, not the tile's.
+      const ask = ASK_FOR[action] || action;
+      if (chatInput?.value.trim() && chatInput.value.trim() !== ask) {
+        chatStatus.textContent = "Added to your message — edit it, then send.";
+        chatInput.value = `${chatInput.value.trim()} ${ask}`;
+        syncChat();
+        chatInput.focus({ preventScroll: true });
         return;
       }
-      if (action === "Euro Summer") {
-        // Quick questionnaire → generate (with the reveal animation). The Home
-        // chatbox stays available for free-form generation when they close it.
-        void import("./gems-scene-view.js").then((m) => m.openSceneStudio("euro-summer", { questionnaire: true }));
-        return;
-      }
-      if (action === "Find my best photos") {
-        // Actually run it — rank + show the best, not just pre-fill the chat.
-        // But never at the cost of a draft: sendChatMessage clears the input,
-        // so a half-typed message would vanish on a tile tap.
-        if (chatInput?.value.trim()) {
-          setChatPrompt(action);
-          return;
-        }
-        void sendChatMessage("find my best photos of me");
-        return;
-      }
-      if (action === "Edit a photo") {
-        // Open Photos to pick a photo to edit.
-        goTo("Photos");
-        return;
-      }
-      setChatPrompt(action);
+      setChatPrompt(ask);
     });
   });
 
