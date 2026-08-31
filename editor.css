@@ -1483,3 +1483,6 @@
   .editor-tools,.editor-tool-strip{ gap:6px; }
   .editor-tool,.editor-tool-chip{ font-size:11px; padding-left:8px; padding-right:8px; }
 }
+
+/* Undo sits beside Try again. Same affordance, opposite direction. */
+.editor-undo{ right:auto; left:12px; }

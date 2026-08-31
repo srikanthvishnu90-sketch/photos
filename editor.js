@@ -204,6 +204,12 @@ function editorMarkup() {
           <span class="editor-processing-card" aria-hidden="true"></span>
           <strong>Working on it…</strong>
         </div>
+        <button id="editorUndo" class="editor-reroll editor-undo" type="button" hidden aria-label="Undo last edit">
+          <svg viewBox="0 0 14 14" aria-hidden="true">
+            <path d="M2.3 4.7A5 5 0 1 1 2 8M2.3 1.8v2.9h2.9"></path>
+          </svg>
+          <span>Undo</span>
+        </button>
         <button id="editorReroll" class="editor-reroll" type="button" hidden>
           <svg viewBox="0 0 14 14" aria-hidden="true">
             <path d="M11.7 4.7A5 5 0 1 0 12 8M11.7 1.8v2.9H8.8"></path>
@@ -357,6 +363,7 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     processingOverlay.innerHTML = defaultProcessingHTML;
   }
   const reroll = mount.querySelector("#editorReroll");
+  const undoBtn = mount.querySelector("#editorUndo");
   const versionsRoot = mount.querySelector("#editorVersions");
   const describePanel = mount.querySelector("#editorDescribePanel");
   const manualPanel = mount.querySelector("#editorManualPanel");
@@ -442,6 +449,10 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
     canvas.classList.toggle("is-processing", processing);
     processingOverlay.hidden = !processing;
     reroll.hidden = processing || activeVersionId === 0 || deterministicVersionIds.has(activeVersionId);
+    // Undo is a first-class control, not a side effect of version history.
+    // Non-destructive: it selects the previous version rather than deleting the
+    // current one, so it is itself reversible from the filmstrip.
+    if (undoBtn) undoBtn.hidden = processing || activeVersionId === 0 || versions.length < 2;
     done.disabled = processing;
   }
 
@@ -461,6 +472,20 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
         `,
       )
       .join("");
+
+    if (undoBtn && !undoBtn.dataset.bound) {
+      undoBtn.dataset.bound = "1";
+      undoBtn.addEventListener("click", () => {
+        if (processing || activeVersionId === 0) return;
+        const index = versions.findIndex((v) => v.id === activeVersionId);
+        const previous = index > 0 ? versions[index - 1] : versions[0];
+        activeVersionId = previous.id;
+        say(`Back to ${previous.label || "the original"}.`);
+        renderVersions();
+        syncCanvas();
+        if (mode === "manual" && photo) renderToolControls(tool);
+      });
+    }
 
     versionsRoot.querySelectorAll("[data-editor-version]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -659,6 +684,38 @@ export function createEditorScreen({ screen, mount, onNavigate = () => {} }) {
 
   // Route the tool to its control renderer. Only real-photo mode gets live
   // controls; demo mode keeps the original visual-only manual panel.
+  /**
+   * Re-fit tool overlays when the frame actually changes shape.
+   *
+   * buildImageOverlay() measures the canvas ONCE and pins the overlay to those
+   * pixels. Rotating the device leaves the crop rectangle sitting in the black
+   * letterbox, entirely off the photo, and strokes land on the wrong pixels —
+   * because both the overlay's box and the captured natW/fitWidth scale go
+   * stale together. Re-rendering the active tool rebuilds both consistently,
+   * which is why this re-renders rather than nudging the box.
+   *
+   * WIDTH ONLY, deliberately. A height-only change is almost always the
+   * keyboard opening, and re-rendering then would destroy the text field the
+   * user is typing in — the same class of bug as a submit that re-renders its
+   * own input. The keyboard case leaves the overlay slightly off; rotation is
+   * the one that puts it somewhere useless.
+   */
+  let lastFrameWidth = window.innerWidth;
+  let refitTimer = 0;
+  const OVERLAY_TOOLS = new Set([
+    "Crop", "Draw", "Erase", "Whiten", "Dodge & Burn", "Blur", "Clone",
+    "Portrait Blur", "Text", "Add", "Perspective",
+  ]);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth === lastFrameWidth) return; // keyboard, not rotation
+    lastFrameWidth = window.innerWidth;
+    if (!OVERLAY_TOOLS.has(tool)) return;
+    window.clearTimeout(refitTimer);
+    refitTimer = window.setTimeout(() => {
+      if (mode === "manual" && OVERLAY_TOOLS.has(tool)) renderToolControls(tool);
+    }, 140);
+  });
+
   function renderToolControls(toolName) {
     // Revokes the previous tool's object URLs. Without this, re-entering
     // Filters (or committing an edit, which re-renders the panel) minted nine

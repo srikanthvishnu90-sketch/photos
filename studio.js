@@ -367,9 +367,16 @@ export function createStudioScreen({ screen, mount, onNavigate = () => {} }) {
   let projects = [...PROJECTS];
   let usingLive = false;
 
+  // The hero card and the grid were both rendering the newest draft, so
+  // "Summer Dump" appeared twice on the same screen — and the two disagreed
+  // about its contents ("8 of 12 photos" against "12 photos"). The same object
+  // appears once per screen; the hero IS its appearance when the hero is shown.
+  const heroProjectName = "Summer Dump";
   function visibleProjects() {
-    if (activeFilter === "All") return projects;
-    return projects.filter((project) => project.type === activeFilter);
+    const heroShown = !mount.querySelector("#studioHero")?.hidden;
+    const pool = heroShown ? projects.filter((p) => p.name !== heroProjectName) : projects;
+    if (activeFilter === "All") return pool;
+    return pool.filter((project) => project.type === activeFilter);
   }
 
   function openBoard() {
