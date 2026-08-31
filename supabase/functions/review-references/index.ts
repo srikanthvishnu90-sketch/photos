@@ -80,7 +80,23 @@ Deno.serve(async (request) => {
         .map((n: string) => `${prefix}/${n}`);
       const { data, error } = await supabase.storage.from("inspiration").remove(paths);
       if (error) return json(502, { error: error.message });
-      return json(200, { removed: (data ?? []).length, requested: paths.length });
+      // The generator now selects references from inspiration_assets, not from a
+      // storage listing (R13). Removing the object without removing the row
+      // leaves an orphan that is still chosen, fails to download, and silently
+      // drops that generation to the no-reference path with no trace of why.
+      let delisted = 0;
+      try {
+        const { data: gone } = await supabase
+          .from("inspiration_assets")
+          .delete()
+          .is("profile_id", null)
+          .in("storage_path", paths)
+          .select("id");
+        delisted = (gone ?? []).length;
+      } catch (error) {
+        console.info("row cleanup failed", error);
+      }
+      return json(200, { removed: (data ?? []).length, requested: paths.length, delisted });
     }
 
     return json(405, { error: "method not allowed" });

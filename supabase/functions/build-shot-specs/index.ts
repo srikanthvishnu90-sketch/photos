@@ -13,11 +13,20 @@
 // Runs once per reference, not once per generation, so the cost is ~$0 amortised.
 // Service-role only; verify_jwt is off (see config.toml) and the SERVICE key is
 // the gate, exactly like cleanup-scene-outputs.
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+
+// The helpers below take the request-scoped client. Typing it as the bare
+// ReturnType<typeof createClient> does not match the instance's inferred schema
+// generics, so name it explicitly.
+// deno-lint-ignore no-explicit-any
+type Db = SupabaseClient<any, any, any>;
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const SPEC_MODEL = Deno.env.get("GEMS_SPEC_MODEL") ?? "gemini-3.1-flash";
 const SPEC_VERSION = 1;
+// Stamped on assets whose measurement failed, so they are not retried forever.
+// A `rebuild` run re-attempts them deliberately.
+const FAILED_VERSION = -1;
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
 
@@ -107,6 +116,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 /** Clamp a number into range, or null when the model returned nonsense. */
 function num(v: unknown, lo: number, hi: number): number | null {
+  // Number(null) === Number("") === Number(false) === Number([]) === 0, all
+  // finite — so coercing first would silently store 0 for a missing value and
+  // the caller's "is it null?" guard would never fire. Reject by TYPE first.
+  if (typeof v !== "number" && typeof v !== "string") return null;
+  if (typeof v === "string" && v.trim() === "") return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.min(hi, Math.max(lo, n));
@@ -149,16 +163,18 @@ function validateSpec(raw: unknown): Record<string, unknown> | null {
       subject_position: oneOf(o.subject_position, ["left-third", "centre", "right-third", "none"]) ?? "none",
       horizon_height,
       camera_elevation: oneOf(o.camera_elevation, ["low", "eye", "slightly-high", "high"]) ?? "eye",
-      foreground_element: String(o.foreground_element ?? "none").slice(0, 120),
+      foreground_element: typeof o.foreground_element === "string"
+        ? o.foreground_element.trim().slice(0, 120)
+        : "none",
       depth_layers: oneOf(o.depth_layers, ["flat", "two-layer", "layered"]) ?? "two-layer",
       aspect: oneOf(o.aspect, ["portrait", "square", "landscape"]) ?? "portrait",
     },
     lighting: {
-      direction: String(l.direction ?? "").slice(0, 80),
+      direction: typeof l.direction === "string" ? l.direction.trim().slice(0, 80) : "",
       hardness: oneOf(l.hardness, ["hard", "soft", "diffuse"]) ?? "soft",
       temperature_k: num(l.temperature_k, 2000, 9000) ?? 5200,
       key_to_fill: oneOf(l.key_to_fill, ["strong", "moderate", "flat"]) ?? "moderate",
-      shadow_note: String(l.shadow_note ?? "").slice(0, 160),
+      shadow_note: typeof l.shadow_note === "string" ? l.shadow_note.trim().slice(0, 160) : "",
       time_of_day: oneOf(l.time_of_day, [
         "dawn", "morning", "midday", "afternoon", "golden-hour", "dusk", "night", "indoor",
       ]) ?? "afternoon",
@@ -175,6 +191,67 @@ function validateSpec(raw: unknown): Record<string, unknown> | null {
       usable_as_reference: i.usable_as_reference !== false,
     },
   };
+}
+
+const PACKS = [
+  "euro-summer", "dubai", "old-money", "luxury-cars",
+  "beach-club", "boat", "dark-luxe", "after-dark",
+];
+
+/**
+ * Register storage objects that have no inspiration_assets row.
+ *
+ * The importer (tool/import-pack-references.sh) uploads to storage; the row
+ * INSERT was a one-shot backfill migration. Now that the generator selects from
+ * the TABLE rather than a storage listing, anything imported after that
+ * migration is invisible to generation until it is registered — silent drift
+ * that starts with the very next import. This closes it.
+ */
+async function syncLibrary(
+  supabase: Db,
+): Promise<{ inserted: number; scanned: number }> {
+  let inserted = 0;
+  let scanned = 0;
+  for (const pack of [...PACKS, "_realism"]) {
+    const prefix = pack === "_realism" ? "_global/realism" : `_global/packs/${pack}`;
+    const packId = pack === "_realism" ? "realism" : pack;
+    const { data: files } = await supabase.storage
+      .from("inspiration").list(prefix, { limit: 1000, sortBy: { column: "name", order: "asc" } });
+    const paths = (files ?? [])
+      .filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name))
+      .map((f) => `${prefix}/${f.name}`);
+    if (!paths.length) continue;
+    scanned += paths.length;
+    const { data: existing } = await supabase
+      .from("inspiration_assets").select("storage_path").in("storage_path", paths);
+    const known = new Set((existing ?? []).map((r: { storage_path: string }) => r.storage_path));
+    const missing = paths.filter((path) => !known.has(path));
+    if (!missing.length) continue;
+    const rows = missing.map((path) => ({
+      profile_id: null,
+      storage_path: path,
+      label: path.slice(path.lastIndexOf("/") + 1),
+      source: "style_pack",
+      style_pack_id: packId,
+    }));
+    const { error } = await supabase.from("inspiration_assets").insert(rows);
+    if (error) { console.info("sync insert failed", packId, error.message); continue; }
+    inserted += rows.length;
+  }
+  return { inserted, scanned };
+}
+
+/** F9 — stamp a failed measurement so the pending query stops returning it. */
+async function markFailed(
+  supabase: Db,
+  id: string,
+): Promise<void> {
+  try {
+    await supabase.from("inspiration_assets")
+      .update({ shot_spec_version: FAILED_VERSION }).eq("id", id);
+  } catch (error) {
+    console.info("could not mark failure", id, error);
+  }
 }
 
 Deno.serve(async (request) => {
@@ -197,7 +274,11 @@ Deno.serve(async (request) => {
     limit?: number;
     pack?: string;
     rebuild?: boolean;
+    sync?: boolean;
   };
+  // Register any storage object that has no row yet, so newly imported
+  // references become visible to generation rather than silently ignored.
+  const synced = body.sync ? await syncLibrary(supabase) : null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number(body.limit) || DEFAULT_LIMIT));
 
   let query = supabase
@@ -205,14 +286,20 @@ Deno.serve(async (request) => {
     .select("id, storage_path, style_pack_id")
     .is("profile_id", null)
     .eq("eligible", true)
+    // Deterministic order, so a caller looping until remaining==0 makes
+    // monotonic progress instead of resampling the same rows.
+    .order("storage_path", { ascending: true })
     .limit(limit);
-  // Rebuild re-measures already-specced assets (used when SPEC_VERSION moves).
-  if (!body.rebuild) query = query.is("shot_spec", null);
+  // Pending = never attempted. shot_spec_version is stamped even on failure
+  // (with FAILED_VERSION), so an asset the model can never measure is not
+  // retried forever — that would spend Gemini quota indefinitely and leave
+  // `remaining` permanently above zero.
+  if (!body.rebuild) query = query.is("shot_spec", null).is("shot_spec_version", null);
   if (body.pack) query = query.eq("style_pack_id", body.pack);
 
   const { data: assets, error } = await query;
   if (error) return json(502, { error: "query_failed", detail: error.message });
-  if (!assets?.length) return json(200, { measured: 0, remaining: 0, note: "nothing pending" });
+  if (!assets?.length) return json(200, { measured: 0, remaining: 0, synced, note: "nothing pending" });
 
   let measured = 0;
   let rejected = 0;
@@ -222,7 +309,7 @@ Deno.serve(async (request) => {
   for (const asset of assets) {
     try {
       const { data: file } = await supabase.storage.from("inspiration").download(asset.storage_path);
-      if (!file) { failed++; continue; }
+      if (!file) { failed++; await markFailed(supabase, asset.id); continue; }
       const b64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
 
       const res = await fetch(
@@ -241,7 +328,7 @@ Deno.serve(async (request) => {
           }),
         },
       );
-      if (!res.ok) { failed++; continue; }
+      if (!res.ok) { failed++; await markFailed(supabase, asset.id); continue; }
       const data = await res.json();
       const text = (data?.candidates?.[0]?.content?.parts ?? [])
         .map((p: Record<string, unknown>) => p.text).filter(Boolean).join("");
@@ -249,7 +336,7 @@ Deno.serve(async (request) => {
       try { parsed = JSON.parse(text); } catch { parsed = null; }
 
       const spec = validateSpec(parsed);
-      if (!spec) { failed++; continue; }
+      if (!spec) { failed++; await markFailed(supabase, asset.id); continue; }
 
       const integrity = spec.integrity as Record<string, boolean>;
       // R13, enforced at measurement time: a reference that reads as an AI
@@ -272,15 +359,18 @@ Deno.serve(async (request) => {
     } catch (error) {
       console.info("shot spec failed", asset.storage_path, error);
       failed++;
+      await markFailed(supabase, asset.id);
     }
   }
 
   const { count } = await supabase
     .from("inspiration_assets")
     .select("id", { count: "exact", head: true })
-    .is("profile_id", null).eq("eligible", true).is("shot_spec", null);
+    .is("profile_id", null).eq("eligible", true)
+    .is("shot_spec", null).is("shot_spec_version", null);
 
   return json(200, {
+    synced,
     measured,
     rejected,
     failed,

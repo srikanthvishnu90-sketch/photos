@@ -219,19 +219,25 @@ function compositionFromSpec(spec: ShotSpec | null, hasSubject: boolean): string
   const lines: string[] = [];
   const distance = DISTANCE_WORDS[String(o.camera_distance)] ?? null;
   if (distance) lines.push(`Camera distance: ${distance}. Do NOT zoom in or out from this.`);
-  if (hasSubject && Number.isFinite(Number(o.subject_frame_fraction))) {
+  // Subject placement transfers ONLY when the reference actually contains a
+  // person to measure. Most pack references are empty scenes, and the
+  // questionnaire records 0 for those — emitting that verbatim would tell the
+  // model "the person fills 0% of the frame", contradicting the environment
+  // block's instruction to add the user at a natural distance.
+  const refHasPerson = o.subject_present === true && Number(o.subject_frame_fraction) > 0.01;
+  if (hasSubject && refHasPerson && Number.isFinite(Number(o.subject_frame_fraction))) {
     const pct = Math.round(Number(o.subject_frame_fraction) * 100);
     lines.push(`The person fills about ${pct}% of the frame — not more, not less.`);
   }
-  if (hasSubject && POSITION_WORDS[String(o.subject_position)]) {
+  if (hasSubject && refHasPerson && POSITION_WORDS[String(o.subject_position)]) {
     lines.push(`Place the person ${POSITION_WORDS[String(o.subject_position)]}.`);
   }
   if (Number.isFinite(Number(o.horizon_height))) {
     lines.push(`The horizon sits about ${Math.round(Number(o.horizon_height) * 100)}% of the way down the frame.`);
   }
   if (o.camera_elevation) lines.push(`Camera height: ${o.camera_elevation} level.`);
-  const fg = String(o.foreground_element ?? "none");
-  if (fg && fg.toLowerCase() !== "none") {
+  const fg = typeof o.foreground_element === "string" ? o.foreground_element.trim() : "";
+  if (fg && fg.toLowerCase() !== "none" && !fg.includes("[object")) {
     lines.push(`Frame the shot through or past this real foreground element: ${fg}.`);
   }
   if (o.depth_layers === "layered") {
@@ -513,33 +519,50 @@ Deno.serve(async (request) => {
     let envRefAssetId: string | null = null;
     let envRefSpec: ShotSpec | null = null;
     let envRefSelection: "modulo" | "random" | "none" = "none";
-    if (PACK_REFS_ENABLED && !matchReference && !refIds.length && body.stylePackId) {
+    // R6 (of the protocol's slot rules) — the pack id is client-controlled, so
+    // it is constrained to the eight real packs. Without this, a hand-crafted
+    // request could pass "realism" and attach one of the 66 capture-quality
+    // photos as the ENVIRONMENT to be recreated at ~90% fidelity.
+    const packId = body.stylePackId && STYLE_PACKS[body.stylePackId] ? body.stylePackId : null;
+    if (PACK_REFS_ENABLED && !matchReference && !refIds.length && packId) {
       try {
-        // R13 — eligibility is DATA, not a filename regex. An asset measured as
-        // an AI render, watermarked, or manually de-listed is excluded here, so
-        // the rule survives any refactor of reference selection.
+        // Eligibility is DATA (R13), not a filename regex. Fetch the pack's rows
+        // WITHOUT the eligibility filter so we can tell two very different
+        // situations apart:
+        //   - the pack has no rows at all  -> never registered, fall back to storage
+        //   - the pack has rows, none eligible -> deliberately curated out, and
+        //     falling back to storage would re-include exactly what we excluded
         const { data: rows } = await supabase
           .from("inspiration_assets")
-          .select("id, storage_path, shot_spec")
+          .select("id, storage_path, shot_spec, eligible, is_ai_render")
           .is("profile_id", null)
-          .eq("style_pack_id", body.stylePackId)
-          .eq("eligible", true)
-          .eq("is_ai_render", false)
+          .eq("style_pack_id", packId)
           .order("storage_path", { ascending: true })
           .limit(1000);
-        let candidates = (rows ?? []).filter((r) => /\.(jpe?g|png|webp)$/i.test(r.storage_path));
+        const registered = (rows ?? []).length > 0;
+        let candidates = (rows ?? [])
+          .filter((r) => r.eligible === true && r.is_ai_render === false)
+          .filter((r) => /\.(jpe?g|png|webp)$/i.test(r.storage_path));
 
-        // Fail OPEN: if the library has not been registered in the database yet,
-        // fall back to listing storage directly, as before.
-        if (!candidates.length) {
-          const prefix = `${PACK_REFS_PREFIX}/${body.stylePackId}`;
+        if (!registered) {
+          // Fail OPEN only for an unregistered library — e.g. references were
+          // imported to storage but never inserted as rows.
+          const prefix = `${PACK_REFS_PREFIX}/${packId}`;
           const { data: files } = await supabase.storage
             .from("inspiration").list(prefix, { limit: 1000, sortBy: { column: "name", order: "asc" } });
           candidates = (files ?? [])
             .filter((f) => f.name && /\.(jpe?g|png|webp)$/i.test(f.name) && !/render/i.test(f.name))
             .sort((a, b) => a.name.localeCompare(b.name))
-            .map((f) => ({ id: null as unknown as string, storage_path: `${prefix}/${f.name}`, shot_spec: null }));
+            .map((f) => ({
+              id: null as unknown as string,
+              storage_path: `${prefix}/${f.name}`,
+              shot_spec: null,
+              eligible: true,
+              is_ai_render: false,
+            }));
         }
+        // Registered but nothing eligible => R18: degrade to the NO-REFERENCE
+        // path, never to an excluded photograph.
 
         if (candidates.length) {
           const explicit = Number.isFinite(body.environmentRef);
@@ -554,9 +577,18 @@ Deno.serve(async (request) => {
             envRefMime = file.type || "image/jpeg";
             envRefName = pick.storage_path;
             envRefAssetId = pick.id ?? null;
-            // R19/R20 — the measured spec, when this reference has one. Without
-            // it the generic composition default still applies (R21).
             envRefSpec = (pick as { shot_spec?: ShotSpec | null }).shot_spec ?? null;
+          } else if (pick.id) {
+            // The row outlived its storage object — the curation tool removes
+            // objects without removing rows. De-list it so it stops being
+            // selected, and let this generation fall to the no-reference path.
+            console.info("orphan reference row, de-listing", pick.storage_path);
+            try {
+              await supabase.from("inspiration_assets")
+                .update({ eligible: false }).eq("id", pick.id);
+            } catch (error) {
+              console.info("de-list failed", error);
+            }
           }
         }
       } catch (error) {
@@ -688,10 +720,15 @@ Deno.serve(async (request) => {
       (hasSubject ? `\n\n${FACE_FIDELITY}` : "") +
       (hasSubject ? `\n\n${FACE_REALISM}` : "") +
       (hasSubject ? `\n\n${MODESTY}` : "") +
-      // R21 — the generic compositional lens applies ONLY when the reference has
-      // no measured spec to override it. Two composition instructions do not
-      // average; the model picks one, so never send both.
-      (hasSubject && !specComposition ? `\n\n${COMPOSITION_DNA}` : "") +
+      // R21 — the generic compositional lens applies ONLY when NO environment
+      // reference is attached. Whenever one is, the reference governs framing:
+      // either through its measured spec, or through ENVIRONMENT_MATCH_BLOCK's
+      // "match the framing EXACTLY". Gating this on `!specComposition` (as the
+      // first cut did) was wrong in the most damaging possible way — with no
+      // specs measured yet it is always true, so the generic lens shipped
+      // alongside the exact-match block on EVERY pack generation. Same gate as
+      // FRAMING below, for the same reason.
+      (hasSubject && !envRefB64 ? `\n\n${COMPOSITION_DNA}` : "") +
       specComposition +
       specLighting +
       // When an environment reference is present, its EXACT-framing instruction
@@ -797,7 +834,7 @@ Deno.serve(async (request) => {
           request_id: requestId || null,
           asset_id: envRefAssetId,
           storage_path: envRefName,
-          style_pack_id: body.stylePackId ?? null,
+          style_pack_id: packId,
           role: "environment",
           selection: envRefSelection,
           outcome: "delivered",
@@ -818,7 +855,7 @@ Deno.serve(async (request) => {
       // Surfaced so the client can attribute a result to its reference and the
       // founder can trace a bad generation back to the photo that caused it.
       referenceUsed: envRefName,
-      referenceSpecApplied: !!specComposition,
+      referenceSpecApplied: !!(specComposition || specLighting),
     });
   } catch (error) {
     console.error("generate-scene failed", error);
