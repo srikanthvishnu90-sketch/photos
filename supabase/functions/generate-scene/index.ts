@@ -39,46 +39,30 @@ const PACK_REFS_PREFIX = Deno.env.get("PACK_REFS_PREFIX") ?? "_global/packs";
 // warm protected skin, luminance shadow noise, casual framing, entropy). The AI
 // tell is that the output looks TOO good — too clean, too composed, too lit. We
 // reproduce Apple's processed look, not optical perfection.
-const REALISM_LAYER = `REALISM REQUIREMENTS — this must read as a real, casual iPhone photograph, NOT AI art and NOT a professional/editorial/stock shoot.
-NORTH STAR: it should look like a good photo a friend snapped on their phone — authentic, not impressive. If the result looks too perfect, too clean, too evenly lit, too well-composed, or too "premium," it reads as AI. Aim for AUTHENTIC over BEAUTIFUL every single time. A slightly worse-looking but real photo beats a gorgeous fake one.
+// REALISM — deliberately SHORT.
+//
+// The previous version of this block listed 15 separate imperfection levers
+// (grain, halation, flare, ghosting, haze, vignette, chromatic aberration,
+// blown highlights, muted colour, wear...). The research is unambiguous that
+// past two or three the model stops integrating them and starts averaging,
+// which collapses to its default prior — the clean, soft-lit, centred,
+// shallow-depth aspirational stock portrait. Our own prompt-conflict eval
+// measured 16 levers across 53 mentions before this rewrite, and the output
+// showed it: every one of the long block's instructions was ignored.
+//
+// Four rules, chosen because they are precisely what a generated photo of a
+// real person gets wrong, in the order it gets them wrong.
+const REALISM_LAYER = `REALISM — four rules. Obey all four. Do NOT add other "realism" effects beyond these; extra effects make it look MORE artificial, not less.
 
-EMBRACE IMPERFECTION — DELIBERATELY MAKE THE IMAGE "WORSE" (this is the #1 realism lever). A real phone photo is TECHNICALLY WORSE than a polished render, and that is exactly why it reads as real. Do NOT optimize image quality — do the opposite:
-- DO NOT "fix" the image into a polished render, but DO render it through the iPhone pipeline: shadows are LIFTED and OPEN (few true blacks) yet still noisy; highlights are gently COMPRESSED/rolled off (rarely pure-white clipped); the midtones read slightly FLAT and washed-out — the "everything visible, low-contrast HDR" look people call over-processed. Dim scenes stay dim-but-open-and-noisy, not crushed to black.
-- HARSH, UNEVEN, UNFLATTERING LIGHT is good: hard midday sun with hard-edged shadows and blown highlights, or dim warm indoor tungsten with deep shadow across the frame and mixed white balance. Avoid the even, soft, flattering, everywhere-lit look — that is the giveaway.
-- HAZY ATMOSPHERIC DISTANCE: render distant backgrounds (skylines, hills, far buildings) LOW-contrast, desaturated and softened by haze/atmospheric perspective — never crisp and hyper-detailed to the horizon.
-- MUNDANE CONTENT & BACKGROUND PEOPLE: fill it with incidental strangers mid-errand, a passing dog, a bird, ordinary clutter — not everything is a hero subject cleanly framed.
-- MUTED, SLIGHTLY-OFF COLOR + real sensor noise and light JPEG compression. Never vivid, never spotless.
-- RAKING LIGHT + GENUINE WEAR: favor low, raking side-light that skims and reveals texture; include real everyday wear — a scuffed shoe, creased linen, a wrinkle, a smudge, a stray hair. Nothing pristine or freshly-pressed.
-- Often a loosely-framed grab-shot rather than a perfectly composed portrait.
+1. LIGHT HAS A DIRECTION, AND THE SUBJECT OBEYS IT. One dominant light source. The face and body must have a clearly LIT side and a clearly SHADOWED side, and the shadow side must be genuinely dark — not filled in, not evenly wrapped. The light on the person must come from the SAME direction as the light in the scene behind them, with the same hardness and the same colour. The body casts a real shadow onto whatever it stands on. Shadows are allowed to reach true black; the image is allowed to have contrast. A softly and evenly lit person is the single strongest tell that an image was generated.
 
-CAPTURE MODEL — reproduce a modern iPhone's computational pipeline, not a DSLR:
-- Small-sensor smartphone, ~24mm-equivalent main lens at ƒ/1.8. DEEP depth of field: the subject AND the background are both essentially in focus. Do NOT add creamy/dreamy background blur unless Portrait mode is explicitly requested — shallow optical bokeh is a top AI/DSLR tell.
-- Casual handheld framing: a real person's grab-shot, never a tripod, drone, or art-directed composition. Slight tilt, imperfect horizon, subject a little off-center, natural (not golden-ratio) placement are all GOOD.
+2. SKIN IS SKIN, AND THE FACE IS NOT IMPROVED. Visible pores, uneven tone, stubble or fine facial hair, a little sheen on the forehead and nose, natural asymmetry between the two sides of the face. Do NOT smooth, even out, slim, straighten, brighten, or beautify the face or body in ANY way. Do not make them more attractive, more symmetrical, or younger than their photo. If the output looks better-looking than the reference person, it is wrong.
 
-SENSOR & OPTICS — the exact iPhone fingerprints (multi-frame fusion of ~9 stacked frames):
-- NOISE: near-zero chroma noise, but a TRACE of fine, tight LUMINANCE noise surviving in shadows and mid-dark skin. NOT film grain — fine and tight. Flat areas (skies, walls, cheeks) read slightly "plasticky" from aggressive denoise.
-- SHARPENING: strong local edge micro-contrast — the "etched / over-sharpened" iPhone look. High-frequency detail (hair strands, fabric weave, foliage, distant brick) is crunchy and accentuated, with FAINT BRIGHT HALOS along high-contrast edges. Never soft or painterly.
-- LENS (24mm-equiv ƒ/1.78): mild corner softness and light vignetting; occasional green/magenta chromatic aberration on backlit edges; and — against any point light (streetlight, sun) — a distinctive multi-point LENS FLARE with small colored ghost blobs (a strong iPhone tell).
-- MOTION: static subjects are crisp with no blur, but MOVING edges (hands, hair, leaves, water) can show faint ghosting/doubling from the frame stacking.
+3. PHONE OPTICS, NOT A PORTRAIT LENS. Deep depth of field — the background stays essentially in focus behind them. No creamy background blur, no portrait-mode subject separation, no cinematic bokeh. The frame is slightly wide and slightly imperfect, the way a photo taken by a friend standing a few steps away actually looks.
 
-TONE & COLOR — Apple's exact processed look:
-- SEGMENTED EXPOSURE (the key iPhone tell): the pipeline exposes sky, skin, and background INDEPENDENTLY, so you get a bright, cleanly-exposed FACE against a still-detailed BRIGHT SKY — neither blown. Faces are lifted/brightened relative to the scene.
-- Very wide DR with a FLAT, low-contrast HDR midtone; lifted OPEN shadows (few true blacks), soft highlight roll-off (no clipped white) — milky, not punchy.
-- WHITE BALANCE slightly cool-accurate to warm; skin rendered WARM and slightly brightened. PROTECTED skin tones with visible pores, fine lines and a little T-zone sheen — never whitened, waxy, or beauty-filtered.
-- Punchy-but-not-lurid color, with characteristically OVER-SATURATED blue skies and vivid greens. Never candy-HDR / radioactive-teal.
+4. THE PERSON IS NOT THE WHOLE PHOTO. They occupy roughly a third of the frame, placed off-centre, with the setting clearly readable around and behind them, and their feet or full stance visible. Never a tight, centred, magazine-cover portrait.
 
-PHYSICAL CONSISTENCY: one coherent light logic; shadows all agree in direction, length and softness; reflections geometrically correct and matched between both eyes and in glass/mirrors; parallel lines converge to consistent vanishing points; materials obey physics (cloth drape, hair strands, liquid, fabric weave, fingerprints on glass, wear on surfaces).
-
-PORTRAIT MODE (ONLY when explicitly requested): synthetic-style background blur with a believable focal plane, and TOLERATE slightly imperfect subject-edge separation (a little haloing at the hairline) rather than a flawless cutout — real Portrait mode is imperfect.
-
-FAILURE-DERIVED RULES (these are the tells that survive even excellent generation — obey them):
-- UNEVEN ARCHITECTURAL LIGHT: in any lit building, ruin, or facade, illumination through multiple openings must be UNEVEN — some windows/arches bright, some dim, some fully dark where real interior structure would block the light. Never a uniform glow of equal intensity through many openings (the averaging signature).
-- IMPERFECT STAGING: real scenes are not art-directed. Foreground props must be asymmetric; include at least one mundane, slightly out-of-theme object (a stray napkin, a cord, a neighbor's clutter, a sign). NEVER symmetric flanking decor (matched potted trees on each side), never a perfectly centered, spotless composition.
-- TIME-OF-DAY COHERENCE: food, activity, crowd density, sky state, streetlights, and shadow direction must all agree on ONE hour of day. Never breakfast food under night lighting, or a bright midday sky with lit interior lamps.
-- ENTROPY: fill the world with hundreds of small uncurated real-world decisions — mismatched shutters, antennas, laundry, worn edges, people mid-errand rather than posed. Sterile perfection reads as fake.
-- SATURATION CEILING: keep color controlled and muted; NEVER the radioactive-teal / candy-HDR / over-saturated tone-compressed look. Over-editing is its own uncanny valley — restrained grade over punchy every time.
-
-BANNED AI TELLS: plastic/waxy/poreless skin, perfect facial or scene symmetry, over-smooth gradients, hyper-saturated HDR flatness, shadowless studio-everywhere lighting, warped/gibberish text, impossible or mismatched reflections, extra or fused fingers, melted object boundaries, dreamy optically-perfect bokeh, floating/pasted-on subjects, and the overall "too polished to be real" look.`;
+The setting must be physically real and complete: if they are on a boat, the boat is visible under and around them; on a rooftop, the roof surface and edge are visible. Never a subject floating against scenery.`;
 
 // The subject is ALWAYS fully and tastefully clothed — never swimwear or shirtless,
 // in any setting. Appended whenever a real person is in the output.
@@ -149,7 +133,8 @@ const FACE_FIDELITY = `FACE FIDELITY — THE SINGLE MOST IMPORTANT REQUIREMENT. 
 - KEEP REAL SKIN: visible pores, fine lines, natural texture, subtle blemishes, uneven tone, stubble, under-eye shadows. Do NOT smooth, airbrush, slim, whiten, de-age, or beautify. Apply NO beauty filter.
 - Match their real skin tone and complexion exactly, including any redness or unevenness.
 - Expression and gaze stay natural and candid — never posed-perfect or model-like.
-BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over-smoothed or blurred skin, doll-like or glassy eyes, perfectly symmetric face, airbrushed "influencer" look, mannequin sheen, over-sharpened HDR, teeth too white or too even, or any face that looks prettier or different than the real photo.`;
+BANNED AI TELLS (these ruin it): waxy / plastic / porcelain / rubbery skin, over-smoothed or blurred skin, doll-like or glassy eyes, perfectly symmetric face, airbrushed "influencer" look, mannequin sheen, over-sharpened HDR, teeth too white or too even, or any face that looks prettier or different than the real photo.
+NO IDEALISATION — this is where identity is actually lost. The model's default is to make the face more symmetrical, smoother, slimmer, younger and more conventionally attractive than the reference. That is a WRONG face, not a flattering one. Reproduce the asymmetries: the eye that sits slightly differently, the nose as it actually is, the exact hairline and hair density, the real jaw and cheek width, the real skin tone including any unevenness, marks, or blemishes. Keep their exact eyewear shape if they wear glasses, including how it sits on the nose and where the temples meet the ears. If you find yourself improving anything about the face, stop and copy the reference instead.`;
 
 // When the caller wants to recreate a specific reference photo AS themselves
 // ("put me in this exact shot" / face-swap): reproduce the reference composition

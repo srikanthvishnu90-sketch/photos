@@ -416,7 +416,12 @@ const IMPERFECTION_FLAG = 6;
 // Ratchet: the current worst case, recorded so it cannot grow unnoticed. If a new
 // realism block pushes a combination past this, the eval fails and the author has
 // to decide which lever to drop.
-const IMPERFECTION_CEILING = 16;
+// Ratcheted down from 16 after REALISM_LAYER was cut from fifteen imperfection
+// levers to four rules. The research ceiling is 2-3; 7 is where the prompt
+// honestly sits today, and the remaining five come from REALISM_REFS and
+// NO_REF_GROUNDING rather than the main block. Lower this as those are trimmed;
+// never raise it without a measured reason.
+const IMPERFECTION_CEILING = 7;
 
 const leverCache = new Map();
 function imperfectionProfile(blocks) {
