@@ -33,6 +33,10 @@ const AESTHETIC_TAGS = Object.freeze([
 
 const AGE_RANGES = Object.freeze(["Under 18", "18–21", "22–29", "30+"]);
 const MAX_AESTHETICS = 5;
+// A coined tag has to fit a chip on a 390px phone. Without a bound, a pasted
+// 200-character string produced a 1376px-wide chip whose remove control sat
+// off-screen — recoverable only by knowing the chip body is also a toggle.
+const MAX_CUSTOM_TAG_LENGTH = 24;
 
 function escapeHtml(value) {
   return String(value)
@@ -156,9 +160,31 @@ export function createOnboardingFlow(options) {
     screen.classList.toggle("is-aesthetic", step === 3);
   }
 
-  // No-op: the app resizes to the visual viewport, so a focused field is already
-  // above the keyboard. Scrolling it into view is what made the step "jump".
+  // Deliberately does nothing for a FOCUSED field: the app resizes to the visual
+  // viewport, so a focused input is already above the keyboard, and scrolling it
+  // is what made the step "jump".
   function keepControlVisible() {}
+
+  /**
+   * Bring a control into view ONLY when it is actually outside the viewport.
+   *
+   * Different problem from keepControlVisible above, and the reason this exists:
+   * at 320x568 the Continue button on the gender and age steps renders entirely
+   * below the fold, and so does the whole under-18 gate. The step looks complete,
+   * nothing peeks below the edge to suggest scrolling, and a required control —
+   * including a compliance control — is invisible. Because it no-ops when the
+   * element is already visible, it cannot reintroduce the focus jump.
+   */
+  function revealIfOffscreen(el) {
+    if (!el || el.hidden) return;
+    window.requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      if (!rect.height) return;
+      const viewH = window.visualViewport?.height ?? window.innerHeight;
+      if (rect.bottom <= viewH && rect.top >= 0) return; // already visible
+      el.scrollIntoView({ block: "nearest", behavior: "auto" });
+    });
+  }
 
   function focusStep() {
     window.requestAnimationFrame(() => {
@@ -343,13 +369,24 @@ export function createOnboardingFlow(options) {
       });
       const gate = stepRoot.querySelector("#minorGate");
       const confirm = stepRoot.querySelector("#minorConfirm");
+      const wasHidden = gate.hidden;
       gate.hidden = state.ageRange !== "Under 18";
+      // A required gate that renders below the fold is a gate the user never
+      // sees — they just find Continue disabled with no stated reason.
+      if (wasHidden && !gate.hidden) revealIfOffscreen(gate);
       confirm.classList.toggle("is-selected", state.minorConfirmed);
       confirm.setAttribute("aria-pressed", String(state.minorConfirmed));
       confirm.querySelector(".select-radio").innerHTML = state.minorConfirmed
         ? checkmark()
         : "";
-      stepRoot.querySelector("#ageContinue").disabled = !canLeaveAgeStep();
+      const cont = stepRoot.querySelector("#ageContinue");
+      const blocked = !canLeaveAgeStep();
+      cont.disabled = blocked;
+      cont.setAttribute("aria-disabled", String(blocked));
+      // Without this a screen-reader user selects "Under 18", hears nothing,
+      // and finds Continue silently unavailable.
+      if (!gate.hidden) cont.setAttribute("aria-describedby", "minorGate");
+      else cont.removeAttribute("aria-describedby");
     }
   }
 
@@ -362,15 +399,20 @@ export function createOnboardingFlow(options) {
     const alreadySelected = state.aesthetics.some(
       (tag) => tag.toLocaleLowerCase() === normalizedQuery,
     );
-    const matches = AESTHETIC_TAGS.filter((tag) =>
-      tag.toLocaleLowerCase().includes(normalizedQuery),
+    // Selected tags are ALWAYS shown, whether or not they match the query —
+    // otherwise "2 of 5 picked" refers to chips that are nowhere on screen and
+    // cannot be deselected without first discovering the clear button.
+    const matches = AESTHETIC_TAGS.filter(
+      (tag) => tag.toLocaleLowerCase().includes(normalizedQuery)
+        || state.aesthetics.includes(tag),
     );
 
     return {
       rawQuery,
       matches,
       full: state.aesthetics.length >= MAX_AESTHETICS,
-      showAdd: rawQuery.length >= 2 && !exactLibraryMatch && !alreadySelected,
+      showAdd: rawQuery.length >= 2 && rawQuery.length <= MAX_CUSTOM_TAG_LENGTH
+        && !exactLibraryMatch && !alreadySelected,
       customPicks: state.aesthetics.filter((tag) => !AESTHETIC_TAGS.includes(tag)),
     };
   }
@@ -583,11 +625,19 @@ export function createOnboardingFlow(options) {
 
     refreshAnimation();
     if (focus) focusStep();
+    // On a short viewport (320x568) the step's primary action can render past
+    // the bottom edge with nothing peeking below to suggest scrolling, so the
+    // step reads as finished while its Continue button is unreachable.
+    revealIfOffscreen(stepRoot.querySelector("[data-primary-action], .step-continue, #genderContinue, #ageContinue"));
   }
 
   function goToStep(nextStep) {
     if (nextStep < 0 || nextStep > 3 || nextStep === step) return;
     step = nextStep;
+    // Leaving the aesthetics step clears its search. A stale query on return
+    // filtered the cloud down to nothing while the counter still read
+    // "5 of 5 picked" — an empty-looking screen at the selection cap.
+    query = "";
     scrollRoot.scrollTo({ top: 0, behavior: "auto" });
     renderStep();
   }

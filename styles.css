@@ -759,6 +759,10 @@ button {
 .clear-search:focus-visible,
 .skip-button:focus-visible,
 .select-row:focus-visible,
+/* A chip must fit its phone. Long custom tags previously rendered wider than
+   the viewport, pushing the remove control off-screen. */
+.vibe-chip{max-width:100%;min-width:0}
+.vibe-chip>span:not(.chip-icon-remove){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .vibe-chip:focus-visible,
 .primary-button:focus-visible {
   outline: 3px solid var(--color-deep-petal);
@@ -1501,3 +1505,18 @@ button {
   outline-offset: 2px;
   border-radius: 8px;
 }
+
+/* Email step error. role="alert" announces it; the colour is the only place in
+   the auth flow that signals failure, so it must read at 320px too. */
+.email-error{
+  margin:6px 0 0;
+  font-size:13px;
+  line-height:1.45;
+  color:#9c3b21;
+}
+
+/* scrollIntoView({block:"nearest"}) stops the moment an element touches the
+   edge, which on a 320x568 phone leaves the Continue button flush against the
+   bottom with no breathing room and no sign there is more below. A scroll
+   padding gives the reveal somewhere to land. */
+#onboardingScroll{ scroll-padding-block-end:20px; padding-bottom:20px; }

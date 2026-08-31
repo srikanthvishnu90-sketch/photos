@@ -61,6 +61,9 @@ let activeAuthenticatedScreen = null;
 let splashTimer;
 let homeTimer;
 let routeTimer;
+// The tail of the in-flight screen transition, so an interrupting navigation
+// can settle it instead of discarding it.
+let pendingRouteSettle = null;
 let authenticatedProfileState = {};
 
 const onboardingFlow = createOnboardingFlow({
@@ -417,7 +420,19 @@ function transitionAuthenticated(targetName, payload = {}) {
   if (!source || !target) return;
 
   activeAuthenticatedScreen = targetName;
-  window.clearTimeout(routeTimer);
+  // A single shared timer means switching faster than the fade cancels the
+  // PREVIOUS transition's tail — the screen it was about to hide stays
+  // hidden=false forever and its focusHeading() never runs. Settle the pending
+  // one first, then start ours. (`.screen { visibility: hidden }` masks the
+  // visual half of this, but the skipped focus move is a real a11y regression.)
+  if (routeTimer) {
+    window.clearTimeout(routeTimer);
+    routeTimer = 0;
+    if (pendingRouteSettle) {
+      pendingRouteSettle();
+      pendingRouteSettle = null;
+    }
+  }
   source.controller.deactivate?.();
   source.screen.classList.remove("is-active");
   source.screen.setAttribute("aria-hidden", "true");
@@ -430,9 +445,16 @@ function transitionAuthenticated(targetName, payload = {}) {
   syncThemeColor("--color-white");
 
   const transitionDelay = reducedMotion.matches ? 0 : SCREEN_FADE_MS;
-  routeTimer = window.setTimeout(() => {
+  // Held so an interrupting navigation can run it rather than drop it.
+  pendingRouteSettle = () => {
     source.screen.hidden = true;
     target.controller.focusHeading();
+  };
+  routeTimer = window.setTimeout(() => {
+    routeTimer = 0;
+    const settle = pendingRouteSettle;
+    pendingRouteSettle = null;
+    settle?.();
   }, transitionDelay);
 }
 
@@ -534,15 +556,40 @@ async function handleEmailSubmit(event) {
     showOnboarding();
     return;
   }
+  showEmailError("");
   emailContinueButton.disabled = true;
-  const { sent } = await authActions.requestEmailOtp(email);
+  const { sent, reason } = await authActions.requestEmailOtp(email);
   emailContinueButton.disabled = false;
   if (sent) {
     enterOtpMode(email);
     return;
   }
-  // Fallback: backend unreachable, keep the prototype flow.
+  if (reason === "rejected") {
+    // The server refused this address. Previously this fell through to
+    // onboarding, so a bad email looked exactly like a successful sign-in and
+    // the user reached the app with no account behind them.
+    showEmailError("That email address wasn't accepted. Check it and try again.");
+    return;
+  }
+  // Backend genuinely unreachable — keep the prototype flow.
   showOnboarding();
+}
+
+/**
+ * Show or clear the email step's error. Previously a server rejection fell
+ * through to onboarding, so a refused address looked exactly like a successful
+ * sign-in and the user reached the app with no account behind them.
+ */
+function showEmailError(message) {
+  const el = document.getElementById("emailError");
+  if (!el) return;
+  if (!message) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.textContent = message;
+  el.hidden = false;
 }
 
 async function handleOtpSubmit(event) {

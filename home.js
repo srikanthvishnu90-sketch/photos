@@ -880,6 +880,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     void homeActions.sendPrompt(prompt);
     chatStatus.textContent = `Sent: ${prompt}`;
     chatInput.value = "";
+    // Clearing optimistically keeps the composer feeling instant, but the send
+    // can still fail — most commonly because there is no session. Keep the text
+    // so it can be put back rather than silently destroyed.
+    const restoreDraft = () => {
+      if (!chatInput.value) chatInput.value = prompt;
+    };
     // Remember any attached photo BEFORE the request clears the attachments —
     // if the server routes this to the Editor, that attach is still the target.
     const attachedIdAtSend = chatAttachments[0]?.id ?? null;
@@ -888,6 +894,7 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       const session = await getSession();
       if (!session) {
         showReply(SIGNED_OUT_REPLY, null);
+        restoreDraft();
         return;
       }
 
@@ -1065,7 +1072,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
     homeActions.openProfile();
     goTo("Profile");
   });
-  mount.querySelector("#seeAllGems").addEventListener("click", homeActions.seeAllGems);
+  mount.querySelector("#seeAllGems").addEventListener("click", () => {
+    // Was analytics-only: it recorded the tap and then did nothing at all, so
+    // "See all 10" read as a broken button.
+    homeActions.seeAllGems();
+    goTo("Photos");
+  });
   mount.querySelector("#openDraft").addEventListener("click", () => {
     homeActions.openDraft();
     goTo("Studio", { projectId: 1 });
@@ -1191,6 +1203,12 @@ export function createHomeScreen({ screen, mount, onNavigate = () => {} }) {
       }
       if (action === "Find my best photos") {
         // Actually run it — rank + show the best, not just pre-fill the chat.
+        // But never at the cost of a draft: sendChatMessage clears the input,
+        // so a half-typed message would vanish on a tile tap.
+        if (chatInput?.value.trim()) {
+          setChatPrompt(action);
+          return;
+        }
         void sendChatMessage("find my best photos of me");
         return;
       }

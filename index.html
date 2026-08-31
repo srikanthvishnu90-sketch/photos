@@ -130,9 +130,11 @@
                   autocapitalize="none"
                   spellcheck="false"
                   placeholder="you@school.edu"
+                  maxlength="254"
                   aria-describedby="emailHint"
                 />
                 <span id="emailHint" class="sr-only">Enter a valid email address to continue.</span>
+                <p id="emailError" class="email-error" role="alert" hidden></p>
                 <button id="emailContinueButton" class="auth-button email-continue" type="submit" disabled>
                   Continue
                 </button>

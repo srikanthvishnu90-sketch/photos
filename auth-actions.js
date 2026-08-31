@@ -43,22 +43,26 @@ export const authActions = Object.freeze({
 
   // Resolves { sent } so the login flow knows whether to show the
   // code-entry step or continue in demo mode.
+  // Resolves { sent, reason }. `reason` distinguishes the two very different
+  // failures the caller must NOT treat alike: "no-backend" is the offline /
+  // demo case where continuing is correct, while "rejected" means the server
+  // actively refused this address and the user has to see that.
   async requestEmailOtp(email) {
     try {
       const supabase = await getSupabase();
-      if (!supabase) return { sent: false };
+      if (!supabase) return { sent: false, reason: "no-backend" };
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { shouldCreateUser: true },
       });
       if (error) {
         console.info("Email OTP request failed", error);
-        return { sent: false };
+        return { sent: false, reason: "rejected", message: error.message };
       }
       return { sent: true };
     } catch (error) {
       console.info("Email OTP unavailable", error);
-      return { sent: false };
+      return { sent: false, reason: "no-backend" };
     }
   },
 
