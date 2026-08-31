@@ -18,3 +18,6 @@ node_modules/
 www/
 ios/
 supabase/.temp/
+
+# transient snapshot written by tool/regression-test.mjs
+tool/_gems-canvas-prev.js

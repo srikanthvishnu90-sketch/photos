@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><title>after-dark regression</title><body><script type="module">
+// Renders every look through the PRE-v2 engine and the current one and reports
+// the mean absolute per-pixel difference. after-dark must be bit-identical:
+// it is the founder's transcribed recipe and the reference the others were
+// brought up to, so a silent change to it would be a real regression.
+import * as prev from "./_gems-canvas-prev.js";
+import * as cur from "../gems-canvas.js";
+
+function frame() {
+  const c = document.createElement("canvas"); c.width = 480; c.height = 320;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 480, 0);
+  g.addColorStop(0, "#050608"); g.addColorStop(0.5, "#6b7078"); g.addColorStop(1, "#e8ebf0");
+  x.fillStyle = g; x.fillRect(0, 0, 480, 320);
+  ["#c85a3a", "#d8a35e", "#5f8f4a", "#3f6fa8", "#8a5fa8"].forEach((p, i) => {
+    x.fillStyle = p; x.fillRect(20 + i * 90, 20, 70, 60);
+  });
+  x.fillStyle = "#fff"; x.beginPath(); x.arc(240, 190, 26, 0, Math.PI * 2); x.fill();
+  return c;
+}
+async function pixels(blob) {
+  const b = await createImageBitmap(blob);
+  const c = document.createElement("canvas"); c.width = b.width; c.height = b.height;
+  c.getContext("2d").drawImage(b, 0, 0);
+  return c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+}
+window.__cmp = async () => {
+  const bmp = await createImageBitmap(frame());
+  const out = {};
+  for (const g of cur.FILTER_GRADES) {
+    const old = prev.FILTER_GRADES.find((v) => v.key === g.key);
+    if (!old) { out[g.key] = { note: "new look" }; continue; }
+    const a = await pixels(prev.applyGrade(bmp, old));
+    const b = await pixels(cur.applyGrade(bmp, g));
+    let diff = 0, maxd = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      for (let c2 = 0; c2 < 3; c2++) {
+        const d = Math.abs(a[i + c2] - b[i + c2]);
+        diff += d; if (d > maxd) maxd = d;
+      }
+    }
+    out[g.key] = { meanDiff: +(diff / (a.length / 4 * 3)).toFixed(3), maxDiff: maxd };
+  }
+  return out;
+};
+</script></body>
