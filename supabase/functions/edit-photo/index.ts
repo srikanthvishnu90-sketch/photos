@@ -23,11 +23,78 @@ Rules:
 // The "After Dark" style block — mirrors the canonical definition in
 // gems-canvas.js FILTER_GRADES (key "after-dark"). Appended when the user asks
 // for this vibe by name or trigger word, so AI re-grades match the filter.
-const AFTER_DARK_TRIGGERS =
-  /\b(after dark|quiet money|dark batman|batman vibe|moody luxury|dark aesthetic|moody)\b/i;
-const AFTER_DARK_STYLE = `
+// Named-look conditioning for the AI edit path.
+//
+// Only After Dark had one of these, so asking the model for "Film" or "Nightlife"
+// got a generic interpretation while the on-device version of the same look was
+// a precise six-layer recipe — the two paths disagreed about what the look
+// meant. These mirror FILTER_GRADES in gems-canvas.js.
+//
+// Written as POSITIVE assertions. Image models handle negation badly and tend to
+// render what a prohibition names, so these say what the grade IS. Each is kept
+// short deliberately: instructions compete for attention, and a long style block
+// crowds out the identity and the edit instruction it is supposed to support.
+type NamedStyle = { triggers: RegExp; style: string };
 
-STYLE — After Dark (moody luxury, low-exposure): Re-grade the photo, do not regenerate it. Pull overall exposure down roughly one stop so the scene reads dusk-like even if shot in daylight. Compress highlights: skies become steel-blue or navy with retained gradient detail, never white and never clipped. Deepen shadows and blacks but keep them CLEAN and keep the subject's silhouette readable — deliberate low-key, not underexposure. Desaturate globally about 25%, pushing greens toward dark emerald and blues toward navy; protect skin tones, muting them only slightly. Slightly cool color temperature. No added grain, no matte/faded lift, no vignette heavier than subtle. Preserve the subject's exact facial identity, pose, clothing, and composition. Mood: quiet, expensive, cinematic — a lone figure against light, wealth in shadow. Do not crush shadow detail into pure black. Do not add film grain. Do not blow or tint highlights orange. Do not brighten the sky.`;
+const STYLE_PREFIX =
+  "\n\nSTYLE — re-grade the photo, keeping the subject's exact facial identity, pose, clothing and composition. ";
+
+const NAMED_STYLES: Record<string, NamedStyle> = {
+  "after-dark": {
+    triggers: /\b(after dark|quiet money|batman|dark batman|batman vibe|moody luxury|dark aesthetic|moody)\b/i,
+    style:
+      "After Dark (moody luxury, low-exposure): pull exposure down about one stop so the scene reads dusk-like even in daylight. Skies compress to steel-blue or navy holding their gradient. Shadows and blacks go deep and stay clean, with the subject's silhouette readable — deliberate low-key. Desaturate about 25%, greens toward dark emerald and blues toward navy, skin protected and only slightly muted. Slightly cool temperature, subtle vignette at most, grain-free. Quiet, expensive, cinematic.",
+  },
+  "golden-hour": {
+    triggers: /\b(golden hour|magic hour|sunset light|sunset glow|sun drenched|warm glow)\b/i,
+    style:
+      "Golden Hour: warm low sun. Highlights roll into amber, shadows sit deep blue-violet, midtones stay soft. Skin warms and keeps its texture. Greens turn olive, blues deepen. Light blooms gently off the brightest edges the way low sun does through a lens.",
+  },
+  "film": {
+    triggers: /\b(film|filmic|analog|analogue|35mm|film look|grainy)\b/i,
+    style:
+      "Film: a lifted matte toe so blacks sit slightly open, a rolled highlight shoulder, warm shadows against cooler rolled highlights — print behaviour. Colour muted and warm-neutral, greens toward olive. Visible grain, heavier in the shadows and absent in the brightest highlights. Light halates faintly and red-weighted around the brightest points.",
+  },
+  "nightlife": {
+    triggers: /\b(nightlife|neon glow|neon light|night out|club lighting)\b/i,
+    style:
+      "Nightlife: dark and high-contrast, lit by signage rather than a key. Shadows go cyan, highlights magenta, blacks deep. Saturation high in the magentas and blues, greens crushed. Strong grain through the shadows and a wide magenta-tinted bloom off every bright source.",
+  },
+  "euro-summer": {
+    triggers: /\b(euro summer|sun bleached|summer glow|bright and warm)\b/i,
+    style:
+      "Euro Summer: bright sun-bleached Mediterranean afternoon. Exposure lifted, highlights softened, shadows open and cool. Stone and skin warm, foliage toward olive, sea and sky a richer cyan. Light grain, a faint bloom off the brightest stone.",
+  },
+  "coastal": {
+    triggers: /\b(coastal|airy|bright and airy|breezy|seaside light)\b/i,
+    style:
+      "Coastal: airy and bright with low contrast. Exposure up, shadows lifted, whites clean and slightly cool. Blues and aquas gain saturation, greens soften, skin stays warm. Almost no grain.",
+  },
+  "clean-editorial": {
+    triggers: /\b(clean editorial|editorial|magazine look|crisp and clean|studio clean)\b/i,
+    style:
+      "Clean Editorial: neutral and crisp. A gentle contrast curve, whites clean, blacks true, colour slightly desaturated everywhere except skin, which stays honest. Sharp with real detail. Restrained and magazine-neutral.",
+  },
+  "dark-gym": {
+    triggers: /\b(dark gym|cold steel|hard light|steely|harsh light)\b/i,
+    style:
+      "Dark Gym: cool, hard and contrasty. Exposure down, contrast up hard, saturation cut about a quarter. Shadows steel-blue, highlights cool and neutral, greens and blues drained. Strong local contrast and a firm vignette. Hard light, no bloom.",
+  },
+  "streetwear": {
+    triggers: /\b(streetwear|punchy|high contrast|gritty|urban look)\b/i,
+    style:
+      "Streetwear: punchy and high-contrast. Blacks deep, contrast strong, colour vivid with reds pushed and greens drained. Shadows cool, highlights slightly warm. Sharp, with clarity up and a light vignette.",
+  },
+};
+
+/** Resolve a named look from an explicit style id or from the instruction text. */
+function namedStyleFor(instruction: string, styleId?: string): string {
+  if (styleId && NAMED_STYLES[styleId]) return STYLE_PREFIX + NAMED_STYLES[styleId].style;
+  for (const entry of Object.values(NAMED_STYLES)) {
+    if (entry.triggers.test(instruction)) return STYLE_PREFIX + entry.style;
+  }
+  return "";
+}
 
 // Auto-aesthetic ("edit this for me"): the model looks at the imported photo,
 // matches it to the CLOSEST founder-defined setting, and applies ONLY that
@@ -230,11 +297,9 @@ Deno.serve(async (request) => {
     if (kind === "reroll") {
       promptText += `\nThis is a re-roll: produce a noticeably different interpretation of the same instruction.`;
     }
-    // Named-style conditioning: if the ask invokes the After Dark aesthetic,
-    // append its grade block so the AI matches the one-tap filter.
-    if (AFTER_DARK_TRIGGERS.test(instruction) || body.style === "after-dark") {
-      promptText += AFTER_DARK_STYLE;
-    }
+    // Named-look conditioning, so the AI path and the one-tap filter agree
+    // about what each of the nine looks means.
+    promptText += namedStyleFor(instruction, body.style);
     if (hasMask) {
       promptText +=
         `\n\nA second image is provided as a MASK. The bright/white areas of the mask mark the ONLY region of the first image you may change. ` +
