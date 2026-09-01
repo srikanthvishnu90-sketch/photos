@@ -194,13 +194,11 @@ const BLOCK = {
   BACKGROUND:    constText("BACKGROUND_BLOCK"),
   MATCH_REF:     constText("MATCH_REFERENCE_BLOCK"),
   IDENTITY:      constText("IDENTITY_BLOCK"),
-  FACE_FID:      constText("FACE_FIDELITY"),
-  FACE_REAL:     constText("FACE_REALISM"),
+  FACE:          constText("FACE"),
   MODESTY:       constText("MODESTY"),
   COMP_DNA:      constText("COMPOSITION_DNA"),
   SPEC_COMP:     functionLiterals("compositionFromSpec"),
   SPEC_LIGHT:    functionLiterals("lightingFromSpec"),
-  FRAMING:       constText("FRAMING"),
   BUILD:         constText("buildBlock"),
   WARDROBE:      constText("wardrobeBlock"),
   AUTO_WARDROBE: constText("autoWardrobeBlock") + " " + recordEntry("PACK_WARDROBE", "old-money"),
@@ -266,8 +264,8 @@ console.log(`Prompt conflict eval — parsed ${Object.keys(BLOCK).length} instru
     // `attachedUserRefs` (what actually downloaded) — see UNGROUNDED/PHANTOM-REF.
     "attachedUserRefs", "recreatingReference",
     "manifestBlock", "styleBlock", "REALISM_LAYER", "realismRefBlock", "envRefBlock",
-    "NO_REF_GROUNDING", "identityBlock", "FACE_FIDELITY", "FACE_REALISM", "MODESTY",
-    "COMPOSITION_DNA", "specLighting", "FRAMING", "buildBlock", "wardrobeBlock",
+    "NO_REF_GROUNDING", "identityBlock", "FACE", "MODESTY",
+    "COMPOSITION_DNA", "specLighting", "buildBlock", "wardrobeBlock",
     "autoWardrobeBlock", "poseBlock", "candidDefaultBlock", "NEGATIVE",
   ]);
   const extra = [...idents].filter((i) => !EXPECTED.has(i));
@@ -280,7 +278,6 @@ console.log(`Prompt conflict eval — parsed ${Object.keys(BLOCK).length} instru
 // Sanity: the two blocks whose collision started all this must still be the
 // blocks we think they are. A rename that slipped past constText() would leave
 // the conflict table pointing at nothing.
-ok("FRAMING really is the distance instruction", /medium-to-wide/i.test(BLOCK.FRAMING) && /NOT fill the frame/i.test(BLOCK.FRAMING));
 ok("ENV_MATCH really is the exact-framing instruction", /SAME CAMERA DISTANCE|same CAMERA DISTANCE/i.test(BLOCK.ENV_MATCH));
 ok("COMP_DNA really is the universal composition ideal", /RULE OF THIRDS/i.test(BLOCK.COMP_DNA));
 ok("MATCH_REF really is the recreate-the-reference instruction", /composition, camera angle, framing/i.test(BLOCK.MATCH_REF));
@@ -295,18 +292,18 @@ ok("CANDID_POSE really is the non-negotiable pose", /NON-NEGOTIABLE/i.test(BLOCK
 // ---------------------------------------------------------------------------
 const CONFLICTS = [
   // --- the two that already burned us (both now guarded; these are regression locks)
-  ["FRAMING", "ENV_MATCH", "error",
-    "FRAMING dictates medium-to-wide/person-fills-a-third; ENV_MATCH dictates the reference's EXACT camera distance. Two distance instructions do not average."],
-  ["FRAMING", "SPEC_COMP", "error",
-    "Same collision one layer down: SPEC_COMP states a measured camera distance and subject frame fraction; FRAMING states a generic one."],
+  // FRAMING was merged into COMPOSITION_DNA: identical gates meant they were
+  // always emitted together saying the same thing, so the pair cannot recur.
+  // FRAMING was merged into COMPOSITION_DNA: identical gates meant they were
+  // always emitted together saying the same thing, so the pair cannot recur.
   ["COMP_DNA", "SPEC_COMP", "error",
     "COMP_DNA is a universal compositional ideal; SPEC_COMP is measured from the actual reference. The measurement must win uncontested."],
   ["COMP_DNA", "ENV_MATCH", "error",
     "The wider form of the same bug: ENV_MATCH already says 'match the composition and framing EXACTLY', so the generic lens must be off whenever ANY environment reference is attached, not merely when a measured spec happens to exist."],
 
   // --- the same class of conflict on the match-reference (face-swap) path
-  ["FRAMING", "MATCH_REF", "error",
-    "MATCH_REF says match the reference's framing and distance exactly; FRAMING overrides that with a generic medium-to-wide."],
+  // FRAMING was merged into COMPOSITION_DNA: identical gates meant they were
+  // always emitted together saying the same thing, so the pair cannot recur.
   ["COMP_DNA", "MATCH_REF", "error",
     "MATCH_REF says reproduce the reference's composition; COMP_DNA prescribes rule-of-thirds, off-centre, subject-small instead."],
   ["CANDID_POSE", "MATCH_REF", "error",
@@ -328,10 +325,8 @@ const CONFLICTS = [
 
   // --- background mode must not carry any person instruction
   ["BACKGROUND", "IDENTITY", "error", "BACKGROUND says no human figures at all."],
-  ["BACKGROUND", "FACE_FID", "error", "No face exists to be faithful to."],
-  ["BACKGROUND", "FACE_REAL", "error", "No face exists."],
+  ["BACKGROUND", "FACE", "error", "No face exists to be faithful to."],
   ["BACKGROUND", "MODESTY", "error", "Nobody to dress."],
-  ["BACKGROUND", "FRAMING", "error", "FRAMING frames a person; there is none."],
   ["BACKGROUND", "COMP_DNA", "error", "COMP_DNA places a person in the frame."],
   ["BACKGROUND", "BUILD", "error", "No body to keep honest."],
   ["BACKGROUND", "WARDROBE", "error", "Nobody to dress."],
@@ -352,7 +347,7 @@ const CONFLICTS = [
 
   // --- standing tensions (warn). Real overlaps, but one side is always-on, so
   //     these describe a property of the prompt today rather than a regression.
-  // FACE_PROFILE describes the person in words and FACE_FID describes them in
+  // FACE_PROFILE describes the person in words and FACE describes them in
   // pixels; the profile block says in its own text that it never overrides the
   // photographs, so they are complementary rather than competing. LOCK is
   // deliberately last and deliberately outranks everything — it is the tie-break
@@ -428,7 +423,12 @@ const IMPERFECTION_FLAG = 6;
 // honestly sits today, and the remaining five come from REALISM_REFS and
 // NO_REF_GROUNDING rather than the main block. Lower this as those are trimmed;
 // never raise it without a measured reason.
-const IMPERFECTION_CEILING = 7;
+// 16 -> 7 when REALISM_LAYER was cut to four rules; 7 -> 6 when FACE_FIDELITY
+// and FACE_REALISM were merged and FRAMING folded into COMPOSITION_DNA. At 6,
+// no prompt shape exceeds the flag threshold for the first time. The research
+// ceiling is 2-3 and the remaining six live in REALISM_REFS and
+// NO_REF_GROUNDING; lower this as those are trimmed, never raise it.
+const IMPERFECTION_CEILING = 6;
 
 const leverCache = new Map();
 function imperfectionProfile(blocks) {
@@ -484,7 +484,7 @@ function emit(c) {
   if (c.mode === "background") out.push("BACKGROUND");
   else if (recreatingReference) out.push("MATCH_REF");
   else if (hasSubject) out.push("IDENTITY");
-  if (hasSubject) out.push("FACE_FID", "FACE_REAL", "MODESTY");
+  if (hasSubject) out.push("FACE", "MODESTY");
   // A written face profile only exists once the user has one measured; model
   // both states so a conflict cannot hide behind "nobody has one yet".
   if (hasSubject && c.faceProfile) out.push("FACE_PROFILE");
@@ -499,7 +499,6 @@ function emit(c) {
   if (hasSubject && !envRef && !recreatingReference) out.push("COMP_DNA");
   if (specComposition) out.push("SPEC_COMP");
   if (specLighting) out.push("SPEC_LIGHT");
-  if (hasSubject && !envRef && !recreatingReference) out.push("FRAMING");
   if (hasSubject) out.push("BUILD");
   if (hasSubject && c.wardrobe) out.push("WARDROBE");
   if (hasSubject && !c.wardrobe) out.push("AUTO_WARDROBE");
